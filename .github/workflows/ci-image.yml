@@ -14,7 +14,20 @@ permissions:
   packages: write
 
 jobs:
+  lint-dockerfile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Lint Dockerfile (hadolint)
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: docker/ci/Dockerfile
+          config: .hadolint.yaml
+
   build-and-push-image:
+    needs: lint-dockerfile
     runs-on: ubuntu-latest
 
     steps:
