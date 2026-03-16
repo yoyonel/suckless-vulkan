@@ -36,7 +36,11 @@ Le depot utilise aussi `pre-commit` pour imposer automatiquement format/lint ava
 Cette commande installe deux hooks Git locaux:
 
 - `pre-commit` : lance `just format`, puis `just lint-fast`.
-- `pre-push` : lance `just lint && just test`.
+- `pre-push` : lance `just test`.
+
+Pour executer la gate complete locale (comme une verification CI stricte):
+
+- `just lint && just test`
 
 ### Execution manuelle
 

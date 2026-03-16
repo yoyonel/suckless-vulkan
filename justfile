@@ -6,10 +6,18 @@ renderdoc_bin := "qrenderdoc"
 
 # Configure CMake (nécessaire pour générer compile_commands.json pour clang-tidy)
 configure:
-    @cmake -B build/release -S . -DCMAKE_BUILD_TYPE=Release
+    @if command -v ccache >/dev/null 2>&1; then \
+        cmake -B build/release -S . -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER_LAUNCHER=ccache; \
+    else \
+        cmake -B build/release -S . -DCMAKE_BUILD_TYPE=Release; \
+    fi
 
 configure-debug:
-    @cmake -B build/debug -S . -DCMAKE_BUILD_TYPE=Debug
+    @if command -v ccache >/dev/null 2>&1; then \
+        cmake -B build/debug -S . -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER_LAUNCHER=ccache; \
+    else \
+        cmake -B build/debug -S . -DCMAKE_BUILD_TYPE=Debug; \
+    fi
 
 # --- COMPILATION ---
 

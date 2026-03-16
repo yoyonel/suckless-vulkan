@@ -92,7 +92,13 @@ just pre-commit-install
 This installs:
 
 - `pre-commit` hook: `just format` + `just lint-fast`
-- `pre-push` hook: `just lint && just test`
+- `pre-push` hook: `just test`
+
+Full local gate (equivalent to CI quality checks):
+
+```bash
+just lint && just test
+```
 
 ## CI/CD
 

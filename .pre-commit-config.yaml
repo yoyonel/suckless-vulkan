@@ -16,9 +16,9 @@ repos:
         pass_filenames: false
         stages: [pre-commit]
 
-      - id: lint-and-test-before-push
-        name: Lint and test before push
-        entry: bash -lc 'just lint && just test'
+      - id: test-before-push
+        name: Run tests before push
+        entry: bash -lc 'just test'
         language: system
         pass_filenames: false
         stages: [pre-push]
