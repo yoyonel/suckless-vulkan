@@ -24,6 +24,8 @@ Le pipeline `format`/`lint` couvre explicitement :
 - YAML (`yamlfmt`, `yamllint`)
 - Markdown (`mdformat`, `pymarkdown`)
 - `justfile` (`just --fmt`, `just --fmt --check`)
+- Dockerfile (`hadolint`, config `.hadolint.yaml`)
+- GitHub Actions workflows (`actionlint`)
 
 ## 🔒 Garde-fous locaux : `pre-commit`
 
@@ -88,17 +90,22 @@ La capture disque est activee uniquement si la variable d'environnement `VULKAN_
 
 ## 🚦 CI/CD GitHub Actions
 
-Le depot inclut maintenant deux workflows sous `.github/workflows/` :
+Le depot inclut trois workflows sous `.github/workflows/` :
 
-- `ci.yml` : lance le pipeline de verification sur `push` et `pull_request` vers `master`.
-  - Installe les dependances systeme Vulkan/GLFW/GLM/headless.
-  - Compile les shaders (`glslc`).
-  - Configure, compile et teste en matrix `Release` et `Debug`.
-  - Publie `test_output.png` en artefact de job quand present.
-- `release.yml` : CD simple de binaires sur tags `v*` (et declenchable manuellement).
-  - Construit `Release` et `Debug`.
-  - Package les executables + shaders en deux archives tar.gz.
-  - Attache ces archives a une GitHub Release pour les tags.
+- `ci.yml` : verification continue sur `push`/`pull_request` vers `master`. Tourne a
+  l'interieur d'une image Docker Debian (`docker/ci/Dockerfile`) pour garantir la
+  reproducibilite locale/remote. Etapes : lint, build+test en matrice `Release`/`Debug`.
+- `ci-image.yml` : build et publication de l'image CI vers GHCR (`ghcr.io`).
+- `release.yml` : CD binaires sur tags `v*` : compile Release+Debug, archive et attache
+  les executables a une GitHub Release.
+
+La meme chaine peut etre reproduite en local sans aucune dependance vers GitHub :
+
+```bash
+just ci-docker-all
+```
+
+See `docs/ci_cd.md` for full operational details.
 
 ## 🎨 Validation des Shaders : `glslangValidator`
 

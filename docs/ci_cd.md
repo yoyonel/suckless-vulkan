@@ -40,6 +40,28 @@ Chaque archive contient:
 
 Sur un tag `v*`, les archives sont attachees automatiquement a la GitHub Release correspondante.
 
+## Securite des conteneurs
+
+Les conteneurs CI sont toujours executes en **non-root** :
+
+- Le `Dockerfile` declare `USER ci` (uid 1001) comme utilisateur par defaut.
+- Les `docker run` passent `--user "$(id -u):$(id -g)" -e HOME=/tmp` pour que les
+  fichiers crees dans le volume monte appartiennent a l'utilisateur hote, jamais a root.
+
+### Lint et securite Dockerfile
+
+`hadolint` analyse le `Dockerfile` a chaque execution de `just lint` via la recette
+`lint-dockerfile`. La configuration se trouve dans `.hadolint.yaml` :
+
+- `failure-threshold: error` : les warnings et infos sont affiches mais ne bloquent pas.
+- Les regles DL3008/DL3013 (versionnage des paquets) sont intentionnellement ignorees
+  pour cette image de developpement/CI.
+
+### Lint des workflows GitHub Actions
+
+`actionlint` verifie statiquement les fichiers `.github/workflows/*.yml` a chaque
+execution de `just lint` via la recette `lint-actions`.
+
 ## Utilisation
 
 ### Reproduire la CI en local
