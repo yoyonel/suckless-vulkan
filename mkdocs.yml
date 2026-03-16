@@ -1,0 +1,22 @@
+site_name: Vulkan Engine - Documentation
+site_description: Moteur de rendu graphique 3D basé sur Vulkan et VMA
+theme:
+  name: material
+  palette:
+    scheme: slate
+
+# --- CONFIGURATION DU HOT-RELOAD ---
+docs_dir: docs
+watch:
+- docs
+- mkdocs.yml
+
+nav:
+- Accueil: index.md
+- Architecture du Moteur: architecture.md
+- Gestion de la Mémoire (VMA): memory.md
+- Géométrie & Uniforms: geometry.md
+- Gestion du Depth Buffer: depth_buffer.md
+- Optimisation VRAM (Staging): vram_optimization.md
+- Outillage & Qualité: tooling.md
+- Tracing: tracing.md
