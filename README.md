@@ -100,6 +100,27 @@ Full local gate (equivalent to CI quality checks):
 just lint && just test
 ```
 
+## Memory Safety
+
+### CPU/RAM: AddressSanitizer + UndefinedBehaviorSanitizer
+
+Detect heap corruption, buffer overflows, use-after-free, and undefined behavior:
+
+```bash
+just build-asan
+just test-asan
+```
+
+### GPU/VRAM: Vulkan Validation Layers
+
+Detect Vulkan API misuse and synchronization errors:
+
+```bash
+just test-validation-layers
+```
+
+See `docs/tooling.md` for detailed memory safety diagnostics.
+
 ## CI/CD
 
 - `ci.yml`: runs on push/PR to `master`, builds and tests `Release` and `Debug`

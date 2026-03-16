@@ -72,6 +72,49 @@ La configuration se trouve dans `.hadolint.yaml` :
   dependant du conteneur.
 - En **local** via `just lint-actions`.
 
+## Vérifications de mémoire (ASan/UBSan & Validation Layers)
+
+### Jobs optionnels de détection des fuites mémoires
+
+Après le job `static-checks`, deux jobs optionnels (non-bloquants) diagnostiquent les problèmes de mémoire :
+
+#### `memory-checks-asan`
+
+- **Objectif:** Détecter les fuites et corruptions mémoire CPU/RAM
+- **Technologie:** AddressSanitizer (ASan) et UndefinedBehaviorSanitizer (UBSan)
+- **Activation:** Compilé avec `-fsanitize=address,undefined -fno-omit-frame-pointer`
+- **Exécution:** Lance `just test-asan` dans le conteneur CI
+- **Sortie:**
+  - ASan/UBSan imprime les erreurs détectées pendant l'exécution des tests
+  - Les rapports incluent des stack traces annotées pour localiser les fuites
+- **Status:** `continue-on-error: true` — les échecs ne bloquent pas la CI
+
+#### `memory-checks-validation-layers`
+
+- **Objectif:** Détecter les erreurs GPU et fuites VRAM via Vulkan Validation Layers
+- **Technologie:** Vulkan Validation Layer (KHRONOS)
+- **Activation:** Variable d'environnement `VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation`
+- **Exécution:** Lance `just test-validation-layers` dans le conteneur CI
+- **Sortie:**
+  - Les Validation Layers rapportent les violations des règles Vulkan
+  - Les messages incluent des avertissements et erreurs GPU/VRAM
+- **Status:** `continue-on-error: true` — les échecs ne bloquent pas la CI
+
+### Exécution en local
+
+Pour reproduire ces vérifications sur la machine hôte:
+
+```bash
+# ASan/UBSan pour CPU/RAM
+just build-asan
+just test-asan
+
+# Validation Layers pour GPU/VRAM
+just test-validation-layers
+```
+
+Voir [Tooling > Sécurité Mémoire](tooling.md#-s%C3%A9curit%C3%A9-m%C3%A9moire) pour les détails techniques.
+
 ## Utilisation
 
 ### Reproduire la CI en local
