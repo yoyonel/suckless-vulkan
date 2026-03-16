@@ -88,7 +88,55 @@ La capture disque est activee uniquement si la variable d'environnement `VULKAN_
 
 `ctest` passe par le script `scripts/run_test_vulkan.sh`, qui force un mode headless avec `xvfb-run` et Lavapipe quand l'environnement ne fournit pas d'affichage.
 
-## 🚦 CI/CD GitHub Actions
+## �️ Sécurité Mémoire : Sanitizers et Validation Layers
+
+### AddressSanitizer + UndefinedBehaviorSanitizer (RAM/CPU)
+
+Le projet supporte la détection des fuites mémoire et des comportements non-définis en C++ via les sanitizers GCC/Clang.
+
+Compilation + exécution avec ASan/UBSan :
+
+```bash
+just build-asan
+just run-asan
+just test-asan
+```
+
+Ces recettes configurent CMake avec `-DENABLE_SANITIZERS=ON`, qui applique les flags :
+
+- `-fsanitize=address,undefined`
+- `-fno-omit-frame-pointer` (pour les stack traces lisibles)
+
+À l'exécution, tout comportement mémoire ou arithmétique invalide est signalé avec un stack trace
+détaillé. Les binaires ASan reste débugables avec `lldb` ou `gdb`.
+
+### Vulkan Validation Layers (VRAM/GPU)
+
+Les Vulkan Validation Layers (fournis par le Khronos) détectent statiquement les erreurs d'utilisation
+de l'API Vulkan (commande buffers mal formés, synchronisation erronée, etc.) et peuvent tracker
+la mémoire GPU mais surtout les erreurs de protocole.
+
+Tester avec les Validation Layers activés :
+
+```bash
+just test-validation-layers
+```
+
+Ou manuellement, depuis n'importe quel binaire :
+
+```bash
+VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation ./build/debug/vulkan_app
+```
+
+Les Validation Layers produisent beaucoup de sortie diagnostique; si elle gène, réduire le verbosité :
+
+```bash
+VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation \
+  VK_LAYER_KHRONOS_VALIDATION_DEBUG_ACTION=VK_DBG_LAYER_ACTION_LOG_MSG \
+  ./build/debug/vulkan_app
+```
+
+## �🚦 CI/CD GitHub Actions
 
 Le depot inclut trois workflows sous `.github/workflows/` :
 

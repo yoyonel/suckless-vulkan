@@ -19,6 +19,13 @@ configure-debug:
         cmake -B build/debug -S . -DCMAKE_BUILD_TYPE=Debug; \
     fi
 
+configure-asan:
+    @if command -v ccache >/dev/null 2>&1; then \
+        cmake -B build/asan -S . -DCMAKE_BUILD_TYPE=Debug -DENABLE_SANITIZERS=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache; \
+    else \
+        cmake -B build/asan -S . -DCMAKE_BUILD_TYPE=Debug -DENABLE_SANITIZERS=ON; \
+    fi
+
 # --- COMPILATION ---
 
 shaders:
@@ -44,10 +51,18 @@ build-debug: configure-debug shaders
     @echo "Compilation Debug..."
     @cmake --build build/debug -j$(nproc)
 
+build-asan: configure-asan shaders
+    @echo "Compilation Debug avec ASan + UBSan..."
+    @cmake --build build/asan -j$(nproc)
+
 # --- EXECUTION & DEBUG ---
 
 run: build
     @./build/release/vulkan_app
+
+run-asan: build-asan
+    @echo "Exécution avec AddressSanitizer + UndefinedBehaviorSanitizer..."
+    @./build/asan/vulkan_app
 
 # Utilisation : just renderdoc_bin=/chemin/vers/qrenderdoc renderdoc
 renderdoc: build-debug
@@ -55,6 +70,15 @@ renderdoc: build-debug
 
 test: build
     @ctest --test-dir build/release --output-on-failure
+
+test-asan: build-asan
+    @echo "Tests avec AddressSanitizer + UndefinedBehaviorSanitizer..."
+    @ctest --test-dir build/asan --output-on-failure
+
+test-validation-layers: build-debug
+    @echo "Tests avec Vulkan Validation Layers..."
+    @VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation \
+        ctest --test-dir build/debug --output-on-failure
 
 # --- NOUVELLES RECETTES DE QUALITÉ DE CODE ---
 
