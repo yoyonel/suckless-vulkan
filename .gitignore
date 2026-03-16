@@ -1,0 +1,20 @@
+# Build & Binary
+build/
+bin/
+*.o
+*.a
+*.so
+
+# Shaders générés
+shaders/*.spv
+shaders/*.spvasm
+
+# Python / MkDocs
+__pycache__/
+site/
+.pytest_cache/
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
