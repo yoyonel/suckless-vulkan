@@ -14,9 +14,10 @@ La CI est executee dans une image Docker dediee (`docker/ci/Dockerfile`) basee s
 
 Le workflow `ci.yml` execute les etapes suivantes :
 
-1. Resolution de l'image CI (`ghcr.io/<owner>/suckless-vulkan-ci:latest`) avec fallback sur build local depuis `docker/ci/Dockerfile`.
-1. Lint complet dans un conteneur CI.
-1. Build+tests en matrice `Release`/`Debug` dans un conteneur CI.
+1. **`static-checks`** (runner hote, sans conteneur) : `hadolint` sur le Dockerfile +
+   `actionlint` sur les workflows. Bloque les jobs suivants en cas d'echec.
+1. **`lint`** : resolution de l'image CI puis lint complet dans le conteneur.
+1. **`build-and-test`** (matrice `Release`/`Debug`) : build+tests dans le conteneur CI.
 1. Upload optionnel de `test_output.png` en artefact de job.
 
 Notes:
@@ -50,8 +51,14 @@ Les conteneurs CI sont toujours executes en **non-root** :
 
 ### Lint et securite Dockerfile
 
-`hadolint` analyse le `Dockerfile` a chaque execution de `just lint` via la recette
-`lint-dockerfile`. La configuration se trouve dans `.hadolint.yaml` :
+`hadolint` analyse le `Dockerfile` a **deux niveaux** :
+
+- En **CI GitHub** (`ci.yml` job `static-checks` et `ci-image.yml` job `lint-dockerfile`)
+  directement sur le runner hote, **avant** tout build ou pull de l'image. Cela garantit
+  que le Dockerfile est valide avant d'etre utilise ou publie sur GHCR.
+- En **local** via `just lint-dockerfile` (utilise `hadolint` embarque dans l'image CI).
+
+La configuration se trouve dans `.hadolint.yaml` :
 
 - `failure-threshold: error` : les warnings et infos sont affiches mais ne bloquent pas.
 - Les regles DL3008/DL3013 (versionnage des paquets) sont intentionnellement ignorees
@@ -59,8 +66,11 @@ Les conteneurs CI sont toujours executes en **non-root** :
 
 ### Lint des workflows GitHub Actions
 
-`actionlint` verifie statiquement les fichiers `.github/workflows/*.yml` a chaque
-execution de `just lint` via la recette `lint-actions`.
+`actionlint` verifie statiquement les fichiers `.github/workflows/*.yml` :
+
+- En **CI GitHub** (`ci.yml` job `static-checks`) sur le runner hote, avant tout job
+  dependant du conteneur.
+- En **local** via `just lint-actions`.
 
 ## Utilisation
 
