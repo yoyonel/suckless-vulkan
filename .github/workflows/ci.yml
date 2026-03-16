@@ -57,8 +57,6 @@ jobs:
         run: cmake --build build/${{ matrix.build_type }} --parallel
 
       - name: Run tests (${{ matrix.build_type }})
-        env:
-          VULKAN_TEST_SAVE_FRAME: "1"
         run: ctest --test-dir build/${{ matrix.build_type }} --output-on-failure
 
       - name: Upload test frame artifact

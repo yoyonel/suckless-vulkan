@@ -134,7 +134,7 @@ static bool verify_and_capture_frame(VulkanEngine* engine, const char* debugFile
         if (stbi_write_png(debugFilename, width, height, 4, data, width * 4)) {
             printf("Frame sauvegardée sous : %s\n", debugFilename);
         } else {
-            has_content = false;
+            fprintf(stderr, "WARNING: impossible de sauvegarder la frame de debug (%s).\n", debugFilename);
         }
     }
 
