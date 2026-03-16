@@ -121,6 +121,18 @@ just test-validation-layers
 
 See `docs/tooling.md` for detailed memory safety diagnostics.
 
+## Development Model
+
+This project practices **Trunk-Based Development (TBD)**:
+
+- Single `master` branch for all development
+- Short-lived feature branches (1–3 days) for code review
+- Direct commits to `master` for small changes (small teams)
+- Build never breaks — pre-commit/pre-push gates prevent this
+- Releases tagged directly from `master` (no long-lived release branches)
+
+For detailed workflow, feature flags, hotfix strategy, and commit conventions, see [.github/DEVELOPMENT.md](.github/DEVELOPMENT.md).
+
 ## CI/CD
 
 - `ci.yml`: runs on push/PR to `master`, builds and tests `Release` and `Debug`

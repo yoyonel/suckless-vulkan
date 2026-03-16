@@ -115,6 +115,17 @@ just test-validation-layers
 
 Voir [Tooling > Sécurité Mémoire](tooling.md#-s%C3%A9curit%C3%A9-m%C3%A9moire) pour les détails techniques.
 
+## Stratégie de release (Trunk-Based Development)
+
+See [.github/DEVELOPMENT.md](../.github/DEVELOPMENT.md) for the full TBD policy including:
+
+- **Release process:** Tags from `master` only; GitHub Actions auto-publishes binaries
+- **Hotfix workflow:** Fixes applied to `master` → tagged → released (no long-lived release branches)
+- **Commit discipline:** Pre-commit checks ensure `master` never breaks
+- **Short-lived branches:** Feature branches exist only for code review (\<3 days)
+
+Key principle: **Releases trace directly back to `master` lineage**.
+
 ## Utilisation
 
 ### Reproduire la CI en local
