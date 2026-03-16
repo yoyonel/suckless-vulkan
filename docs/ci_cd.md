@@ -12,11 +12,11 @@ Le projet dispose d'une chaine CI/CD simple, versionnee dans `.github/workflows/
 Le workflow `ci.yml` execute les etapes suivantes sur `ubuntu-latest` :
 
 1. Installation des dependances systeme (CMake, GLFW, GLM, Vulkan, headless, outils shaders).
-2. Compilation des shaders GLSL en SPIR-V.
-3. Configuration CMake en matrice `Release` et `Debug`.
-4. Compilation des cibles.
-5. Execution des tests d'integration via `ctest`.
-6. Upload optionnel de `test_output.png` en artefact de job.
+1. Compilation des shaders GLSL en SPIR-V.
+1. Configuration CMake en matrice `Release` et `Debug`.
+1. Compilation des cibles.
+1. Execution des tests d'integration via `ctest`.
+1. Upload optionnel de `test_output.png` en artefact de job.
 
 Notes:
 
@@ -48,8 +48,8 @@ Sur un tag `v*`, les archives sont attachees automatiquement a la GitHub Release
 ### Creer une release binaire
 
 1. Creer un tag semantique, par exemple `v1.0.0`.
-2. Pousser le tag: `git push origin v1.0.0`.
-3. Recuperer les assets attaches a la release GitHub.
+1. Pousser le tag: `git push origin v1.0.0`.
+1. Recuperer les assets attaches a la release GitHub.
 
 ### Declenchement manuel du workflow de release
 

@@ -58,7 +58,7 @@ format-shell:
 
 format-yaml:
     @echo "Formatage des fichiers YAML..."
-    @uvx --from yamlfmt yamlfmt -w mkdocs.yml .github/workflows/*.yml
+    @npx --yes prettier --write mkdocs.yml .github/workflows/*.yml .pre-commit-config.yaml
 
 format-just:
     @echo "Formatage du justfile..."
@@ -87,7 +87,7 @@ lint-shell:
 
 lint-yaml:
     @echo "Lint YAML..."
-    @uvx --from yamllint yamllint mkdocs.yml .github/workflows/*.yml
+    @uvx --from yamllint yamllint mkdocs.yml .github/workflows/*.yml .pre-commit-config.yaml
 
 lint-just:
     @echo "Lint justfile..."
@@ -103,9 +103,23 @@ lint-docs:
     @echo "Linting du Markdown avec pymarkdown..."
     @uvx pymarkdownlnt scan docs/
 
+lint-fast: lint-cmake lint-shell lint-yaml lint-just lint-shaders lint-docs
+
 lint: lint-c lint-cmake lint-shell lint-yaml lint-just lint-shaders lint-docs
 
 check: format lint test
+
+pre-commit-install:
+    @echo "Installation des hooks pre-commit (pre-commit + pre-push)..."
+    @uvx pre-commit install --install-hooks --hook-type pre-commit --hook-type pre-push
+
+pre-commit-run:
+    @echo "Execution de tous les hooks pre-commit sur le repo..."
+    @uvx pre-commit run --all-files
+
+pre-push-run:
+    @echo "Execution des hooks de stage pre-push sur le repo..."
+    @uvx pre-commit run --hook-stage pre-push --all-files
 
 clean:
     rm -rf build/* shaders/*.spv shaders/*.spvasm *.spv *.spvasm

@@ -25,6 +25,24 @@ Le pipeline `format`/`lint` couvre explicitement :
 - Markdown (`mdformat`, `pymarkdown`)
 - `justfile` (`just --fmt`, `just --fmt --check`)
 
+## 🔒 Garde-fous locaux : `pre-commit`
+
+Le depot utilise aussi `pre-commit` pour imposer automatiquement format/lint avant commit/push.
+
+### Installation
+
+- `just pre-commit-install`
+
+Cette commande installe deux hooks Git locaux:
+
+- `pre-commit` : lance `just format`, puis `just lint-fast`.
+- `pre-push` : lance `just lint && just test`.
+
+### Execution manuelle
+
+- `just pre-commit-run` : execute tous les hooks `pre-commit` sur tous les fichiers.
+- `just pre-push-run` : execute le hook `pre-push` sur tous les fichiers.
+
 ## 🧹 Formatage : `clang-format`
 
 Géré par `.clang-format`. Il impose :
