@@ -1,0 +1,11 @@
+# AddressSanitizer suppression file for Vulkan SDK and driver leaks
+# These are known minor leaks in libvulkan.so that don't affect application correctness
+# and are not related to user code issues.
+
+# Vulkan SDK/driver initialization and loader leaks
+leak:libvulkan.so
+leak:libxcb.so
+leak:libX11.so
+
+# VMA (Vulkan Memory Allocator) internal allocations
+# (only if these aren't from user code)

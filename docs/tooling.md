@@ -108,7 +108,11 @@ Ces recettes configurent CMake avec `-DENABLE_SANITIZERS=ON`, qui applique les f
 - `-fno-omit-frame-pointer` (pour les stack traces lisibles)
 
 À l'exécution, tout comportement mémoire ou arithmétique invalide est signalé avec un stack trace
-détaillé. Les binaires ASan reste débugables avec `lldb` ou `gdb`.
+détaillé. Les binaires ASan restent débugables avec `lldb` ou `gdb`.
+
+**Suppression des false-positives du Vulkan SDK:** Le fichier `.asan_ignorefile` supprime les
+allocations triviales du Vulkan driver sur shutdown (non-responsabilité de l'application). Cette
+suppression est automatiquement appliquée par `just test-asan` via `LSAN_OPTIONS`.
 
 ### Vulkan Validation Layers (VRAM/GPU)
 

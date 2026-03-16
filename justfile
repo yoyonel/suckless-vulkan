@@ -73,7 +73,8 @@ test: build
 
 test-asan: build-asan
     @echo "Tests avec AddressSanitizer + UndefinedBehaviorSanitizer..."
-    @ctest --test-dir build/asan --output-on-failure
+    @LSAN_OPTIONS=suppressions=./.asan_ignorefile:report_objects=1 \
+        ctest --test-dir build/asan --output-on-failure
 
 test-validation-layers: build-debug
     @echo "Tests avec Vulkan Validation Layers..."
@@ -207,6 +208,17 @@ ci-docker build_type="Release": ci-image-build
 ci-docker-all: ci-docker-lint
     @just ci-docker Release
     @just ci-docker Debug
+
+ci-docker-asan: ci-image-build
+    @echo "Test ASan dans le conteneur CI (build séparé, leaks SDK informels)..."
+    @docker run --rm \
+        --user "$(id -u):$(id -g)" \
+        -e CI=true \
+        -e HOME=/tmp \
+        -v "$PWD:/work" \
+        -w /work \
+        local/suckless-vulkan-ci:latest \
+        bash -lc "bash scripts/ci/run_ci_asan.sh"
 
 pre-commit-install:
     @echo "Installation des hooks pre-commit (pre-commit + pre-push)..."

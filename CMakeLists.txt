@@ -8,14 +8,17 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -g")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Optional: Address Sanitizer + Undefined Behavior Sanitizer for memory/safety
-# checks
+# checks. Runtime suppressions via LSAN_OPTIONS=suppressions=./.asan_ignorefile
 option(ENABLE_SANITIZERS "Enable ASan + UBSan for memory and safety checks" OFF)
 if(ENABLE_SANITIZERS)
   message(STATUS "Enabling AddressSanitizer and UndefinedBehaviorSanitizer")
-  set(CMAKE_CXX_FLAGS
-      "${CMAKE_CXX_FLAGS} -fsanitize=address,undefined -fno-omit-frame-pointer")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address,undefined \
+-fno-omit-frame-pointer")
   set(CMAKE_EXE_LINKER_FLAGS
       "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address,undefined")
+  message(
+    STATUS "ASan suppressions: set LSAN_OPTIONS=suppressions=./.asan_ignorefile"
+  )
 endif()
 
 find_package(Vulkan REQUIRED)

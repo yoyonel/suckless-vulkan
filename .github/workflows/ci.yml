@@ -131,7 +131,8 @@ jobs:
             -v "${{ github.workspace }}:/work" \
             -w /work \
             "$CI_IMAGE" \
-            bash -lc "just test-asan"
+            bash -lc "chmod +x scripts/ci/run_ci_asan.sh && \
+              scripts/ci/run_ci_asan.sh"
 
   memory-checks-validation-layers:
     needs: static-checks

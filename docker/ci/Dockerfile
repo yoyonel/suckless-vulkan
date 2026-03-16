@@ -56,9 +56,12 @@ RUN pip3 install --break-system-packages --no-cache-dir \
     yamllint \
     pymarkdownlnt
 
+# Copy ASan suppressions file for Vulkan SDK/driver false-positives
+COPY .asan_ignorefile /work/.asan_ignorefile
+
 # Run as non-root user; callers should pass --user $(id -u):$(id -g) so that
 # volume-mounted files are owned by the host user, not root.
 RUN useradd --no-create-home --uid 1001 --shell /bin/bash ci
-USER ci
 
+USER ci
 WORKDIR /work
