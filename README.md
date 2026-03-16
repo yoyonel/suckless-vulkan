@@ -103,7 +103,14 @@ just lint && just test
 ## CI/CD
 
 - `ci.yml`: runs on push/PR to `master`, builds and tests `Release` and `Debug`
+- `ci-image.yml`: builds/publishes the CI Docker image used by `ci.yml`
 - `release.yml`: runs on tags `v*`, packages and uploads debug/release tarballs as release assets
+
+CI runs inside a dedicated Docker image, and the same flow can be reproduced locally:
+
+```bash
+just ci-docker-all
+```
 
 See full operational details in `docs/ci_cd.md`.
 

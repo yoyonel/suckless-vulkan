@@ -2,20 +2,21 @@
 
 Le projet dispose d'une chaine CI/CD simple, versionnee dans `.github/workflows/`.
 
+La CI est executee dans une image Docker dediee (`docker/ci/Dockerfile`) pour garantir un environnement identique entre GitHub Actions et les reproductions locales.
+
 ## Workflows
 
 - `ci.yml` : verification continue sur `push` et `pull_request` vers `master`.
 - `release.yml` : publication d'artefacts binaires sur tags `v*` (et declenchement manuel possible).
+- `ci-image.yml` : build et publication de l'image CI vers GHCR.
 
 ## CI: Build et tests
 
-Le workflow `ci.yml` execute les etapes suivantes sur `ubuntu-latest` :
+Le workflow `ci.yml` execute les etapes suivantes :
 
-1. Installation des dependances systeme (CMake, GLFW, GLM, Vulkan, headless, outils shaders).
-1. Compilation des shaders GLSL en SPIR-V.
-1. Configuration CMake en matrice `Release` et `Debug`.
-1. Compilation des cibles.
-1. Execution des tests d'integration via `ctest`.
+1. Resolution de l'image CI (`ghcr.io/<owner>/suckless-vulkan-ci:latest`) avec fallback sur build local depuis `docker/ci/Dockerfile`.
+1. Lint complet dans un conteneur CI.
+1. Build+tests en matrice `Release`/`Debug` dans un conteneur CI.
 1. Upload optionnel de `test_output.png` en artefact de job.
 
 Notes:
@@ -41,7 +42,14 @@ Sur un tag `v*`, les archives sont attachees automatiquement a la GitHub Release
 
 ## Utilisation
 
-### Lancer la CI
+### Reproduire la CI en local
+
+- `just ci-docker-lint`
+- `just ci-docker build_type=Release`
+- `just ci-docker build_type=Debug`
+- `just ci-docker-all`
+
+### Lancer la CI GitHub
 
 - Ouvrir une pull request vers `master`, ou pousser directement sur `master`.
 

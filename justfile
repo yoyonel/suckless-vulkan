@@ -124,6 +124,22 @@ lint: lint-c lint-cmake lint-shell lint-yaml lint-just lint-shaders lint-docs
 
 check: format lint test
 
+ci-image-build:
+    @echo "Build de l'image Docker CI locale..."
+    @docker build -t local/suckless-vulkan-ci:latest -f docker/ci/Dockerfile .
+
+ci-docker-lint: ci-image-build
+    @echo "Lint dans le conteneur CI..."
+    @docker run --rm -e CI=true -v "$PWD:/work" -w /work local/suckless-vulkan-ci:latest bash -lc "just lint"
+
+ci-docker build_type="Release": ci-image-build
+    @echo "Build+test dans le conteneur CI ({{ build_type }})..."
+    @docker run --rm -e CI=true -v "$PWD:/work" -w /work local/suckless-vulkan-ci:latest bash -lc "chmod +x scripts/ci/run_ci_build_and_test.sh && scripts/ci/run_ci_build_and_test.sh {{ build_type }}"
+
+ci-docker-all: ci-docker-lint
+    @just ci-docker build_type=Release
+    @just ci-docker build_type=Debug
+
 pre-commit-install:
     @echo "Installation des hooks pre-commit (pre-commit + pre-push)..."
     @uvx pre-commit install --install-hooks --hook-type pre-commit --hook-type pre-push
