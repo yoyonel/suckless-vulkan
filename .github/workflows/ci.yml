@@ -1,0 +1,70 @@
+---
+name: CI
+
+'on':
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [Release, Debug]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            ninja-build \
+            pkg-config \
+            libglfw3-dev \
+            libglm-dev \
+            libvulkan-dev \
+            vulkan-tools \
+            mesa-vulkan-drivers \
+            glslang-tools \
+            xvfb
+
+          if ! command -v glslc >/dev/null 2>&1; then
+            sudo apt-get install -y glslc || sudo apt-get install -y shaderc
+          fi
+
+      - name: Compile shaders
+        run: |
+          glslc shaders/shader.vert -o shaders/vert.spv
+          glslc shaders/shader.frag -o shaders/frag.spv
+
+      - name: Configure CMake (${{ matrix.build_type }})
+        run: |
+          cmake -S . -B build/${{ matrix.build_type }} \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+      - name: Build (${{ matrix.build_type }})
+        run: cmake --build build/${{ matrix.build_type }} --parallel
+
+      - name: Run tests (${{ matrix.build_type }})
+        env:
+          VULKAN_TEST_SAVE_FRAME: "1"
+        run: ctest --test-dir build/${{ matrix.build_type }} --output-on-failure
+
+      - name: Upload test frame artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-frame-${{ matrix.build_type }}
+          path: test_output.png
+          if-no-files-found: ignore

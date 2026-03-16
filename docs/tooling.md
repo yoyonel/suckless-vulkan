@@ -64,7 +64,19 @@ La capture disque est activee uniquement si la variable d'environnement `VULKAN_
 
 `ctest` passe par le script `scripts/run_test_vulkan.sh`, qui force un mode headless avec `xvfb-run` et Lavapipe quand l'environnement ne fournit pas d'affichage.
 
-Il n'y a pas encore de pipeline CI versionné dans le dépôt. Le projet dispose en revanche d'un chemin d'exécution headless compatible avec une future intégration continue.
+## 🚦 CI/CD GitHub Actions
+
+Le depot inclut maintenant deux workflows sous `.github/workflows/` :
+
+- `ci.yml` : lance le pipeline de verification sur `push` et `pull_request` vers `master`.
+  - Installe les dependances systeme Vulkan/GLFW/GLM/headless.
+  - Compile les shaders (`glslc`).
+  - Configure, compile et teste en matrix `Release` et `Debug`.
+  - Publie `test_output.png` en artefact de job quand present.
+- `release.yml` : CD simple de binaires sur tags `v*` (et declenchable manuellement).
+  - Construit `Release` et `Debug`.
+  - Package les executables + shaders en deux archives tar.gz.
+  - Attache ces archives a une GitHub Release pour les tags.
 
 ## 🎨 Validation des Shaders : `glslangValidator`
 

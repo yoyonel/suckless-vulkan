@@ -58,7 +58,7 @@ format-shell:
 
 format-yaml:
     @echo "Formatage des fichiers YAML..."
-    @uvx --from yamlfmt yamlfmt -w mkdocs.yml
+    @uvx --from yamlfmt yamlfmt -w mkdocs.yml .github/workflows/*.yml
 
 format-just:
     @echo "Formatage du justfile..."
@@ -87,7 +87,7 @@ lint-shell:
 
 lint-yaml:
     @echo "Lint YAML..."
-    @uvx --from yamllint yamllint mkdocs.yml
+    @uvx --from yamllint yamllint mkdocs.yml .github/workflows/*.yml
 
 lint-just:
     @echo "Lint justfile..."

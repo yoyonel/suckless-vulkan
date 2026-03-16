@@ -1,0 +1,89 @@
+---
+name: Release Binaries
+
+'on':
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            ninja-build \
+            pkg-config \
+            libglfw3-dev \
+            libglm-dev \
+            libvulkan-dev \
+            vulkan-tools \
+            mesa-vulkan-drivers \
+            glslang-tools
+
+          if ! command -v glslc >/dev/null 2>&1; then
+            sudo apt-get install -y glslc || sudo apt-get install -y shaderc
+          fi
+
+      - name: Compile shaders
+        run: |
+          glslc shaders/shader.vert -o shaders/vert.spv
+          glslc shaders/shader.frag -o shaders/frag.spv
+
+      - name: Configure CMake (Release)
+        run: cmake -S . -B build/release -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build (Release)
+        run: cmake --build build/release --parallel
+
+      - name: Configure CMake (Debug)
+        run: cmake -S . -B build/debug -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Build (Debug)
+        run: cmake --build build/debug --parallel
+
+      - name: Package binaries
+        run: |
+          set -e
+          mkdir -p dist/release dist/debug
+
+          cp build/release/vulkan_app dist/release/
+          cp build/release/unit_tests dist/release/
+          cp shaders/vert.spv shaders/frag.spv dist/release/
+
+          cp build/debug/vulkan_app dist/debug/
+          cp build/debug/unit_tests dist/debug/
+          cp shaders/vert.spv shaders/frag.spv dist/debug/
+
+          tar -czf dist/vulkan_base-linux-x86_64-release.tar.gz \
+            -C dist/release .
+          tar -czf dist/vulkan_base-linux-x86_64-debug.tar.gz \
+            -C dist/debug .
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-${{ github.ref_name }}
+          path: |
+            dist/vulkan_base-linux-x86_64-release.tar.gz
+            dist/vulkan_base-linux-x86_64-debug.tar.gz
+
+      - name: Create GitHub release and upload assets
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/vulkan_base-linux-x86_64-release.tar.gz
+            dist/vulkan_base-linux-x86_64-debug.tar.gz

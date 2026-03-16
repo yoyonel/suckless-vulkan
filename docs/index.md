@@ -15,6 +15,7 @@ Afin de garantir un compromis idéal entre contrôle absolu et pragmatisme de d�
 - **Build System :** CMake.
 - **Task Runner :** Just (`justfile`).
 - **Shaders :** GLSL, compilés en SPIR-V via `glslc`.
+- **CI/CD :** GitHub Actions (build, tests d'integration, publication d'artefacts sur tags).
 
 ## 📁 Architecture du Code
 
