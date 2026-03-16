@@ -15,11 +15,18 @@ configure-debug:
 
 shaders:
     @echo "Compilation des shaders..."
-    @glslc shaders/shader.vert -o shaders/vert.spv
-    @glslc shaders/shader.frag -o shaders/frag.spv
-    @echo "Génération de l'assembleur SPIR-V (.spvasm)..."
-    @glslc -S shaders/shader.vert -o shaders/vert.spvasm
-    @glslc -S shaders/shader.frag -o shaders/frag.spvasm
+    @if command -v glslc >/dev/null 2>&1; then \
+        glslc shaders/shader.vert -o shaders/vert.spv; \
+        glslc shaders/shader.frag -o shaders/frag.spv; \
+        echo "Génération de l'assembleur SPIR-V (.spvasm)..."; \
+        glslc -S shaders/shader.vert -o shaders/vert.spvasm; \
+        glslc -S shaders/shader.frag -o shaders/frag.spvasm; \
+    else \
+        echo "glslc introuvable, fallback sur glslangValidator pour les .spv"; \
+        glslangValidator -V shaders/shader.vert -o shaders/vert.spv; \
+        glslangValidator -V shaders/shader.frag -o shaders/frag.spv; \
+        echo "Génération .spvasm ignorée (glslc requis)."; \
+    fi
 
 build: configure shaders
     @echo "Compilation Release..."

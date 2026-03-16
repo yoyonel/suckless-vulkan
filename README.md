@@ -50,7 +50,7 @@ This repository is a Vulkan-based rendering engine foundation focused on:
 
 - `cmake`
 - `clang-format`, `clang-tidy`
-- `glslc`, `glslangValidator`
+- `glslangValidator` (obligatoire), `glslc` (recommande)
 - Vulkan runtime + headers (`libvulkan-dev`, drivers)
 - `glfw3`, `glm`
 
