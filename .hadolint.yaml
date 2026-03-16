@@ -1,0 +1,7 @@
+---
+# Only fail the pipeline on actual errors; warnings/info are still shown.
+failure-threshold: error
+# Packages are intentionally left unpinned in this dev/CI image.
+ignore:
+  - DL3008 # apt-get: pin versions
+  - DL3013 # pip: pin versions

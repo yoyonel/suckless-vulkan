@@ -25,7 +25,7 @@ jobs:
           if docker pull "$IMAGE"; then
             echo "CI_IMAGE=$IMAGE" >> "$GITHUB_ENV"
           else
-            docker build -t local/suckless-vulkan-ci:latest \
+            docker build --network=host -t local/suckless-vulkan-ci:latest \
               -f docker/ci/Dockerfile .
             echo "CI_IMAGE=local/suckless-vulkan-ci:latest" >> "$GITHUB_ENV"
           fi
@@ -33,7 +33,9 @@ jobs:
       - name: Run lint inside CI container
         run: |
           docker run --rm \
+            --user "$(id -u):$(id -g)" \
             -e CI=true \
+            -e HOME=/tmp \
             -v "${{ github.workspace }}:/work" \
             -w /work \
             "$CI_IMAGE" \
@@ -58,7 +60,7 @@ jobs:
           if docker pull "$IMAGE"; then
             echo "CI_IMAGE=$IMAGE" >> "$GITHUB_ENV"
           else
-            docker build -t local/suckless-vulkan-ci:latest \
+            docker build --network=host -t local/suckless-vulkan-ci:latest \
               -f docker/ci/Dockerfile .
             echo "CI_IMAGE=local/suckless-vulkan-ci:latest" >> "$GITHUB_ENV"
           fi
@@ -66,7 +68,9 @@ jobs:
       - name: Build and test inside CI container (${{ matrix.build_type }})
         run: |
           docker run --rm \
+            --user "$(id -u):$(id -g)" \
             -e CI=true \
+            -e HOME=/tmp \
             -v "${{ github.workspace }}:/work" \
             -w /work \
             "$CI_IMAGE" \

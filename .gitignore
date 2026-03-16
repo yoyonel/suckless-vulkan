@@ -14,6 +14,11 @@ __pycache__/
 site/
 .pytest_cache/
 
+# Artefacts Docker (fichiers root créés par container sans --user)
+9{build_dir}/
+build/clang-tidy/
+core.*
+
 # IDE & OS
 .vscode/
 .idea/

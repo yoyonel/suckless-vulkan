@@ -2,7 +2,7 @@
 
 Le projet dispose d'une chaine CI/CD simple, versionnee dans `.github/workflows/`.
 
-La CI est executee dans une image Docker dediee (`docker/ci/Dockerfile`) pour garantir un environnement identique entre GitHub Actions et les reproductions locales.
+La CI est executee dans une image Docker dediee (`docker/ci/Dockerfile`) basee sur `debian:bookworm-slim`, pour garantir un environnement identique entre GitHub Actions et les reproductions locales.
 
 ## Workflows
 
@@ -45,8 +45,8 @@ Sur un tag `v*`, les archives sont attachees automatiquement a la GitHub Release
 ### Reproduire la CI en local
 
 - `just ci-docker-lint`
-- `just ci-docker build_type=Release`
-- `just ci-docker build_type=Debug`
+- `just ci-docker Release`
+- `just ci-docker Debug`
 - `just ci-docker-all`
 
 ### Lancer la CI GitHub

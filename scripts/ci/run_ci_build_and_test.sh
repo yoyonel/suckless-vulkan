@@ -3,6 +3,15 @@ set -euo pipefail
 
 BUILD_TYPE="${1:-Release}"
 
+case "$BUILD_TYPE" in
+    build_type=Release)
+        BUILD_TYPE="Release"
+        ;;
+    build_type=Debug)
+        BUILD_TYPE="Debug"
+        ;;
+esac
+
 if [[ "$BUILD_TYPE" != "Release" && "$BUILD_TYPE" != "Debug" ]]; then
     echo "BUILD_TYPE must be Release or Debug"
     exit 2

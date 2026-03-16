@@ -86,15 +86,21 @@ format-docs:
 format: format-code format-cmake format-shell format-yaml format-docs format-just
 
 lint-c:
-    @if [ ! -f build/release/compile_commands.json ]; then \
-    	echo "Base de données de compilation manquante. Génération..."; \
-    	cmake -S . -B build/release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON; \
-    fi
-    clang-tidy -quiet -p build/release src/*.cpp tests/*.cpp --header-filter='(src/.*|tests/.*)' --exclude-header-filter='(.*/)?ext/.*'
+    @build_dir=$(mktemp -d -t clang-tidy-XXXXXX); \
+    cmake -S . -B "${build_dir}" -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON >/dev/null; \
+    exclude_header_filter=""; \
+    if clang-tidy --help 2>&1 | grep -q -- '--exclude-header-filter'; then \
+        exclude_header_filter="--exclude-header-filter=(.*/)?ext/.*"; \
+    fi; \
+    clang-tidy -quiet -p "${build_dir}" src/*.cpp tests/*.cpp --header-filter='(src/.*|tests/.*)' ${exclude_header_filter}
 
 lint-cmake:
     @echo "Lint CMake..."
-    @uvx --from cmakelang cmake-lint CMakeLists.txt
+    @if command -v cmake-lint >/dev/null 2>&1; then \
+        cmake-lint CMakeLists.txt; \
+    else \
+        uvx --from cmakelang cmake-lint CMakeLists.txt; \
+    fi
 
 lint-shell:
     @echo "Lint shell scripts..."
@@ -102,7 +108,11 @@ lint-shell:
 
 lint-yaml:
     @echo "Lint YAML..."
-    @uvx --from yamllint yamllint mkdocs.yml .github/workflows/*.yml .pre-commit-config.yaml
+    @if command -v yamllint >/dev/null 2>&1; then \
+        yamllint mkdocs.yml .github/workflows/*.yml .pre-commit-config.yaml; \
+    else \
+        uvx --from yamllint yamllint mkdocs.yml .github/workflows/*.yml .pre-commit-config.yaml; \
+    fi
 
 lint-just:
     @echo "Lint justfile..."
@@ -116,29 +126,63 @@ lint-shaders:
 
 lint-docs:
     @echo "Linting du Markdown avec pymarkdown..."
-    @uvx pymarkdownlnt scan docs/
+    @if command -v pymarkdownlnt >/dev/null 2>&1; then \
+        pymarkdownlnt scan docs/; \
+    else \
+        uvx pymarkdownlnt scan docs/; \
+    fi
+
+lint-dockerfile:
+    @echo "Lint Dockerfile..."
+    @if command -v hadolint >/dev/null 2>&1; then \
+        hadolint --config .hadolint.yaml docker/ci/Dockerfile; \
+    else \
+        docker run --rm -i -v "${PWD}/.hadolint.yaml:/.hadolint.yaml" hadolint/hadolint < docker/ci/Dockerfile; \
+    fi
+
+lint-actions:
+    @echo "Lint GitHub Actions workflows..."
+    @if command -v actionlint >/dev/null 2>&1; then \
+        actionlint; \
+    else \
+        docker run --rm -v "${PWD}:/work" -w /work rhysd/actionlint:latest; \
+    fi
 
 lint-fast: lint-cmake lint-shell lint-yaml lint-just lint-shaders lint-docs
 
-lint: lint-c lint-cmake lint-shell lint-yaml lint-just lint-shaders lint-docs
+lint: lint-c lint-cmake lint-shell lint-yaml lint-just lint-shaders lint-docs lint-dockerfile lint-actions
 
 check: format lint test
 
 ci-image-build:
     @echo "Build de l'image Docker CI locale..."
-    @docker build -t local/suckless-vulkan-ci:latest -f docker/ci/Dockerfile .
+    @docker build --network=host -t local/suckless-vulkan-ci:latest -f docker/ci/Dockerfile .
 
 ci-docker-lint: ci-image-build
     @echo "Lint dans le conteneur CI..."
-    @docker run --rm -e CI=true -v "$PWD:/work" -w /work local/suckless-vulkan-ci:latest bash -lc "just lint"
+    @docker run --rm \
+        --user "$(id -u):$(id -g)" \
+        -e CI=true \
+        -e HOME=/tmp \
+        -v "$PWD:/work" \
+        -w /work \
+        local/suckless-vulkan-ci:latest \
+        bash -lc "just lint"
 
 ci-docker build_type="Release": ci-image-build
     @echo "Build+test dans le conteneur CI ({{ build_type }})..."
-    @docker run --rm -e CI=true -v "$PWD:/work" -w /work local/suckless-vulkan-ci:latest bash -lc "chmod +x scripts/ci/run_ci_build_and_test.sh && scripts/ci/run_ci_build_and_test.sh {{ build_type }}"
+    @docker run --rm \
+        --user "$(id -u):$(id -g)" \
+        -e CI=true \
+        -e HOME=/tmp \
+        -v "$PWD:/work" \
+        -w /work \
+        local/suckless-vulkan-ci:latest \
+        bash -lc "chmod +x scripts/ci/run_ci_build_and_test.sh && scripts/ci/run_ci_build_and_test.sh {{ build_type }}"
 
 ci-docker-all: ci-docker-lint
-    @just ci-docker build_type=Release
-    @just ci-docker build_type=Debug
+    @just ci-docker Release
+    @just ci-docker Debug
 
 pre-commit-install:
     @echo "Installation des hooks pre-commit (pre-commit + pre-push)..."
