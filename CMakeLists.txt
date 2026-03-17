@@ -52,6 +52,7 @@ add_executable(
   vulkan_app
   src/main.cpp
   src/vk_engine.cpp
+  src/vk_engine_frame.cpp
   src/vk_engine_envmap.cpp
   src/vk_engine_runtime.cpp
   src/camera.cpp
@@ -68,6 +69,7 @@ add_executable(
   unit_tests
   tests/test_main.cpp
   src/vk_engine.cpp
+  src/vk_engine_frame.cpp
   src/vk_engine_envmap.cpp
   src/vk_engine_runtime.cpp
   src/camera.cpp
