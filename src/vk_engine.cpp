@@ -3,10 +3,27 @@
 #include "icosphere.h"
 #include <algorithm>
 #include <chrono>
+#include <cmath>
+#include <filesystem>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <string>
 #include <vector>
+
+// Silence warnings from third-party header.
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+#pragma GCC diagnostic ignored "-Wunused-function"
+#endif
+
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb/stb_image.h>
+
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 struct QueueFamilySelection {
     uint32_t graphicsFamily = UINT32_MAX;
@@ -16,6 +33,22 @@ struct QueueFamilySelection {
         return graphicsFamily != UINT32_MAX && presentFamily != UINT32_MAX;
     }
 };
+
+namespace {
+
+constexpr uint32_t kGridSize = 10;
+constexpr float kGridSpacing = 4.0f;
+constexpr float kGridOffset = (static_cast<float>(kGridSize) - 1.0f) * 0.5f * kGridSpacing;
+constexpr float kMinEnvLod = 0.0f;
+constexpr float kEnvLodStep = 0.5f;
+constexpr float kMaxFrameDeltaSeconds = 0.25f;
+
+} // namespace
+
+static void update_camera_key_state(VulkanEngine* engine);
+static void handle_runtime_input(VulkanEngine* engine);
+static void mouse_callback(GLFWwindow* window, double xpos, double ypos);
+static void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
 
 static bool has_required_device_extensions(VkPhysicalDevice physicalDevice) {
     uint32_t extensionCount = 0;
@@ -215,6 +248,7 @@ static void cleanup_swapchain_targets(VulkanEngine* engine) {
 
 static void cleanup_swapchain_dependent_resources(VulkanEngine* engine) {
     destroy_device_handle(engine->device, engine->graphicsPipeline, vkDestroyPipeline);
+    destroy_device_handle(engine->device, engine->skyboxPipeline, vkDestroyPipeline);
     destroy_device_handle(engine->device, engine->pipelineLayout, vkDestroyPipelineLayout);
     destroy_device_handle(engine->device, engine->depthImageView, vkDestroyImageView);
     destroy_image_allocation(engine->allocator, engine->depthImage, engine->depthImageAllocation);
@@ -222,6 +256,13 @@ static void cleanup_swapchain_dependent_resources(VulkanEngine* engine) {
     destroy_device_handle(engine->device, engine->renderPass, vkDestroyRenderPass);
     destroy_device_handle(engine->device, engine->swapchain, vkDestroySwapchainKHR);
     engine->imageCount = 0;
+}
+
+static void cleanup_environment_resources(VulkanEngine* engine) {
+    destroy_device_handle(engine->device, engine->envHdrSampler, vkDestroySampler);
+    destroy_device_handle(engine->device, engine->envHdrImageView, vkDestroyImageView);
+    destroy_image_allocation(engine->allocator, engine->envHdrImage, engine->envHdrImageAllocation);
+    engine->envHdrMipLevels = 0;
 }
 
 static void cleanup_sync_objects(VulkanEngine* engine) {
@@ -241,6 +282,7 @@ static void cleanup_buffer_resources(VulkanEngine* engine) {
     destroy_buffer_allocation(engine->allocator, engine->instanceBuffer, engine->instanceBufferAllocation);
     destroy_buffer_allocation(engine->allocator, engine->vertexBuffer, engine->vertexBufferAllocation);
     destroy_buffer_allocation(engine->allocator, engine->indexBuffer, engine->indexBufferAllocation);
+    cleanup_environment_resources(engine);
 }
 
 static void cleanup_render_resources(VulkanEngine* engine) {
@@ -313,6 +355,10 @@ static bool init_core(VulkanEngine* engine) {
     if (engine->window == nullptr) {
         return false;
     }
+
+    glfwSetWindowUserPointer(engine->window, engine);
+    glfwSetCursorPosCallback(engine->window, mouse_callback);
+    glfwSetScrollCallback(engine->window, scroll_callback);
 
     VkApplicationInfo appInfo{};
     appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
@@ -592,16 +638,21 @@ static bool init_render_pass(VulkanEngine* engine) {
 }
 
 static bool init_descriptor_layout(VulkanEngine* engine) {
-    VkDescriptorSetLayoutBinding binding{};
-    binding.binding = 0;
-    binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    binding.descriptorCount = 1;
-    binding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    VkDescriptorSetLayoutBinding bindings[2] = {};
+    bindings[0].binding = 0;
+    bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    bindings[0].descriptorCount = 1;
+    bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    bindings[1].binding = 1;
+    bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[1].descriptorCount = 1;
+    bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
     VkDescriptorSetLayoutCreateInfo info{};
     info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    info.bindingCount = 1;
-    info.pBindings = &binding;
+    info.bindingCount = 2;
+    info.pBindings = bindings;
     return vkCreateDescriptorSetLayout(engine->device, &info, nullptr, &engine->descriptorSetLayout) == VK_SUCCESS;
 }
 
@@ -629,12 +680,20 @@ static VkShaderModule load_shader(VkDevice device, const char* path) {
 static bool init_pipeline(VulkanEngine* engine) {
     VkShaderModule vsm = load_shader(engine->device, "shaders/vert.spv");
     VkShaderModule fsm = load_shader(engine->device, "shaders/frag.spv");
-    if (vsm == VK_NULL_HANDLE || fsm == VK_NULL_HANDLE) {
+    VkShaderModule skyboxVsm = load_shader(engine->device, "shaders/skybox_vert.spv");
+    VkShaderModule skyboxFsm = load_shader(engine->device, "shaders/skybox_frag.spv");
+    if (vsm == VK_NULL_HANDLE || fsm == VK_NULL_HANDLE || skyboxVsm == VK_NULL_HANDLE || skyboxFsm == VK_NULL_HANDLE) {
         if (vsm != VK_NULL_HANDLE) {
             vkDestroyShaderModule(engine->device, vsm, nullptr);
         }
         if (fsm != VK_NULL_HANDLE) {
             vkDestroyShaderModule(engine->device, fsm, nullptr);
+        }
+        if (skyboxVsm != VK_NULL_HANDLE) {
+            vkDestroyShaderModule(engine->device, skyboxVsm, nullptr);
+        }
+        if (skyboxFsm != VK_NULL_HANDLE) {
+            vkDestroyShaderModule(engine->device, skyboxFsm, nullptr);
         }
         return false;
     }
@@ -724,6 +783,8 @@ static bool init_pipeline(VulkanEngine* engine) {
     if (vkCreatePipelineLayout(engine->device, &plInfo, nullptr, &engine->pipelineLayout) != VK_SUCCESS) {
         vkDestroyShaderModule(engine->device, vsm, nullptr);
         vkDestroyShaderModule(engine->device, fsm, nullptr);
+        vkDestroyShaderModule(engine->device, skyboxVsm, nullptr);
+        vkDestroyShaderModule(engine->device, skyboxFsm, nullptr);
         return false;
     }
 
@@ -744,12 +805,309 @@ static bool init_pipeline(VulkanEngine* engine) {
     if (vkCreateGraphicsPipelines(engine->device, VK_NULL_HANDLE, 1, &pipeInfo, nullptr, &engine->graphicsPipeline) != VK_SUCCESS) {
         vkDestroyShaderModule(engine->device, vsm, nullptr);
         vkDestroyShaderModule(engine->device, fsm, nullptr);
+        vkDestroyShaderModule(engine->device, skyboxVsm, nullptr);
+        vkDestroyShaderModule(engine->device, skyboxFsm, nullptr);
         return false;
     }
     vk_set_object_name(engine->device, (uint64_t)engine->graphicsPipeline, VK_OBJECT_TYPE_PIPELINE, "Main_Graphics_Pipeline");
 
+    VkPipelineShaderStageCreateInfo skyStages[2] = {};
+    skyStages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    skyStages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+    skyStages[0].module = skyboxVsm;
+    skyStages[0].pName = "main";
+    skyStages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    skyStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    skyStages[1].module = skyboxFsm;
+    skyStages[1].pName = "main";
+
+    VkPipelineVertexInputStateCreateInfo skyVi{};
+    skyVi.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    skyVi.vertexBindingDescriptionCount = 0;
+    skyVi.pVertexBindingDescriptions = nullptr;
+    skyVi.vertexAttributeDescriptionCount = 0;
+    skyVi.pVertexAttributeDescriptions = nullptr;
+
+    VkPipelineRasterizationStateCreateInfo skyRs = rs;
+    skyRs.cullMode = VK_CULL_MODE_NONE;
+
+    VkPipelineDepthStencilStateCreateInfo skyDs = ds;
+    skyDs.depthWriteEnable = VK_FALSE;
+    skyDs.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+
+    VkGraphicsPipelineCreateInfo skyPipeInfo = pipeInfo;
+    skyPipeInfo.pStages = skyStages;
+    skyPipeInfo.pVertexInputState = &skyVi;
+    skyPipeInfo.pRasterizationState = &skyRs;
+    skyPipeInfo.pDepthStencilState = &skyDs;
+
+    if (vkCreateGraphicsPipelines(engine->device, VK_NULL_HANDLE, 1, &skyPipeInfo, nullptr, &engine->skyboxPipeline) != VK_SUCCESS) {
+        vkDestroyShaderModule(engine->device, vsm, nullptr);
+        vkDestroyShaderModule(engine->device, fsm, nullptr);
+        vkDestroyShaderModule(engine->device, skyboxVsm, nullptr);
+        vkDestroyShaderModule(engine->device, skyboxFsm, nullptr);
+        return false;
+    }
+    vk_set_object_name(engine->device, (uint64_t)engine->skyboxPipeline, VK_OBJECT_TYPE_PIPELINE, "Skybox_Graphics_Pipeline");
+
     vkDestroyShaderModule(engine->device, vsm, nullptr);
     vkDestroyShaderModule(engine->device, fsm, nullptr);
+    vkDestroyShaderModule(engine->device, skyboxVsm, nullptr);
+    vkDestroyShaderModule(engine->device, skyboxFsm, nullptr);
+    return true;
+}
+
+static VkCommandBuffer begin_one_time_commands(VulkanEngine* engine) {
+    VkCommandBufferAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.commandPool = engine->commandPool;
+    allocInfo.commandBufferCount = 1;
+
+    VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
+    if (vkAllocateCommandBuffers(engine->device, &allocInfo, &commandBuffer) != VK_SUCCESS) {
+        return VK_NULL_HANDLE;
+    }
+
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    if (vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS) {
+        vkFreeCommandBuffers(engine->device, engine->commandPool, 1, &commandBuffer);
+        return VK_NULL_HANDLE;
+    }
+
+    return commandBuffer;
+}
+
+static bool end_one_time_commands(VulkanEngine* engine, VkCommandBuffer commandBuffer) {
+    if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
+        vkFreeCommandBuffers(engine->device, engine->commandPool, 1, &commandBuffer);
+        return false;
+    }
+
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer;
+
+    if (vkQueueSubmit(engine->graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE) != VK_SUCCESS || vkQueueWaitIdle(engine->graphicsQueue) != VK_SUCCESS) {
+        vkFreeCommandBuffers(engine->device, engine->commandPool, 1, &commandBuffer);
+        return false;
+    }
+
+    vkFreeCommandBuffers(engine->device, engine->commandPool, 1, &commandBuffer);
+    return true;
+}
+
+static bool transition_hdr_image_layout(VulkanEngine* engine, VkCommandBuffer commandBuffer, uint32_t baseMipLevel, uint32_t levelCount,
+                                        VkImageLayout oldLayout, VkImageLayout newLayout, VkAccessFlags srcAccessMask, VkAccessFlags dstAccessMask,
+                                        VkPipelineStageFlags srcStage, VkPipelineStageFlags dstStage) {
+    VkImageMemoryBarrier barrier{};
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.oldLayout = oldLayout;
+    barrier.newLayout = newLayout;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = engine->envHdrImage;
+    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier.subresourceRange.baseMipLevel = baseMipLevel;
+    barrier.subresourceRange.levelCount = levelCount;
+    barrier.subresourceRange.baseArrayLayer = 0;
+    barrier.subresourceRange.layerCount = 1;
+    barrier.srcAccessMask = srcAccessMask;
+    barrier.dstAccessMask = dstAccessMask;
+
+    vkCmdPipelineBarrier(commandBuffer, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+    return true;
+}
+
+static std::string find_first_hdr_path() {
+    const std::filesystem::path hdrRoot("assets/textures/hdr");
+    if (!std::filesystem::exists(hdrRoot)) {
+        return {};
+    }
+
+    std::vector<std::string> candidates;
+    for (const auto& entry : std::filesystem::directory_iterator(hdrRoot)) {
+        if (!entry.is_regular_file()) {
+            continue;
+        }
+        if (entry.path().extension() == ".hdr") {
+            candidates.push_back(entry.path().string());
+        }
+    }
+
+    if (candidates.empty()) {
+        return {};
+    }
+
+    std::sort(candidates.begin(), candidates.end());
+    return candidates[0];
+}
+
+static bool init_environment_texture(VulkanEngine* engine) {
+    const std::string hdrPath = find_first_hdr_path();
+    if (hdrPath.empty()) {
+        LOG_ERROR("engine", "Aucun fichier HDR trouve dans assets/textures/hdr");
+        return false;
+    }
+
+    int width = 0;
+    int height = 0;
+    int channels = 0;
+    float* pixels = stbi_loadf(hdrPath.c_str(), &width, &height, &channels, 4);
+    if (pixels == nullptr || width <= 0 || height <= 0) {
+        LOG_ERROR("engine", "Echec du chargement HDR: %s", hdrPath.c_str());
+        return false;
+    }
+
+    const VkDeviceSize imageSize = static_cast<VkDeviceSize>(width) * static_cast<VkDeviceSize>(height) * 4 * sizeof(float);
+    engine->envHdrMipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(width, height)))) + 1;
+
+    VkFormatProperties hdrFormatProps{};
+    vkGetPhysicalDeviceFormatProperties(engine->physicalDevice, VK_FORMAT_R32G32B32A32_SFLOAT, &hdrFormatProps);
+    const bool canLinearBlit = (hdrFormatProps.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT) != 0;
+    if (!canLinearBlit) {
+        engine->envHdrMipLevels = 1;
+    }
+
+    VkBuffer stagingBuffer = VK_NULL_HANDLE;
+    VmaAllocation stagingAllocation = VK_NULL_HANDLE;
+
+    VkBufferCreateInfo bufferInfo{};
+    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bufferInfo.size = imageSize;
+    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+
+    VmaAllocationCreateInfo stagingAllocInfo{};
+    stagingAllocInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+
+    if (vmaCreateBuffer(engine->allocator, &bufferInfo, &stagingAllocInfo, &stagingBuffer, &stagingAllocation, nullptr) != VK_SUCCESS) {
+        stbi_image_free(pixels);
+        return false;
+    }
+
+    void* mapped = nullptr;
+    if (vmaMapMemory(engine->allocator, stagingAllocation, &mapped) != VK_SUCCESS) {
+        stbi_image_free(pixels);
+        vmaDestroyBuffer(engine->allocator, stagingBuffer, stagingAllocation);
+        return false;
+    }
+    memcpy(mapped, pixels, static_cast<size_t>(imageSize));
+    vmaUnmapMemory(engine->allocator, stagingAllocation);
+    stbi_image_free(pixels);
+
+    VkImageCreateInfo imageInfo{};
+    imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    imageInfo.imageType = VK_IMAGE_TYPE_2D;
+    imageInfo.extent.width = static_cast<uint32_t>(width);
+    imageInfo.extent.height = static_cast<uint32_t>(height);
+    imageInfo.extent.depth = 1;
+    imageInfo.mipLevels = engine->envHdrMipLevels;
+    imageInfo.arrayLayers = 1;
+    imageInfo.format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+
+    VmaAllocationCreateInfo imageAllocInfo{};
+    imageAllocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+    if (vmaCreateImage(engine->allocator, &imageInfo, &imageAllocInfo, &engine->envHdrImage, &engine->envHdrImageAllocation, nullptr) != VK_SUCCESS) {
+        vmaDestroyBuffer(engine->allocator, stagingBuffer, stagingAllocation);
+        return false;
+    }
+
+    VkCommandBuffer commandBuffer = begin_one_time_commands(engine);
+    if (commandBuffer == VK_NULL_HANDLE) {
+        vmaDestroyBuffer(engine->allocator, stagingBuffer, stagingAllocation);
+        return false;
+    }
+
+    transition_hdr_image_layout(engine, commandBuffer, 0, engine->envHdrMipLevels, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0,
+                                VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+    VkBufferImageCopy region{};
+    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    region.imageSubresource.mipLevel = 0;
+    region.imageSubresource.baseArrayLayer = 0;
+    region.imageSubresource.layerCount = 1;
+    region.imageExtent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1};
+    vkCmdCopyBufferToImage(commandBuffer, stagingBuffer, engine->envHdrImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+    int32_t mipWidth = width;
+    int32_t mipHeight = height;
+    for (uint32_t i = 1; i < engine->envHdrMipLevels; ++i) {
+        transition_hdr_image_layout(engine, commandBuffer, i - 1, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                    VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+        VkImageBlit blit{};
+        blit.srcOffsets[0] = {0, 0, 0};
+        blit.srcOffsets[1] = {mipWidth, mipHeight, 1};
+        blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        blit.srcSubresource.mipLevel = i - 1;
+        blit.srcSubresource.baseArrayLayer = 0;
+        blit.srcSubresource.layerCount = 1;
+        blit.dstOffsets[0] = {0, 0, 0};
+        blit.dstOffsets[1] = {std::max(1, mipWidth / 2), std::max(1, mipHeight / 2), 1};
+        blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        blit.dstSubresource.mipLevel = i;
+        blit.dstSubresource.baseArrayLayer = 0;
+        blit.dstSubresource.layerCount = 1;
+
+        vkCmdBlitImage(commandBuffer, engine->envHdrImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, engine->envHdrImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
+                       &blit, VK_FILTER_LINEAR);
+
+        transition_hdr_image_layout(engine, commandBuffer, i - 1, 1, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                                    VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                    VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+
+        mipWidth = std::max(1, mipWidth / 2);
+        mipHeight = std::max(1, mipHeight / 2);
+    }
+
+    transition_hdr_image_layout(engine, commandBuffer, engine->envHdrMipLevels - 1, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+                                VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+
+    if (!end_one_time_commands(engine, commandBuffer)) {
+        vmaDestroyBuffer(engine->allocator, stagingBuffer, stagingAllocation);
+        return false;
+    }
+
+    vmaDestroyBuffer(engine->allocator, stagingBuffer, stagingAllocation);
+
+    VkImageViewCreateInfo viewInfo{};
+    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    viewInfo.image = engine->envHdrImage;
+    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    viewInfo.format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    viewInfo.subresourceRange.baseMipLevel = 0;
+    viewInfo.subresourceRange.levelCount = engine->envHdrMipLevels;
+    viewInfo.subresourceRange.baseArrayLayer = 0;
+    viewInfo.subresourceRange.layerCount = 1;
+    if (vkCreateImageView(engine->device, &viewInfo, nullptr, &engine->envHdrImageView) != VK_SUCCESS) {
+        return false;
+    }
+
+    VkSamplerCreateInfo samplerInfo{};
+    samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    samplerInfo.magFilter = VK_FILTER_LINEAR;
+    samplerInfo.minFilter = VK_FILTER_LINEAR;
+    samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.maxLod = static_cast<float>(engine->envHdrMipLevels - 1);
+    samplerInfo.minLod = 0.0f;
+    samplerInfo.maxAnisotropy = 1.0f;
+    if (vkCreateSampler(engine->device, &samplerInfo, nullptr, &engine->envHdrSampler) != VK_SUCCESS) {
+        return false;
+    }
+
+    LOG_INFO("engine", "HDR map chargee: %s (%dx%d, mips=%u)", hdrPath.c_str(), width, height, engine->envHdrMipLevels);
     return true;
 }
 
@@ -869,17 +1227,14 @@ static bool init_buffers(VulkanEngine* engine) {
         return false;
     }
 
-    // Génération de la grille 10x10 de positions d'instances
-    const int GRID = 10;
-    const float SPACING = 2.2f;
-    const float GRID_OFFSET = (static_cast<float>(GRID - 1) * SPACING) * 0.5f;
-    const size_t instanceCount = static_cast<size_t>(GRID) * static_cast<size_t>(GRID);
+    // Generation de la grille d'instances
+    const size_t instanceCount = static_cast<size_t>(kGridSize) * static_cast<size_t>(kGridSize);
     std::vector<glm::vec3> instancePositions(instanceCount);
-    for (int row = 0; row < GRID; ++row) {
-        for (int col = 0; col < GRID; ++col) {
-            const size_t instanceIndex = (static_cast<size_t>(row) * static_cast<size_t>(GRID)) + static_cast<size_t>(col);
-            const float x = (static_cast<float>(col) * SPACING) - GRID_OFFSET;
-            const float y = (static_cast<float>(row) * SPACING) - GRID_OFFSET;
+    for (uint32_t row = 0; row < kGridSize; ++row) {
+        for (uint32_t col = 0; col < kGridSize; ++col) {
+            const size_t instanceIndex = (static_cast<size_t>(row) * static_cast<size_t>(kGridSize)) + static_cast<size_t>(col);
+            const float x = (static_cast<float>(col) * kGridSpacing) - kGridOffset;
+            const float y = (static_cast<float>(row) * kGridSpacing) - kGridOffset;
             instancePositions[instanceIndex] = {x, y, 0.0f};
         }
     }
@@ -888,10 +1243,10 @@ static bool init_buffers(VulkanEngine* engine) {
         return false;
     }
 
-    // UBO : vp (mat4) + modelRotation (mat4) = 2 * sizeof(mat4)
+    // UBO: vp + modelRotation + invViewProj + cameraPosEnvLod
     VkBufferCreateInfo uboIn{};
     uboIn.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    uboIn.size = 2 * sizeof(glm::mat4);
+    uboIn.size = (3 * sizeof(glm::mat4)) + sizeof(glm::vec4);
     uboIn.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
     VmaAllocationCreateInfo uboAl{};
     uboAl.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
@@ -904,15 +1259,17 @@ static bool init_buffers(VulkanEngine* engine) {
 }
 
 static bool init_descriptor_pool_and_sets(VulkanEngine* engine) {
-    VkDescriptorPoolSize sz{};
-    sz.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    sz.descriptorCount = 1;
+    VkDescriptorPoolSize sizes[2] = {};
+    sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    sizes[0].descriptorCount = 1;
+    sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    sizes[1].descriptorCount = 1;
 
     VkDescriptorPoolCreateInfo pIn{};
     pIn.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     pIn.maxSets = 1;
-    pIn.poolSizeCount = 1;
-    pIn.pPoolSizes = &sz;
+    pIn.poolSizeCount = 2;
+    pIn.pPoolSizes = sizes;
     if (vkCreateDescriptorPool(engine->device, &pIn, nullptr, &engine->descriptorPool) != VK_SUCCESS) {
         return false;
     }
@@ -929,15 +1286,29 @@ static bool init_descriptor_pool_and_sets(VulkanEngine* engine) {
     VkDescriptorBufferInfo bi{};
     bi.buffer = engine->uniformBuffer;
     bi.offset = 0;
-    bi.range = 2 * sizeof(glm::mat4);
+    bi.range = (3 * sizeof(glm::mat4)) + sizeof(glm::vec4);
 
-    VkWriteDescriptorSet wr{};
-    wr.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    wr.dstSet = engine->descriptorSet;
-    wr.descriptorCount = 1;
-    wr.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    wr.pBufferInfo = &bi;
-    vkUpdateDescriptorSets(engine->device, 1, &wr, 0, nullptr);
+    VkDescriptorImageInfo imageInfo{};
+    imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    imageInfo.imageView = engine->envHdrImageView;
+    imageInfo.sampler = engine->envHdrSampler;
+
+    VkWriteDescriptorSet writes[2] = {};
+    writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[0].dstSet = engine->descriptorSet;
+    writes[0].dstBinding = 0;
+    writes[0].descriptorCount = 1;
+    writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    writes[0].pBufferInfo = &bi;
+
+    writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[1].dstSet = engine->descriptorSet;
+    writes[1].dstBinding = 1;
+    writes[1].descriptorCount = 1;
+    writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writes[1].pImageInfo = &imageInfo;
+
+    vkUpdateDescriptorSets(engine->device, 2, writes, 0, nullptr);
     return true;
 }
 
@@ -981,11 +1352,83 @@ static void update_animation_clock(VulkanEngine* engine) {
 
     float deltaSeconds = std::chrono::duration<float>(now - engine->lastFrameTimestamp).count();
     engine->lastFrameTimestamp = now;
-    deltaSeconds = std::clamp(deltaSeconds, 0.0f, 0.25f);
+    deltaSeconds = std::clamp(deltaSeconds, 0.0f, kMaxFrameDeltaSeconds);
+    engine->lastFrameDeltaSeconds = deltaSeconds;
 
     if (!engine->animationPaused) {
         engine->animationTimeSeconds += deltaSeconds * engine->animationSpeed;
     }
+}
+
+static void update_camera_key_state(VulkanEngine* engine) {
+    engine->camera.moveForward = glfwGetKey(engine->window, GLFW_KEY_W) == GLFW_PRESS;
+    engine->camera.moveBackward = glfwGetKey(engine->window, GLFW_KEY_S) == GLFW_PRESS;
+    engine->camera.moveLeft = glfwGetKey(engine->window, GLFW_KEY_A) == GLFW_PRESS;
+    engine->camera.moveRight = glfwGetKey(engine->window, GLFW_KEY_D) == GLFW_PRESS;
+    engine->camera.moveUp = glfwGetKey(engine->window, GLFW_KEY_Q) == GLFW_PRESS;
+    engine->camera.moveDown = glfwGetKey(engine->window, GLFW_KEY_E) == GLFW_PRESS;
+}
+
+static void handle_runtime_input(VulkanEngine* engine) {
+    const bool cDown = glfwGetKey(engine->window, GLFW_KEY_C) == GLFW_PRESS;
+    if (cDown && !engine->cameraToggleKeyWasDown) {
+        engine->cameraEnabled = !engine->cameraEnabled;
+        glfwSetInputMode(engine->window, GLFW_CURSOR, engine->cameraEnabled ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
+        engine->camera.firstMouse = true;
+        LOG_INFO("runtime", "Camera souris: %s", engine->cameraEnabled ? "ON" : "OFF");
+    }
+    engine->cameraToggleKeyWasDown = cDown;
+
+    const bool kDown = glfwGetKey(engine->window, GLFW_KEY_K) == GLFW_PRESS;
+    if (kDown && !engine->showEnvmapToggleKeyWasDown) {
+        engine->showEnvmap = !engine->showEnvmap;
+        LOG_INFO("runtime", "Skybox: %s", engine->showEnvmap ? "ON" : "OFF");
+    }
+    engine->showEnvmapToggleKeyWasDown = kDown;
+
+    const bool pgUpDown = glfwGetKey(engine->window, GLFW_KEY_PAGE_UP) == GLFW_PRESS;
+    if (pgUpDown && !engine->envLodUpKeyWasDown) {
+        engine->envLod = std::min(engine->envLod + kEnvLodStep, static_cast<float>(engine->envHdrMipLevels > 0 ? engine->envHdrMipLevels - 1 : 0));
+        LOG_INFO("runtime", "Env LOD: %.1f", engine->envLod);
+    }
+    engine->envLodUpKeyWasDown = pgUpDown;
+
+    const bool pgDownDown = glfwGetKey(engine->window, GLFW_KEY_PAGE_DOWN) == GLFW_PRESS;
+    if (pgDownDown && !engine->envLodDownKeyWasDown) {
+        engine->envLod = std::max(kMinEnvLod, engine->envLod - kEnvLodStep);
+        LOG_INFO("runtime", "Env LOD: %.1f", engine->envLod);
+    }
+    engine->envLodDownKeyWasDown = pgDownDown;
+}
+
+static void mouse_callback(GLFWwindow* window, double xpos, double ypos) {
+    auto* engine = static_cast<VulkanEngine*>(glfwGetWindowUserPointer(window));
+    if (engine == nullptr || !engine->cameraEnabled) {
+        return;
+    }
+
+    if (engine->camera.firstMouse) {
+        engine->camera.lastMouseX = xpos;
+        engine->camera.lastMouseY = ypos;
+        engine->camera.firstMouse = false;
+        return;
+    }
+
+    const float xOffset = static_cast<float>(xpos - engine->camera.lastMouseX);
+    const float yOffset = static_cast<float>(ypos - engine->camera.lastMouseY);
+    engine->camera.lastMouseX = xpos;
+    engine->camera.lastMouseY = ypos;
+
+    camera_process_mouse(&engine->camera, xOffset, yOffset);
+}
+
+static void scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
+    (void)xoffset;
+    auto* engine = static_cast<VulkanEngine*>(glfwGetWindowUserPointer(window));
+    if (engine == nullptr) {
+        return;
+    }
+    camera_process_scroll(&engine->camera, static_cast<float>(yoffset));
 }
 
 static bool recreate_swapchain_dependent_resources(VulkanEngine* engine) {
@@ -1010,7 +1453,8 @@ static bool recreate_swapchain_dependent_resources(VulkanEngine* engine) {
 
 bool init_vulkan_engine(VulkanEngine* engine) {
     if (!init_core(engine) || !init_allocator(engine) || !init_swapchain(engine) || !init_render_pass(engine) || !init_descriptor_layout(engine) ||
-        !init_pipeline(engine) || !init_buffers(engine) || !init_descriptor_pool_and_sets(engine) || !init_commands_and_sync(engine)) {
+        !init_pipeline(engine) || !init_buffers(engine) || !init_environment_texture(engine) || !init_descriptor_pool_and_sets(engine) ||
+        !init_commands_and_sync(engine)) {
         cleanup_vulkan_engine(engine);
         return false;
     }
@@ -1023,7 +1467,17 @@ bool init_vulkan_engine(VulkanEngine* engine) {
     engine->speedDownKeyWasDown = false;
     engine->fullscreenKeyWasDown = false;
     engine->escapeKeyWasDown = false;
+    engine->cameraToggleKeyWasDown = false;
+    engine->showEnvmapToggleKeyWasDown = false;
+    engine->envLodUpKeyWasDown = false;
+    engine->envLodDownKeyWasDown = false;
     engine->isFullscreen = false;
+    engine->cameraEnabled = true;
+    engine->showEnvmap = true;
+    engine->envLod = 0.0f;
+    engine->lastFrameDeltaSeconds = 0.0f;
+    camera_init(&engine->camera);
+    glfwSetInputMode(engine->window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
     glfwGetWindowPos(engine->window, &engine->windowedPosX, &engine->windowedPosY);
     glfwGetWindowSize(engine->window, &engine->windowedWidth, &engine->windowedHeight);
     engine->lastFrameTimestamp = std::chrono::steady_clock::now();
@@ -1050,18 +1504,32 @@ bool draw_frame(VulkanEngine* engine) {
     engine->lastRenderedImageIndex = idx;
 
     update_animation_clock(engine);
+    handle_runtime_input(engine);
+    update_camera_key_state(engine);
+    camera_fixed_update(&engine->camera, engine->lastFrameDeltaSeconds);
 
     struct UBOData {
         glm::mat4 vp;
         glm::mat4 modelRotation;
+        glm::mat4 invViewProj;
+        glm::vec4 cameraPosEnvLod;
     };
     UBOData uboData;
     uboData.modelRotation = glm::rotate(glm::mat4(1.0f), engine->animationTimeSeconds * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-    glm::mat4 view = glm::lookAt(glm::vec3(0.0f, 0.0f, 40.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-    glm::mat4 proj = glm::perspective(glm::radians(45.f),
+    glm::mat4 view = glm::lookAt(engine->camera.position, engine->camera.position + engine->camera.front, engine->camera.up);
+    glm::mat4 proj = glm::perspective(glm::radians(engine->camera.zoom),
                                       static_cast<float>(engine->swapchainExtent.width) / static_cast<float>(engine->swapchainExtent.height), 0.1f, 100.f);
     proj[1][1] *= -1;
     uboData.vp = proj * view;
+
+    // Skybox must stay infinitely far: remove translation and keep fixed FOV.
+    glm::mat4 skyboxView = glm::mat4(glm::mat3(view));
+    glm::mat4 skyboxProj = glm::perspective(
+        glm::radians(45.0f), static_cast<float>(engine->swapchainExtent.width) / static_cast<float>(engine->swapchainExtent.height), 0.1f, 100.f);
+    skyboxProj[1][1] *= -1;
+    uboData.invViewProj = glm::inverse(skyboxProj * skyboxView);
+
+    uboData.cameraPosEnvLod = glm::vec4(engine->camera.position, engine->envLod);
     memcpy(engine->uniformBufferMapped, &uboData, sizeof(uboData));
 
     if (vkResetCommandBuffer(engine->commandBuffer, 0) != VK_SUCCESS) {
@@ -1088,15 +1556,20 @@ bool draw_frame(VulkanEngine* engine) {
     rp.pClearValues = cl;
 
     vkCmdBeginRenderPass(engine->commandBuffer, &rp, VK_SUBPASS_CONTENTS_INLINE);
-    vkCmdBindPipeline(engine->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, engine->graphicsPipeline);
+    vkCmdBindDescriptorSets(engine->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, engine->pipelineLayout, 0, 1, &engine->descriptorSet, 0, nullptr);
 
+    if (engine->showEnvmap) {
+        vkCmdBindPipeline(engine->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, engine->skyboxPipeline);
+        vkCmdDraw(engine->commandBuffer, 3, 1, 0, 0);
+    }
+
+    vkCmdBindPipeline(engine->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, engine->graphicsPipeline);
     VkBuffer vertexBuffers[] = {engine->vertexBuffer, engine->instanceBuffer};
     VkDeviceSize offsets[] = {0, 0};
     vkCmdBindVertexBuffers(engine->commandBuffer, 0, 2, vertexBuffers, offsets);
     vkCmdBindIndexBuffer(engine->commandBuffer, engine->indexBuffer, 0, VK_INDEX_TYPE_UINT32);
-    vkCmdBindDescriptorSets(engine->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, engine->pipelineLayout, 0, 1, &engine->descriptorSet, 0, nullptr);
-    // Un seul draw call pour les 100 instances (10x10 grille)
-    vkCmdDrawIndexed(engine->commandBuffer, engine->indexCount, 100, 0, 0, 0);
+    // Un seul draw call pour les instances de spheres.
+    vkCmdDrawIndexed(engine->commandBuffer, engine->indexCount, kGridSize * kGridSize, 0, 0, 0);
 
     vkCmdEndRenderPass(engine->commandBuffer);
     vk_end_label(engine->device, engine->commandBuffer);

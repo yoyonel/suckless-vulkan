@@ -7,6 +7,8 @@
 #include <stdbool.h>
 #include <vma/vk_mem_alloc.h>
 
+#include "camera.h"
+
 // Configuration de GLM pour Vulkan
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
@@ -53,6 +55,7 @@ typedef struct {
 
     VkPipelineLayout pipelineLayout;
     VkPipeline graphicsPipeline;
+    VkPipeline skyboxPipeline;
 
     VkBuffer vertexBuffer;
     VmaAllocation vertexBufferAllocation;
@@ -73,6 +76,12 @@ typedef struct {
     VkDescriptorPool descriptorPool;
     VkDescriptorSet descriptorSet;
 
+    VkImage envHdrImage;
+    VmaAllocation envHdrImageAllocation;
+    VkImageView envHdrImageView;
+    VkSampler envHdrSampler;
+    uint32_t envHdrMipLevels;
+
     VkCommandPool commandPool;
     VkCommandBuffer commandBuffer;
 
@@ -91,10 +100,20 @@ typedef struct {
     bool fullscreenKeyWasDown;
     bool escapeKeyWasDown;
     bool isFullscreen;
+    bool cameraToggleKeyWasDown;
+    bool showEnvmapToggleKeyWasDown;
+    bool envLodUpKeyWasDown;
+    bool envLodDownKeyWasDown;
+    bool cameraEnabled;
+    bool showEnvmap;
+    float envLod;
     int windowedPosX;
     int windowedPosY;
     int windowedWidth;
     int windowedHeight;
+    float lastFrameDeltaSeconds;
+
+    Camera camera;
     std::chrono::steady_clock::time_point lastFrameTimestamp;
 
 } VulkanEngine;

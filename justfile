@@ -63,13 +63,19 @@ shaders:
     @if command -v glslc >/dev/null 2>&1; then \
         glslc shaders/shader.vert -o shaders/vert.spv; \
         glslc shaders/shader.frag -o shaders/frag.spv; \
+        glslc shaders/skybox.vert -o shaders/skybox_vert.spv; \
+        glslc shaders/skybox.frag -o shaders/skybox_frag.spv; \
         echo "Génération de l'assembleur SPIR-V (.spvasm)..."; \
         glslc -S shaders/shader.vert -o shaders/vert.spvasm; \
         glslc -S shaders/shader.frag -o shaders/frag.spvasm; \
+        glslc -S shaders/skybox.vert -o shaders/skybox_vert.spvasm; \
+        glslc -S shaders/skybox.frag -o shaders/skybox_frag.spvasm; \
     else \
         echo "glslc introuvable, fallback sur glslangValidator pour les .spv"; \
         glslangValidator -V shaders/shader.vert -o shaders/vert.spv; \
         glslangValidator -V shaders/shader.frag -o shaders/frag.spv; \
+        glslangValidator -V shaders/skybox.vert -o shaders/skybox_vert.spv; \
+        glslangValidator -V shaders/skybox.frag -o shaders/skybox_frag.spv; \
         echo "Génération .spvasm ignorée (glslc requis)."; \
     fi
 
@@ -338,6 +344,8 @@ lint-shaders:
     @echo "Linting des shaders avec glslangValidator..."
     @glslangValidator -V shaders/shader.vert -o /dev/null
     @glslangValidator -V shaders/shader.frag -o /dev/null
+    @glslangValidator -V shaders/skybox.vert -o /dev/null
+    @glslangValidator -V shaders/skybox.frag -o /dev/null
     @echo "Linting Shaders terminé."
 
 # Lint la doc Markdown.

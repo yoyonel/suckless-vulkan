@@ -11,7 +11,8 @@ int main() {
         return -1;
     }
     LOG_INFO("app", "Vulkan initialise avec succes ! La fenetre devrait apparaitre.");
-    LOG_INFO("app", "Controles: Espace pause/reprise, Fleche haut accelere, Fleche bas ralentit, R reinitialise, F11 fullscreen/fenetre, ESC quitter.");
+    LOG_INFO("app", "Controles: Espace pause/reprise, Fleche haut accelere, Fleche bas ralentit, R reinitialise, "
+                    "C camera souris on/off, W/A/S/D/Q/E deplacement, molette FOV, K skybox on/off, PageUp/PageDown LOD, F11 fullscreen/fenetre, ESC quitter.");
 
     // main  loop
     while (!glfwWindowShouldClose(engine.window)) {

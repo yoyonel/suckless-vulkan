@@ -54,6 +54,17 @@ This repository is a Vulkan-based rendering engine foundation focused on:
 - Vulkan runtime + headers (`libvulkan-dev`, drivers)
 - `glfw3`, `glm`
 
+### HDR Assets
+
+The skybox requires HDR environment maps in `assets/textures/hdr/`. These files are not tracked by git (large binaries). Copy or symlink your own Radiance `.hdr` files there before running:
+
+```bash
+mkdir -p assets/textures/hdr
+cp /path/to/your/*.hdr assets/textures/hdr/
+```
+
+Any Radiance HDR equirectangular panorama works (e.g. from [Poly Haven](https://polyhaven.com/hdris)).
+
 ### Build and run
 
 ```bash

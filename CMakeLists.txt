@@ -48,16 +48,18 @@ find_package(glfw3 REQUIRED)
 # NOUVEAU : On exige GLM
 find_package(glm REQUIRED)
 
-add_executable(vulkan_app src/main.cpp src/vk_engine.cpp src/app_log.cpp
-                          src/runtime_controls.cpp ext/vma/vma_impl.cpp)
+add_executable(
+  vulkan_app src/main.cpp src/vk_engine.cpp src/camera.cpp src/app_log.cpp
+             src/runtime_controls.cpp ext/vma/vma_impl.cpp)
 target_include_directories(vulkan_app PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_include_directories(vulkan_app SYSTEM PRIVATE ${CMAKE_SOURCE_DIR}/ext)
 # NOUVEAU : On lie glm::glm
 target_link_libraries(vulkan_app Vulkan::Vulkan glfw glm::glm)
 
 enable_testing()
-add_executable(unit_tests tests/test_main.cpp src/vk_engine.cpp src/app_log.cpp
-                          src/runtime_controls.cpp ext/vma/vma_impl.cpp)
+add_executable(
+  unit_tests tests/test_main.cpp src/vk_engine.cpp src/camera.cpp
+             src/app_log.cpp src/runtime_controls.cpp ext/vma/vma_impl.cpp)
 target_include_directories(unit_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_include_directories(unit_tests SYSTEM PRIVATE ${CMAKE_SOURCE_DIR}/ext)
 # NOUVEAU : On lie glm::glm aux tests aussi

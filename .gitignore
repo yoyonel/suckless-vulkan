@@ -25,6 +25,9 @@ site/
 build/clang-tidy/
 core.*
 
+# Assets runtime (large binaries – copy from suckless-ogl or download separately)
+assets/
+
 # IDE & OS
 .vscode/
 .idea/
