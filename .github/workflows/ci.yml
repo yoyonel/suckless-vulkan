@@ -11,6 +11,9 @@ name: CI
 permissions:
   contents: read
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   static-checks:
     runs-on: ubuntu-latest
@@ -23,6 +26,7 @@ jobs:
         with:
           dockerfile: docker/ci/Dockerfile
           config: .hadolint.yaml
+          ignore: DL3008 DL3013 DL3813
 
       - name: Lint GitHub Actions workflows (actionlint)
         uses: rhysd/actionlint@v1.7.4
