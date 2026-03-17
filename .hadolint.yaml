@@ -4,4 +4,5 @@ failure-threshold: error
 # Packages are intentionally left unpinned in this dev/CI image.
 ignore:
   - DL3008 # apt-get: pin versions
-  - DL3013 # pip: pin versions
+  - DL3013 # pip: pin versions (old code)
+  - DL3813 # pip: pin versions (new code)
