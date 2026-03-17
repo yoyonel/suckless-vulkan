@@ -4,8 +4,12 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 #include <chrono>
+#include <condition_variable>
+#include <mutex>
+#include <queue>
 #include <stdbool.h>
 #include <string>
+#include <thread>
 #include <vector>
 #include <vma/vk_mem_alloc.h>
 
@@ -18,6 +22,23 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #define MAX_SWAPCHAIN_IMAGES 8
+
+// Phase 2B: Async HDR Loading
+enum class HdrLoadRequestState {
+    Pending, // Queued, waiting for I/O thread
+    Loading, // I/O thread is reading file
+    Ready,   // File loaded into memory, ready for GPU upload
+    Failed   // Load failed (file not found, corrupt, etc.)
+};
+
+struct HdrLoadRequest {
+    int hdrIndex;                   // Index in hdrFiles array
+    HdrLoadRequestState state;      // Current load state
+    std::vector<uint8_t> pixelData; // CPU-side pixel data
+    uint32_t width;                 // Image width
+    uint32_t height;                // Image height
+    uint32_t channels;              // Channels (typically 3 or 4)
+};
 
 typedef struct {
     float position[3];
@@ -85,6 +106,14 @@ typedef struct {
     uint32_t envHdrMipLevels;
     std::vector<std::string> hdrFiles;
     int currentHdrIndex;
+
+    // Phase 2B: Async HDR loading infrastructure
+    std::queue<HdrLoadRequest> hdrLoadQueue; // Requests queued for I/O
+    HdrLoadRequest* currentHdrLoadRequest;   // Currently loading request
+    std::thread hdrIoThread;                 // I/O worker thread
+    std::mutex hdrLoadMutex;                 // Protect queue and current request
+    std::condition_variable hdrLoadCV;       // Signal I/O thread on new requests
+    bool hdrIoThreadRunning;                 // Control flag for I/O thread
 
     VkCommandPool commandPool;
     VkCommandBuffer commandBuffer;
