@@ -6,6 +6,9 @@ REPORT_DIR="${BUILD_DIR}/reports"
 
 echo "[CI][COVERAGE] Build directory: ${BUILD_DIR}"
 
+# Ensure deterministic runs across host/container path differences.
+rm -rf "${BUILD_DIR}"
+
 # Keep shader generation aligned with local/dev workflow.
 just shaders
 
@@ -34,8 +37,5 @@ gcovr \
 
 echo "[CI][COVERAGE] Reports generated in ${REPORT_DIR}"
 
-# Display formatted coverage report in console
-if command -v python3 &> /dev/null; then
-    echo ""
-    python3 scripts/format_coverage_report.py "${REPORT_DIR}/coverage.json"
-fi
+echo "[CI][COVERAGE] Text summary (${REPORT_DIR}/coverage.txt):"
+sed -n '1,80p' "${REPORT_DIR}/coverage.txt"
