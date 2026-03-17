@@ -258,23 +258,35 @@ format-docs:
 # Lance tous les formateurs.
 format: format-code format-cmake format-shell format-yaml format-docs format-just
 
-# Lance clang-tidy sur tout le code du projet (hors ext), en re-utilisant build/release.
+# Lance clang-tidy sur tout le code du projet (hors ext). En CI (CI=true), cmake est regenere dans un dossier temporaire (chemins natifs au conteneur). En local, build/release est reutilise pour la vitesse.
 lint-c:
-    @if [ ! -f build/release/compile_commands.json ]; then \
+    @if [ "${CI:-}" = "true" ]; then \
+        build_dir=$(mktemp -d -t clang-tidy-XXXXXX); \
+        cmake -S . -B "${build_dir}" -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON >/dev/null; \
+    elif [ ! -f build/release/compile_commands.json ]; then \
         echo "compile_commands.json manquant dans build/release: configuration automatique..."; \
         just configure >/dev/null; \
+        build_dir=build/release; \
+    else \
+        build_dir=build/release; \
     fi; \
     exclude_header_filter=""; \
     if clang-tidy --help 2>&1 | grep -q -- '--exclude-header-filter'; then \
         exclude_header_filter="--exclude-header-filter=(.*/)?ext/.*"; \
     fi; \
-    clang-tidy -quiet -p build/release src/*.cpp tests/*.cpp --header-filter='(src/.*|tests/.*)' ${exclude_header_filter}
+    clang-tidy -quiet -p "${build_dir}" src/*.cpp tests/*.cpp --header-filter='(src/.*|tests/.*)' ${exclude_header_filter}
 
-# Lance clang-tidy uniquement sur les fichiers C/C++ modifies (rapide pour iteration).
+# Lance clang-tidy uniquement sur les fichiers C/C++ modifies (rapide pour iteration). Meme logique CI/local que lint-c pour les chemins compile_commands.
 lint-c-changed:
-    @if [ ! -f build/release/compile_commands.json ]; then \
+    @if [ "${CI:-}" = "true" ]; then \
+        build_dir=$(mktemp -d -t clang-tidy-XXXXXX); \
+        cmake -S . -B "${build_dir}" -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON >/dev/null; \
+    elif [ ! -f build/release/compile_commands.json ]; then \
         echo "compile_commands.json manquant dans build/release: configuration automatique..."; \
         just configure >/dev/null; \
+        build_dir=build/release; \
+    else \
+        build_dir=build/release; \
     fi; \
     exclude_header_filter=""; \
     if clang-tidy --help 2>&1 | grep -q -- '--exclude-header-filter'; then \
