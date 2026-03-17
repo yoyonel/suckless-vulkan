@@ -1,7 +1,3 @@
----
-description: "Suckless-Vulkan development guidelines: Conventional Commits, pre-commit checks, docs sync, CI/CD validation, Just recipes"
----
-
 # Suckless-Vulkan Development Guidelines
 
 ## 🚫 Golden Rules
@@ -165,6 +161,25 @@ If any hook fails:
 
 **Strongly prefer existing tools over custom scripts** (Python, Bash, etc.):
 
+✅ **Use standard tools:**
+- `llvm-cov report` outputs formatted table directly (no script needed)
+- `column`, `sed`, `tr` for text transformation
+- `jq` for JSON processing (if unavoidable)
+- Built-in shell utilities
+
+❌ **Avoid custom scripts unless:**
+- No standard tool exists for the task
+- Exception is thoroughly documented
+- Script is simple, maintainable, and tested
+- Value is clear (don't script for scripts' sake)
+
+**Examples of anti-patterns:**
+- Custom Python formatter for tools that already output formatted text
+- Bash wrapper around single command
+- Re-implementing standard utilities
+
+**Benefit:** Reduce dependencies, improve maintainability, easier CI/CD portability
+
 ---
 
 ### Principle: No Suppression of Warnings/Errors
@@ -192,26 +207,6 @@ If any hook fails:
 4. User explicit validation before committing
 
 No silent suppression is ever acceptable.
-
-
-✅ **Use standard tools:**
-- `llvm-cov report` outputs formatted table directly (no script needed)
-- `column`, `sed`, `tr` for text transformation
-- `jq` for JSON processing (if unavoidable)
-- Built-in shell utilities
-
-❌ **Avoid custom scripts unless:**
-- No standard tool exists for the task
-- Exception is thoroughly documented
-- Script is simple, maintainable, and tested
-- Value is clear (don't script for scripts' sake)
-
-**Examples of anti-patterns:**
-- Custom Python formatter for tools that already output formatted text
-- Bash wrapper around single command
-- Re-implementing standard utilities
-
-**Benefit:** Reduce dependencies, improve maintainability, easier CI/CD portability
 
 ---
 
