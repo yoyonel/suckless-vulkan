@@ -60,7 +60,11 @@ typedef struct {
     VmaAllocation indexBufferAllocation;
     uint32_t indexCount;
 
-    // NOUVEAU : Notre Uniform Buffer et son mapping persistant
+    // Instancing : buffer contenant les positions des 100 sphères
+    VkBuffer instanceBuffer;
+    VmaAllocation instanceBufferAllocation;
+
+    // Notre Uniform Buffer et son mapping persistant
     VkBuffer uniformBuffer;
     VmaAllocation uniformBufferAllocation;
     void* uniformBufferMapped;

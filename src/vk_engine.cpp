@@ -238,6 +238,7 @@ static void cleanup_descriptor_resources(VulkanEngine* engine) {
 static void cleanup_buffer_resources(VulkanEngine* engine) {
     unmap_allocation(engine->allocator, engine->uniformBufferAllocation, engine->uniformBufferMapped);
     destroy_buffer_allocation(engine->allocator, engine->uniformBuffer, engine->uniformBufferAllocation);
+    destroy_buffer_allocation(engine->allocator, engine->instanceBuffer, engine->instanceBufferAllocation);
     destroy_buffer_allocation(engine->allocator, engine->vertexBuffer, engine->vertexBufferAllocation);
     destroy_buffer_allocation(engine->allocator, engine->indexBuffer, engine->indexBufferAllocation);
 }
@@ -648,24 +649,35 @@ static bool init_pipeline(VulkanEngine* engine) {
     stages[1].module = fsm;
     stages[1].pName = "main";
 
-    VkVertexInputBindingDescription binding{};
-    binding.binding = 0;
-    binding.stride = sizeof(Vertex);
-    binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+    // Binding 0 : données par vertex (position + color)
+    // Binding 1 : données par instance (offset monde)
+    VkVertexInputBindingDescription bindings[2] = {};
+    bindings[0].binding = 0;
+    bindings[0].stride = sizeof(Vertex);
+    bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+    bindings[1].binding = 1;
+    bindings[1].stride = sizeof(glm::vec3);
+    bindings[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
 
-    VkVertexInputAttributeDescription attrs[2] = {};
+    VkVertexInputAttributeDescription attrs[3] = {};
     attrs[0].location = 0;
+    attrs[0].binding = 0;
     attrs[0].format = VK_FORMAT_R32G32B32_SFLOAT;
     attrs[0].offset = offsetof(Vertex, position);
     attrs[1].location = 1;
+    attrs[1].binding = 0;
     attrs[1].format = VK_FORMAT_R32G32B32_SFLOAT;
     attrs[1].offset = offsetof(Vertex, color);
+    attrs[2].location = 2;
+    attrs[2].binding = 1;
+    attrs[2].format = VK_FORMAT_R32G32B32_SFLOAT;
+    attrs[2].offset = 0;
 
     VkPipelineVertexInputStateCreateInfo vi{};
     vi.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    vi.vertexBindingDescriptionCount = 1;
-    vi.pVertexBindingDescriptions = &binding;
-    vi.vertexAttributeDescriptionCount = 2;
+    vi.vertexBindingDescriptionCount = 2;
+    vi.pVertexBindingDescriptions = bindings;
+    vi.vertexAttributeDescriptionCount = 3;
     vi.pVertexAttributeDescriptions = attrs;
 
     VkPipelineInputAssemblyStateCreateInfo ia{};
@@ -857,9 +869,29 @@ static bool init_buffers(VulkanEngine* engine) {
         return false;
     }
 
+    // Génération de la grille 10x10 de positions d'instances
+    const int GRID = 10;
+    const float SPACING = 2.2f;
+    const float GRID_OFFSET = (static_cast<float>(GRID - 1) * SPACING) * 0.5f;
+    const size_t instanceCount = static_cast<size_t>(GRID) * static_cast<size_t>(GRID);
+    std::vector<glm::vec3> instancePositions(instanceCount);
+    for (int row = 0; row < GRID; ++row) {
+        for (int col = 0; col < GRID; ++col) {
+            const size_t instanceIndex = (static_cast<size_t>(row) * static_cast<size_t>(GRID)) + static_cast<size_t>(col);
+            const float x = (static_cast<float>(col) * SPACING) - GRID_OFFSET;
+            const float y = (static_cast<float>(row) * SPACING) - GRID_OFFSET;
+            instancePositions[instanceIndex] = {x, y, 0.0f};
+        }
+    }
+    if (!create_gpu_buffer(instancePositions.size() * sizeof(glm::vec3), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, instancePositions.data(), engine->instanceBuffer,
+                           engine->instanceBufferAllocation, "Instance_Offsets_Buffer")) {
+        return false;
+    }
+
+    // UBO : vp (mat4) + modelRotation (mat4) = 2 * sizeof(mat4)
     VkBufferCreateInfo uboIn{};
     uboIn.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    uboIn.size = sizeof(glm::mat4);
+    uboIn.size = 2 * sizeof(glm::mat4);
     uboIn.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
     VmaAllocationCreateInfo uboAl{};
     uboAl.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
@@ -897,7 +929,7 @@ static bool init_descriptor_pool_and_sets(VulkanEngine* engine) {
     VkDescriptorBufferInfo bi{};
     bi.buffer = engine->uniformBuffer;
     bi.offset = 0;
-    bi.range = sizeof(glm::mat4);
+    bi.range = 2 * sizeof(glm::mat4);
 
     VkWriteDescriptorSet wr{};
     wr.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -1019,13 +1051,18 @@ bool draw_frame(VulkanEngine* engine) {
 
     update_animation_clock(engine);
 
-    glm::mat4 model = glm::rotate(glm::mat4(1.0f), engine->animationTimeSeconds * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-    glm::mat4 view = glm::lookAt(glm::vec3(0.0f, 0.0f, 3.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    struct UBOData {
+        glm::mat4 vp;
+        glm::mat4 modelRotation;
+    };
+    UBOData uboData;
+    uboData.modelRotation = glm::rotate(glm::mat4(1.0f), engine->animationTimeSeconds * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    glm::mat4 view = glm::lookAt(glm::vec3(0.0f, 0.0f, 40.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
     glm::mat4 proj = glm::perspective(glm::radians(45.f),
-                                      static_cast<float>(engine->swapchainExtent.width) / static_cast<float>(engine->swapchainExtent.height), 0.1f, 10.f);
+                                      static_cast<float>(engine->swapchainExtent.width) / static_cast<float>(engine->swapchainExtent.height), 0.1f, 100.f);
     proj[1][1] *= -1;
-    glm::mat4 mvp = proj * view * model;
-    memcpy(engine->uniformBufferMapped, &mvp, sizeof(mvp));
+    uboData.vp = proj * view;
+    memcpy(engine->uniformBufferMapped, &uboData, sizeof(uboData));
 
     if (vkResetCommandBuffer(engine->commandBuffer, 0) != VK_SUCCESS) {
         return false;
@@ -1053,11 +1090,13 @@ bool draw_frame(VulkanEngine* engine) {
     vkCmdBeginRenderPass(engine->commandBuffer, &rp, VK_SUBPASS_CONTENTS_INLINE);
     vkCmdBindPipeline(engine->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, engine->graphicsPipeline);
 
-    VkDeviceSize off[] = {0};
-    vkCmdBindVertexBuffers(engine->commandBuffer, 0, 1, &engine->vertexBuffer, off);
+    VkBuffer vertexBuffers[] = {engine->vertexBuffer, engine->instanceBuffer};
+    VkDeviceSize offsets[] = {0, 0};
+    vkCmdBindVertexBuffers(engine->commandBuffer, 0, 2, vertexBuffers, offsets);
     vkCmdBindIndexBuffer(engine->commandBuffer, engine->indexBuffer, 0, VK_INDEX_TYPE_UINT32);
     vkCmdBindDescriptorSets(engine->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, engine->pipelineLayout, 0, 1, &engine->descriptorSet, 0, nullptr);
-    vkCmdDrawIndexed(engine->commandBuffer, engine->indexCount, 1, 0, 0, 0);
+    // Un seul draw call pour les 100 instances (10x10 grille)
+    vkCmdDrawIndexed(engine->commandBuffer, engine->indexCount, 100, 0, 0, 0);
 
     vkCmdEndRenderPass(engine->commandBuffer);
     vk_end_label(engine->device, engine->commandBuffer);
