@@ -2,9 +2,10 @@
 #define APP_LOG_H
 
 #include <cstdarg>
+#include <cstdint>
 
 // Log levels are ordered by severity.
-enum class LogLevel : int {
+enum class LogLevel : std::uint8_t {
     NotSet = 0,
     Debug = 10,
     Info = 20,

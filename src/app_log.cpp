@@ -98,7 +98,7 @@ int32_t get_process_id() {
 }
 
 void get_local_time(std::time_t seconds, std::tm* out_tm) {
-#if defined(_WIN32)
+#ifdef _WIN32
     localtime_s(out_tm, &seconds);
 #else
     localtime_r(&seconds, out_tm);
