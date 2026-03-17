@@ -266,6 +266,29 @@ This runs:
 - Same jobs as local Docker
 - Artifacts uploaded (coverage HTML, test frames)
 
+### PR Automation (Explicit Human Order Required)
+
+This workflow is allowed **only** when the user explicitly asks for it (example: "push", "create PR", "open PR", "follow Actions").
+
+**Hard rule:**
+- Do not push branches, create PRs, or monitor GitHub Actions unless the human explicitly requests it in the current conversation.
+
+When explicitly requested, follow this sequence:
+1. Verify repository state:
+   - `git status --short --branch`
+   - confirm current branch and remote target
+2. Push feature branch (never `origin/master`):
+   - `git push -u origin <feature-branch>`
+3. Create PR with title + detailed description:
+   - Use GitHub CLI (`gh pr create`) or equivalent tool integration
+   - Base branch must be `master`
+4. Monitor GitHub Actions until completion:
+   - check all workflows and wait for terminal status (`SUCCESS` / `FAILURE`)
+   - report a concise summary of each workflow result to the user
+5. If any workflow fails:
+   - treat as blocked
+   - investigate, fix, re-run required checks, and update PR
+
 ### Coverage Requirements
 - Minimum **70% line coverage** for commits to be acceptable
 - Use `just coverage-llvm` for detailed analysis (recommended over `gcovr`)
@@ -332,6 +355,7 @@ Before handing back control in chat/prompt:
    ```
 
 6. **Create PR or merge to master**
+   - Only on explicit human request
    - GitHub Actions runs on push
    - Monitor CI for success
    - All checks must pass
