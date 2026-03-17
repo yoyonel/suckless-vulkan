@@ -3,6 +3,7 @@
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
+#include <chrono>
 #include <stdbool.h>
 #include <vma/vk_mem_alloc.h>
 
@@ -75,6 +76,22 @@ typedef struct {
     VkSemaphore renderFinishedSemaphore;
     VkFence inFlightFence;
     uint32_t lastRenderedImageIndex;
+
+    float animationTimeSeconds;
+    float animationSpeed;
+    bool animationPaused;
+    bool pauseKeyWasDown;
+    bool resetKeyWasDown;
+    bool speedUpKeyWasDown;
+    bool speedDownKeyWasDown;
+    bool fullscreenKeyWasDown;
+    bool escapeKeyWasDown;
+    bool isFullscreen;
+    int windowedPosX;
+    int windowedPosY;
+    int windowedWidth;
+    int windowedHeight;
+    std::chrono::steady_clock::time_point lastFrameTimestamp;
 
 } VulkanEngine;
 

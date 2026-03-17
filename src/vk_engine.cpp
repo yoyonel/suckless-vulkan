@@ -1,4 +1,5 @@
 #include "vk_engine.h"
+#include "app_log.h"
 #include "icosphere.h"
 #include <algorithm>
 #include <chrono>
@@ -92,6 +93,18 @@ static VkSurfaceFormatKHR choose_surface_format(const std::vector<VkSurfaceForma
 }
 
 static VkPresentModeKHR choose_present_mode(const std::vector<VkPresentModeKHR>& availablePresentModes) {
+    for (const auto& presentMode : availablePresentModes) {
+        if (presentMode == VK_PRESENT_MODE_IMMEDIATE_KHR) {
+            return presentMode;
+        }
+    }
+
+    for (const auto& presentMode : availablePresentModes) {
+        if (presentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
+            return presentMode;
+        }
+    }
+
     for (const auto& presentMode : availablePresentModes) {
         if (presentMode == VK_PRESENT_MODE_FIFO_KHR) {
             return presentMode;
@@ -200,6 +213,17 @@ static void cleanup_swapchain_targets(VulkanEngine* engine) {
     }
 }
 
+static void cleanup_swapchain_dependent_resources(VulkanEngine* engine) {
+    destroy_device_handle(engine->device, engine->graphicsPipeline, vkDestroyPipeline);
+    destroy_device_handle(engine->device, engine->pipelineLayout, vkDestroyPipelineLayout);
+    destroy_device_handle(engine->device, engine->depthImageView, vkDestroyImageView);
+    destroy_image_allocation(engine->allocator, engine->depthImage, engine->depthImageAllocation);
+    cleanup_swapchain_targets(engine);
+    destroy_device_handle(engine->device, engine->renderPass, vkDestroyRenderPass);
+    destroy_device_handle(engine->device, engine->swapchain, vkDestroySwapchainKHR);
+    engine->imageCount = 0;
+}
+
 static void cleanup_sync_objects(VulkanEngine* engine) {
     destroy_device_handle(engine->device, engine->renderFinishedSemaphore, vkDestroySemaphore);
     destroy_device_handle(engine->device, engine->imageAvailableSemaphore, vkDestroySemaphore);
@@ -219,14 +243,8 @@ static void cleanup_buffer_resources(VulkanEngine* engine) {
 }
 
 static void cleanup_render_resources(VulkanEngine* engine) {
-    destroy_device_handle(engine->device, engine->graphicsPipeline, vkDestroyPipeline);
-    destroy_device_handle(engine->device, engine->pipelineLayout, vkDestroyPipelineLayout);
-    destroy_device_handle(engine->device, engine->depthImageView, vkDestroyImageView);
-    destroy_image_allocation(engine->allocator, engine->depthImage, engine->depthImageAllocation);
-    cleanup_swapchain_targets(engine);
-    destroy_device_handle(engine->device, engine->renderPass, vkDestroyRenderPass);
+    cleanup_swapchain_dependent_resources(engine);
     destroy_device_handle(engine->device, engine->commandPool, vkDestroyCommandPool);
-    destroy_device_handle(engine->device, engine->swapchain, vkDestroySwapchainKHR);
 }
 
 static void cleanup_core_resources(VulkanEngine* engine) {
@@ -921,6 +939,41 @@ static bool init_commands_and_sync(VulkanEngine* engine) {
     return true;
 }
 
+static void update_animation_clock(VulkanEngine* engine) {
+    const auto now = std::chrono::steady_clock::now();
+
+    if (engine->lastFrameTimestamp.time_since_epoch().count() == 0) {
+        engine->lastFrameTimestamp = now;
+        return;
+    }
+
+    float deltaSeconds = std::chrono::duration<float>(now - engine->lastFrameTimestamp).count();
+    engine->lastFrameTimestamp = now;
+    deltaSeconds = std::clamp(deltaSeconds, 0.0f, 0.25f);
+
+    if (!engine->animationPaused) {
+        engine->animationTimeSeconds += deltaSeconds * engine->animationSpeed;
+    }
+}
+
+static bool recreate_swapchain_dependent_resources(VulkanEngine* engine) {
+    int width = 0;
+    int height = 0;
+    glfwGetFramebufferSize(engine->window, &width, &height);
+    while (width == 0 || height == 0) {
+        glfwWaitEvents();
+        glfwGetFramebufferSize(engine->window, &width, &height);
+    }
+
+    if (vkDeviceWaitIdle(engine->device) != VK_SUCCESS) {
+        return false;
+    }
+
+    cleanup_swapchain_dependent_resources(engine);
+
+    return init_swapchain(engine) && init_render_pass(engine) && init_pipeline(engine);
+}
+
 // --- FONCTIONS PUBLIQUES ---
 
 bool init_vulkan_engine(VulkanEngine* engine) {
@@ -929,7 +982,20 @@ bool init_vulkan_engine(VulkanEngine* engine) {
         cleanup_vulkan_engine(engine);
         return false;
     }
-    printf("Vulkan initialise avec succes !\n");
+    engine->animationTimeSeconds = 0.0f;
+    engine->animationSpeed = 1.0f;
+    engine->animationPaused = false;
+    engine->pauseKeyWasDown = false;
+    engine->resetKeyWasDown = false;
+    engine->speedUpKeyWasDown = false;
+    engine->speedDownKeyWasDown = false;
+    engine->fullscreenKeyWasDown = false;
+    engine->escapeKeyWasDown = false;
+    engine->isFullscreen = false;
+    glfwGetWindowPos(engine->window, &engine->windowedPosX, &engine->windowedPosY);
+    glfwGetWindowSize(engine->window, &engine->windowedWidth, &engine->windowedHeight);
+    engine->lastFrameTimestamp = std::chrono::steady_clock::now();
+    LOG_INFO("engine", "Vulkan initialise avec succes !");
     return true;
 }
 
@@ -943,15 +1009,17 @@ bool draw_frame(VulkanEngine* engine) {
 
     uint32_t idx;
     const VkResult acquireResult = vkAcquireNextImageKHR(engine->device, engine->swapchain, UINT64_MAX, engine->imageAvailableSemaphore, nullptr, &idx);
+    if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR) {
+        return recreate_swapchain_dependent_resources(engine);
+    }
     if (acquireResult != VK_SUCCESS && acquireResult != VK_SUBOPTIMAL_KHR) {
         return false;
     }
     engine->lastRenderedImageIndex = idx;
 
-    static auto start = std::chrono::high_resolution_clock::now();
-    float t = std::chrono::duration<float>(std::chrono::high_resolution_clock::now() - start).count();
+    update_animation_clock(engine);
 
-    glm::mat4 model = glm::rotate(glm::mat4(1.0f), t * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    glm::mat4 model = glm::rotate(glm::mat4(1.0f), engine->animationTimeSeconds * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
     glm::mat4 view = glm::lookAt(glm::vec3(0.0f, 0.0f, 3.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
     glm::mat4 proj = glm::perspective(glm::radians(45.f),
                                       static_cast<float>(engine->swapchainExtent.width) / static_cast<float>(engine->swapchainExtent.height), 0.1f, 10.f);
@@ -1020,7 +1088,10 @@ bool draw_frame(VulkanEngine* engine) {
     pri.pSwapchains = &engine->swapchain;
     pri.pImageIndices = &idx;
     const VkResult presentResult = vkQueuePresentKHR(engine->presentQueue, &pri);
-    return presentResult == VK_SUCCESS || presentResult == VK_SUBOPTIMAL_KHR;
+    if (presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_SUBOPTIMAL_KHR) {
+        return recreate_swapchain_dependent_resources(engine);
+    }
+    return presentResult == VK_SUCCESS;
 }
 
 void cleanup_vulkan_engine(VulkanEngine* engine) {

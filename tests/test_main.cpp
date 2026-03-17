@@ -1,6 +1,6 @@
+#include "app_log.h"
 #include "vk_engine.h"
 #include <cstdlib>
-#include <stdio.h>
 
 // On réduit au silence les warnings de la lib tierce pour le compilateur
 #if defined(__GNUC__) || defined(__clang__)
@@ -132,9 +132,9 @@ static bool verify_and_capture_frame(VulkanEngine* engine, const char* debugFile
     if (saveFrame != nullptr && saveFrame[0] != '\0') {
         // NOLINTNEXTLINE(clang-analyzer-optin.portability.UnixAPI)
         if (stbi_write_png(debugFilename, width, height, 4, data, width * 4)) {
-            printf("Frame sauvegardée sous : %s\n", debugFilename);
+            LOG_INFO("test", "Frame sauvegardee sous : %s", debugFilename);
         } else {
-            fprintf(stderr, "WARNING: impossible de sauvegarder la frame de debug (%s).\n", debugFilename);
+            LOG_WARNING("test", "Impossible de sauvegarder la frame de debug (%s).", debugFilename);
         }
     }
 
@@ -164,10 +164,10 @@ static bool test_integration_rendering() {
 
 int main() {
     if (!test_integration_rendering()) {
-        fprintf(stderr, "ERREUR : Le test d'intégration de rendu a échoué.\n");
+        LOG_ERROR("test", "Le test d'integration de rendu a echoue.");
         return 1;
     }
 
-    printf("TEST PASS : Image générée et validée.\n");
+    LOG_INFO("test", "TEST PASS : Image generee et validee.");
     return 0;
 }

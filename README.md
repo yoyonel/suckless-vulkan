@@ -57,15 +57,44 @@ This repository is a Vulkan-based rendering engine foundation focused on:
 ### Build and run
 
 ```bash
+just help
 just build
 just run
 ```
+
+Runtime controls:
+
+- `Space`: pause/resume animation
+- `Up`: increase animation speed
+- `Down`: decrease animation speed
+- `R`: reset animation time
+- `F11`: toggle fullscreen/windowed mode
+- `Esc`: cleanly exit the application
+
+The renderer now prefers an uncapped present mode when the Vulkan driver/compositor exposes one, and falls back automatically to a synchronized mode otherwise.
+
+Logging:
+
+- Structured logger enabled for app and tests (timestamp, pid/tid, tag, level).
+- Log level can be configured with `VULKAN_LOG_LEVEL` (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`).
+- Backward compatibility: `OGL_LOG_LEVEL` is also accepted.
 
 ### Run integration tests
 
 ```bash
 just test
 ```
+
+Targeted test flow:
+
+- `just test-integration`: run only `EngineIntegrationTest`
+- `just test-logic`: run only `LogicTests`
+- `just test-all`: run `EngineIntegrationTest` then `LogicTests`
+
+Coverage flow (unit/logical tests):
+
+- `just coverage`: build with coverage flags, run `LogicTests`, generate reports
+- Reports are written to `build/coverage/reports/` (`coverage.txt`, `coverage.xml`, `coverage.html`)
 
 To force saving a rendered frame:
 

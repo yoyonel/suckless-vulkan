@@ -1,27 +1,30 @@
+#include "app_log.h"
+#include "runtime_controls.h"
 #include "vk_engine.h"
-#include <stdio.h>
 
 int main() {
     VulkanEngine engine = {};
 
-    printf("Initialisation de Vulkan...\n");
+    LOG_INFO("app", "Initialisation de Vulkan...");
     if (!init_vulkan_engine(&engine)) {
-        printf("Echec de l'initialisation.\n");
+        LOG_CRITICAL("app", "Echec de l'initialisation.");
         return -1;
     }
-    printf("Vulkan initialise avec succes ! La fenetre devrait apparaitre.\n");
+    LOG_INFO("app", "Vulkan initialise avec succes ! La fenetre devrait apparaitre.");
+    LOG_INFO("app", "Controles: Espace pause/reprise, Fleche haut accelere, Fleche bas ralentit, R reinitialise, F11 fullscreen/fenetre, ESC quitter.");
 
     // main  loop
     while (!glfwWindowShouldClose(engine.window)) {
         glfwPollEvents();
+        runtime_update_controls(&engine, runtime_default_window_ops());
         if (!draw_frame(&engine)) {
-            fprintf(stderr, "Echec du rendu d'une frame.\n");
+            LOG_ERROR("app", "Echec du rendu d'une frame.");
             cleanup_vulkan_engine(&engine);
             return 1;
         }
     }
 
-    printf("Nettoyage et fermeture...\n");
+    LOG_INFO("app", "Nettoyage et fermeture...");
     cleanup_vulkan_engine(&engine);
     return 0;
 }
