@@ -29,12 +29,14 @@ Le fichier `vk_engine.cpp` orchestre l'initialisation complète de l'API Vulkan.
 1. **Graphics Pipeline (`init_pipeline`) :**
 
    - Configuration de l'état global du GPU (Viewport, Rasterizer, Blending).
-   - Définition de la structure des sommets (`VertexInputState`).
+   - Définition de la structure des sommets : deux bindings vertex — `RATE_VERTEX` (géométrie) et `RATE_INSTANCE` (offsets d'instancing).
    - Chargement et compilation des shaders SPIR-V (`.spv`).
 
-1. **Buffers Géométriques (`init_buffers`) :**
+1. **Buffers Géométriques et d'Instancing (`init_buffers`) :**
 
-   - Création des *Vertex Buffers* via VMA pour stocker la géométrie en VRAM.
+   - Création du *Vertex Buffer* (sommets de la sphère) et de l'*Index Buffer* via VMA en VRAM.
+   - Création de l'*Instance Buffer* : 100 positions `glm::vec3` en grille 10 × 10, uploadé en GPU-only via staging buffer.
+   - Création de l'UBO persistant (`CPU_TO_GPU`) contenant `vp` + `modelRotation`.
 
 1. **Synchronisation (`init_commands_and_sync`) :**
 
