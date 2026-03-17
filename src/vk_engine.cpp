@@ -53,6 +53,10 @@ static void update_camera_key_state(VulkanEngine* engine);
 static void handle_runtime_input(VulkanEngine* engine);
 static void mouse_callback(GLFWwindow* window, double xpos, double ypos);
 static void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
+static bool start_hdr_io_thread(VulkanEngine* engine);
+static void stop_hdr_io_thread(VulkanEngine* engine);
+static void request_environment_texture_async(VulkanEngine* engine, int newHdrIndex);
+static void process_ready_environment_texture(VulkanEngine* engine);
 
 static bool has_required_device_extensions(VkPhysicalDevice physicalDevice) {
     uint32_t extensionCount = 0;
@@ -978,30 +982,10 @@ static bool init_environment_catalog(VulkanEngine* engine) {
     return true;
 }
 
-static bool init_environment_texture_from_path(VulkanEngine* engine, const std::string& hdrPath) {
-
-    int width = 1;
-    int height = 1;
-    int channels = 0;
-    float* pixels = nullptr;
-    bool usedStbi = false;
-    std::vector<float> fallbackPixels;
-
-    if (hdrPath.empty()) {
-        LOG_INFO("engine", "Aucun fichier HDR trouve dans assets/textures/hdr, utilisation d'une texture fallback 1x1");
-        fallbackPixels = {0.0f, 0.0f, 0.0f, 1.0f};
-        pixels = fallbackPixels.data();
-    } else {
-        pixels = stbi_loadf(hdrPath.c_str(), &width, &height, &channels, 4);
-        if (pixels == nullptr || width <= 0 || height <= 0) {
-            LOG_WARNING("engine", "Echec du chargement HDR: %s, utilisation d'une texture fallback 1x1", hdrPath.c_str());
-            width = 1;
-            height = 1;
-            fallbackPixels = {0.0f, 0.0f, 0.0f, 1.0f};
-            pixels = fallbackPixels.data();
-        } else {
-            usedStbi = true;
-        }
+static bool init_environment_texture_from_pixels(VulkanEngine* engine, const float* pixels, int width, int height, const std::string& sourceLabel,
+                                                 bool isFallback) {
+    if (pixels == nullptr || width <= 0 || height <= 0) {
+        return false;
     }
 
     const VkDeviceSize imageSize = static_cast<VkDeviceSize>(width) * static_cast<VkDeviceSize>(height) * 4 * sizeof(float);
@@ -1026,25 +1010,16 @@ static bool init_environment_texture_from_path(VulkanEngine* engine, const std::
     stagingAllocInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
 
     if (vmaCreateBuffer(engine->allocator, &bufferInfo, &stagingAllocInfo, &stagingBuffer, &stagingAllocation, nullptr) != VK_SUCCESS) {
-        if (usedStbi) {
-            stbi_image_free(pixels);
-        }
         return false;
     }
 
     void* mapped = nullptr;
     if (vmaMapMemory(engine->allocator, stagingAllocation, &mapped) != VK_SUCCESS) {
-        if (usedStbi) {
-            stbi_image_free(pixels);
-        }
         vmaDestroyBuffer(engine->allocator, stagingBuffer, stagingAllocation);
         return false;
     }
     memcpy(mapped, pixels, static_cast<size_t>(imageSize));
     vmaUnmapMemory(engine->allocator, stagingAllocation);
-    if (usedStbi) {
-        stbi_image_free(pixels);
-    }
 
     VkImageCreateInfo imageInfo{};
     imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -1155,12 +1130,37 @@ static bool init_environment_texture_from_path(VulkanEngine* engine, const std::
         return false;
     }
 
-    if (hdrPath.empty()) {
+    if (isFallback) {
         LOG_INFO("engine", "HDR map fallback 1x1 initialisee (%dx%d, mips=%u)", width, height, engine->envHdrMipLevels);
     } else {
-        LOG_INFO("engine", "HDR map chargee: %s (%dx%d, mips=%u)", hdrPath.c_str(), width, height, engine->envHdrMipLevels);
+        LOG_INFO("engine", "HDR map chargee: %s (%dx%d, mips=%u)", sourceLabel.c_str(), width, height, engine->envHdrMipLevels);
     }
     return true;
+}
+
+static bool init_environment_texture_from_path(VulkanEngine* engine, const std::string& hdrPath) {
+    int width = 1;
+    int height = 1;
+    int channels = 0;
+    float* loadedPixels = nullptr;
+    std::vector<float> fallbackPixels;
+
+    if (hdrPath.empty()) {
+        LOG_INFO("engine", "Aucun fichier HDR trouve dans assets/textures/hdr, utilisation d'une texture fallback 1x1");
+        fallbackPixels = {0.0f, 0.0f, 0.0f, 1.0f};
+        return init_environment_texture_from_pixels(engine, fallbackPixels.data(), width, height, "fallback-1x1", true);
+    }
+
+    loadedPixels = stbi_loadf(hdrPath.c_str(), &width, &height, &channels, 4);
+    if (loadedPixels == nullptr || width <= 0 || height <= 0) {
+        LOG_WARNING("engine", "Echec du chargement HDR: %s, utilisation d'une texture fallback 1x1", hdrPath.c_str());
+        fallbackPixels = {0.0f, 0.0f, 0.0f, 1.0f};
+        return init_environment_texture_from_pixels(engine, fallbackPixels.data(), 1, 1, "fallback-1x1", true);
+    }
+
+    const bool ok = init_environment_texture_from_pixels(engine, loadedPixels, width, height, hdrPath, false);
+    stbi_image_free(loadedPixels);
+    return ok;
 }
 
 static bool init_environment_texture(VulkanEngine* engine) {
@@ -1186,25 +1186,164 @@ static void update_environment_descriptor(VulkanEngine* engine) {
     vkUpdateDescriptorSets(engine->device, 1, &write, 0, nullptr);
 }
 
-static bool reload_environment_texture(VulkanEngine* engine, int newHdrIndex) {
-    if (newHdrIndex < 0 || newHdrIndex >= static_cast<int>(engine->hdrFiles.size())) {
+static void hdr_io_thread_main(VulkanEngine* engine) {
+    for (;;) {
+        HdrLoadRequest request{};
+
+        {
+            std::unique_lock<std::mutex> lock(engine->hdrLoadMutex);
+            engine->hdrLoadCV.wait(lock, [engine] { return !engine->hdrIoThreadRunning || !engine->hdrLoadQueue.empty(); });
+            if (!engine->hdrIoThreadRunning && engine->hdrLoadQueue.empty()) {
+                return;
+            }
+
+            request = std::move(engine->hdrLoadQueue.front());
+            engine->hdrLoadQueue.pop();
+            request.state = HdrLoadRequestState::Loading;
+            engine->hdrLoadInFlight = true;
+        }
+
+        if (request.hdrIndex >= 0 && request.hdrIndex < static_cast<int>(engine->hdrFiles.size())) {
+            const std::string hdrPath = engine->hdrFiles[static_cast<size_t>(request.hdrIndex)];
+            int width = 0;
+            int height = 0;
+            int channels = 0;
+            float* pixels = stbi_loadf(hdrPath.c_str(), &width, &height, &channels, 4);
+            if (pixels != nullptr && width > 0 && height > 0) {
+                request.width = static_cast<uint32_t>(width);
+                request.height = static_cast<uint32_t>(height);
+                request.channels = 4;
+                request.sourcePathOrLabel = hdrPath;
+                request.pixelData.resize(static_cast<size_t>(width) * static_cast<size_t>(height) * 4U);
+                memcpy(request.pixelData.data(), pixels, request.pixelData.size() * sizeof(float));
+                request.state = HdrLoadRequestState::Ready;
+            } else {
+                request.state = HdrLoadRequestState::Failed;
+            }
+            if (pixels != nullptr) {
+                stbi_image_free(pixels);
+            }
+        } else {
+            request.state = HdrLoadRequestState::Failed;
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(engine->hdrLoadMutex);
+            engine->hdrReadyQueue.push(std::move(request));
+            engine->hdrLoadInFlight = false;
+        }
+    }
+}
+
+static bool start_hdr_io_thread(VulkanEngine* engine) {
+    {
+        std::lock_guard<std::mutex> lock(engine->hdrLoadMutex);
+        engine->hdrIoThreadRunning = true;
+        engine->hdrLoadInFlight = false;
+        engine->pendingHdrIndex = -1;
+    }
+
+    try {
+        engine->hdrIoThread = std::thread(hdr_io_thread_main, engine);
+    } catch (...) {
+        std::lock_guard<std::mutex> lock(engine->hdrLoadMutex);
+        engine->hdrIoThreadRunning = false;
         return false;
+    }
+
+    return true;
+}
+
+static void stop_hdr_io_thread(VulkanEngine* engine) {
+    {
+        std::lock_guard<std::mutex> lock(engine->hdrLoadMutex);
+        engine->hdrIoThreadRunning = false;
+        engine->pendingHdrIndex = -1;
+    }
+    engine->hdrLoadCV.notify_all();
+
+    if (engine->hdrIoThread.joinable()) {
+        engine->hdrIoThread.join();
+    }
+
+    std::lock_guard<std::mutex> lock(engine->hdrLoadMutex);
+    engine->hdrLoadInFlight = false;
+    while (!engine->hdrLoadQueue.empty()) {
+        engine->hdrLoadQueue.pop();
+    }
+    while (!engine->hdrReadyQueue.empty()) {
+        engine->hdrReadyQueue.pop();
+    }
+}
+
+static void request_environment_texture_async(VulkanEngine* engine, int newHdrIndex) {
+    if (newHdrIndex < 0 || newHdrIndex >= static_cast<int>(engine->hdrFiles.size()) || newHdrIndex == engine->currentHdrIndex) {
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(engine->hdrLoadMutex);
+    if (engine->pendingHdrIndex == newHdrIndex) {
+        return;
+    }
+
+    while (!engine->hdrLoadQueue.empty()) {
+        engine->hdrLoadQueue.pop();
+    }
+
+    HdrLoadRequest request{};
+    request.hdrIndex = newHdrIndex;
+    request.state = HdrLoadRequestState::Pending;
+    request.width = 0;
+    request.height = 0;
+    request.channels = 0;
+    engine->hdrLoadQueue.push(std::move(request));
+    engine->pendingHdrIndex = newHdrIndex;
+    engine->hdrLoadCV.notify_one();
+
+    LOG_INFO("runtime", "Chargement HDR async demande: %s", get_filename_from_path(engine->hdrFiles[static_cast<size_t>(newHdrIndex)]).c_str());
+}
+
+static void process_ready_environment_texture(VulkanEngine* engine) {
+    HdrLoadRequest ready{};
+    bool hasReady = false;
+
+    {
+        std::lock_guard<std::mutex> lock(engine->hdrLoadMutex);
+        while (!engine->hdrReadyQueue.empty()) {
+            ready = std::move(engine->hdrReadyQueue.front());
+            engine->hdrReadyQueue.pop();
+            hasReady = true;
+        }
+        if (hasReady && engine->pendingHdrIndex == ready.hdrIndex) {
+            engine->pendingHdrIndex = -1;
+        }
+    }
+
+    if (!hasReady) {
+        return;
+    }
+
+    if (ready.state != HdrLoadRequestState::Ready || ready.pixelData.empty() || ready.width == 0 || ready.height == 0) {
+        LOG_ERROR("runtime", "Echec du chargement async HDR");
+        return;
     }
 
     if (vkDeviceWaitIdle(engine->device) != VK_SUCCESS) {
-        return false;
+        LOG_ERROR("runtime", "Impossible de synchroniser le device avant upload HDR async");
+        return;
     }
 
     cleanup_environment_resources(engine);
-    engine->currentHdrIndex = newHdrIndex;
-    if (!init_environment_texture(engine)) {
-        return false;
+    if (!init_environment_texture_from_pixels(engine, ready.pixelData.data(), static_cast<int>(ready.width), static_cast<int>(ready.height),
+                                              ready.sourcePathOrLabel, false)) {
+        LOG_ERROR("runtime", "Upload GPU HDR async echoue");
+        return;
     }
 
+    engine->currentHdrIndex = ready.hdrIndex;
     update_environment_descriptor(engine);
     engine->envLod = std::clamp(engine->envLod, kMinEnvLod, static_cast<float>(engine->envHdrMipLevels > 0 ? engine->envHdrMipLevels - 1 : 0));
-    LOG_INFO("runtime", "HDR actif: %s", get_filename_from_path(engine->hdrFiles[static_cast<size_t>(engine->currentHdrIndex)]).c_str());
-    return true;
+    LOG_INFO("runtime", "HDR actif: %s", get_filename_from_path(ready.sourcePathOrLabel).c_str());
 }
 
 static void switch_environment_texture(VulkanEngine* engine, int direction) {
@@ -1220,9 +1359,7 @@ static void switch_environment_texture(VulkanEngine* engine, int direction) {
         nextIndex = hdrCount - 1;
     }
 
-    if (!reload_environment_texture(engine, nextIndex)) {
-        LOG_ERROR("runtime", "Echec du changement d'envmap HDR");
-    }
+    request_environment_texture_async(engine, nextIndex);
 }
 
 static bool is_shift_down(GLFWwindow* window) {
@@ -1607,11 +1744,18 @@ bool init_vulkan_engine(VulkanEngine* engine) {
     engine->showEnvmap = true;
     engine->envLod = 0.0f;
     engine->lastFrameDeltaSeconds = 0.0f;
+    engine->hdrIoThreadRunning = false;
+    engine->hdrLoadInFlight = false;
+    engine->pendingHdrIndex = -1;
     camera_init(&engine->camera);
     glfwSetInputMode(engine->window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
     glfwGetWindowPos(engine->window, &engine->windowedPosX, &engine->windowedPosY);
     glfwGetWindowSize(engine->window, &engine->windowedWidth, &engine->windowedHeight);
     engine->lastFrameTimestamp = std::chrono::steady_clock::now();
+    if (!start_hdr_io_thread(engine)) {
+        cleanup_vulkan_engine(engine);
+        return false;
+    }
     LOG_INFO("engine", "Vulkan initialise avec succes !");
     return true;
 }
@@ -1625,6 +1769,7 @@ bool draw_frame(VulkanEngine* engine) {
     }
 
     update_animation_clock(engine);
+    process_ready_environment_texture(engine);
     handle_runtime_input(engine);
     update_camera_key_state(engine);
     camera_fixed_update(&engine->camera, engine->lastFrameDeltaSeconds);
@@ -1740,6 +1885,8 @@ bool draw_frame(VulkanEngine* engine) {
 }
 
 void cleanup_vulkan_engine(VulkanEngine* engine) {
+    stop_hdr_io_thread(engine);
+
     if (engine->device != VK_NULL_HANDLE) {
         vkDeviceWaitIdle(engine->device);
     }

@@ -32,7 +32,7 @@ Implementation :
 - Bascule fullscreen testable via `WindowOps` (injection des operations GLFW).
 - Camera souris via callbacks GLFW (`glfwSetCursorPosCallback`, `glfwSetScrollCallback`) et integration avec `src/camera.cpp`.
 - Skybox HDR fullscreen via pipeline dedie (`shaders/skybox.vert`, `shaders/skybox.frag`) + catalogue des `.hdr` charges depuis `assets/textures/hdr`.
-- Changement d'envmap runtime synchrone avec rechargement image/sampler + mise a jour du descriptor set Vulkan.
+- Changement d'envmap runtime avec decode async (thread IO) puis activation GPU sur le thread render + mise a jour du descriptor set Vulkan.
 - La fermeture est demandee via `glfwSetWindowShouldClose`, puis la boucle sort et appelle le cleanup Vulkan.
 
 ## Systeme de Camera Cinetique

@@ -40,7 +40,7 @@ Effet attendu:
 
 ## Etat Actuel du Chargement HDR
 
-Le chargement est synchronise et fonctionne maintenant avec un catalogue runtime:
+Le chargement combine maintenant une etape async (IO/decode CPU) et une etape GPU sur thread render:
 
 - Scan de tous les `.hdr` presents dans `assets/textures/hdr`.
 - Selection de l'envmap active par index (`currentHdrIndex`), avec preference pour `env.hdr` si present.
@@ -48,14 +48,15 @@ Le chargement est synchronise et fonctionne maintenant avec un catalogue runtime
 - Upload via staging buffer CPU -> image Vulkan (`VK_FORMAT_R32G32B32A32_SFLOAT`).
 - Generation de mips par blit si support du format (sinon mip chain reduite a 1).
 - Creation de `VkImageView` + `VkSampler` et binding descriptor.
-- Rechargement runtime synchrone possible via `PageUp/PageDown` avec mise a jour du descriptor set.
+- Changement runtime via `PageUp/PageDown`: requete async puis activation lorsque la texture est prete.
 
 Code principal:
 
 - `find_hdr_paths()` dans `src/vk_engine.cpp`
 - `init_environment_catalog()` dans `src/vk_engine.cpp`
 - `init_environment_texture()` dans `src/vk_engine.cpp`
-- `reload_environment_texture()` dans `src/vk_engine.cpp`
+- `request_environment_texture_async()` dans `src/vk_engine.cpp`
+- `process_ready_environment_texture()` dans `src/vk_engine.cpp`
 
 ## Fallback Actuel (CI et environnements sans assets)
 
@@ -74,7 +75,7 @@ Benefices:
 
 ## Limites de l'Implementation Courante
 
-- Chargement synchrone (potentiel freeze startup et hitch pendant switch runtime).
+- Upload GPU toujours effectue sur thread render (cout non nul mais decode disque/CPU retire du chemin critique).
 - Pas de prefetch multi-HDR.
 - Pas de transition visuelle pendant le switch.
 - Pas de swap asynchrone atomique des ressources envmap.
@@ -102,6 +103,13 @@ Etat: partiellement implemente.
 - Decode HDR hors thread render.
 - File de requetes avec annulation/coalescing (garder la derniere requete utile).
 - Eviter copies inutiles (buffer ownership clair, move semantics).
+
+Etat: implemente.
+
+- Thread IO (`hdrIoThread`) actif pendant la vie du moteur.
+- Requetes `PageUp/PageDown` coalescees (on garde la derniere demande utile).
+- Decode `stbi_loadf` execute hors thread render.
+- Resultat transfere au thread render via `hdrReadyQueue` puis upload GPU + descriptor update.
 
 ## Phase C: Upload GPU non bloquant
 
