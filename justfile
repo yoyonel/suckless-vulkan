@@ -10,6 +10,8 @@ help:
     @echo "Recettes les plus utiles:"
     @echo "  just build                # build release"
     @echo "  just run                  # build + execution"
+    @echo "  just renderdoc            # launch qrenderdoc with debug build"
+    @echo "  just renderdoc-debug-shaders # launch qrenderdoc with shader debug info (-g -O0/-Od)"
     @echo "  just test                 # tous les tests CTest (release)"
     @echo "  just test-all             # flow explicite: integration + logic"
     @echo "  just test-integration     # EngineIntegrationTest uniquement"
@@ -79,6 +81,31 @@ shaders:
         echo "Génération .spvasm ignorée (glslc requis)."; \
     fi
 
+# Compile les shaders GLSL en SPIR-V orienté debug RenderDoc (source-level):
+# - glslc: -g -O0
+
+# - glslangValidator: -g -Od
+shaders-debug:
+    @echo "Compilation des shaders en mode debug RenderDoc (-g, sans optimisations)..."
+    @if command -v glslc >/dev/null 2>&1; then \
+        glslc -g -O0 shaders/shader.vert -o shaders/vert.spv; \
+        glslc -g -O0 shaders/shader.frag -o shaders/frag.spv; \
+        glslc -g -O0 shaders/skybox.vert -o shaders/skybox_vert.spv; \
+        glslc -g -O0 shaders/skybox.frag -o shaders/skybox_frag.spv; \
+        echo "Génération de l'assembleur SPIR-V (.spvasm) en mode debug..."; \
+        glslc -g -O0 -S shaders/shader.vert -o shaders/vert.spvasm; \
+        glslc -g -O0 -S shaders/shader.frag -o shaders/frag.spvasm; \
+        glslc -g -O0 -S shaders/skybox.vert -o shaders/skybox_vert.spvasm; \
+        glslc -g -O0 -S shaders/skybox.frag -o shaders/skybox_frag.spvasm; \
+    else \
+        echo "glslc introuvable, fallback sur glslangValidator debug (-g -Od)"; \
+        glslangValidator -g -Od -V shaders/shader.vert -o shaders/vert.spv; \
+        glslangValidator -g -Od -V shaders/shader.frag -o shaders/frag.spv; \
+        glslangValidator -g -Od -V shaders/skybox.vert -o shaders/skybox_vert.spv; \
+        glslangValidator -g -Od -V shaders/skybox.frag -o shaders/skybox_frag.spv; \
+        echo "Génération .spvasm ignorée (glslc requis)."; \
+    fi
+
 # Compile l'application en Release.
 build: configure shaders
     @echo "Compilation Release..."
@@ -87,6 +114,11 @@ build: configure shaders
 # Compile l'application en Debug.
 build-debug: configure-debug shaders
     @echo "Compilation Debug..."
+    @cmake --build build/debug -j$(nproc)
+
+# Compile l'application en Debug avec shaders compilés pour un debug pixel lisible dans RenderDoc.
+build-debug-renderdoc: configure-debug shaders-debug
+    @echo "Compilation Debug (profil RenderDoc shader debug)..."
     @cmake --build build/debug -j$(nproc)
 
 # Compile l'application en Debug avec ASan/UBSan.
@@ -112,6 +144,12 @@ run-asan: build-asan
 
 # Utilisation : just renderdoc_bin=/chemin/vers/qrenderdoc renderdoc
 renderdoc: build-debug
+    @{{ renderdoc_bin }} --working-dir . ./build/debug/vulkan_app
+
+# Utilisation : just renderdoc_bin=/chemin/vers/qrenderdoc renderdoc-debug-shaders
+
+# Lance qrenderdoc avec shaders compilés en -g sans optimisation (plus lisible en Pixel Debugger).
+renderdoc-debug-shaders: build-debug-renderdoc
     @{{ renderdoc_bin }} --working-dir . ./build/debug/vulkan_app
 
 # Exécute tous les tests CTest du build release.

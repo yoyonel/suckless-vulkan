@@ -384,6 +384,8 @@ bool init_core(VulkanEngine* engine) {
 
     vkGetDeviceQueue(engine->device, engine->graphicsQueueFamilyIndex, 0, &engine->graphicsQueue);
     vkGetDeviceQueue(engine->device, engine->presentQueueFamilyIndex, 0, &engine->presentQueue);
+    vk_set_object_name(engine->device, (uint64_t)engine->graphicsQueue, VK_OBJECT_TYPE_QUEUE, "Graphics_Queue");
+    vk_set_object_name(engine->device, (uint64_t)engine->presentQueue, VK_OBJECT_TYPE_QUEUE, "Present_Queue");
     return true;
 }
 
@@ -487,6 +489,8 @@ bool init_swapchain(VulkanEngine* engine) {
         if (vkCreateImageView(engine->device, &viewInfo, NULL, &engine->swapchainImageViews[i]) != VK_SUCCESS) {
             return false;
         }
+        const std::string swapchainViewName = "Swapchain_ImageView_" + std::to_string(i);
+        vk_set_object_name(engine->device, (uint64_t)engine->swapchainImageViews[i], VK_OBJECT_TYPE_IMAGE_VIEW, swapchainViewName.c_str());
     }
 
     engine->depthFormat = find_depth_format(engine->physicalDevice);
@@ -521,7 +525,11 @@ bool init_swapchain(VulkanEngine* engine) {
     depthViewInfo.subresourceRange.levelCount = 1;
     depthViewInfo.subresourceRange.layerCount = 1;
     const VkResult depthImageViewResult = vkCreateImageView(engine->device, &depthViewInfo, nullptr, &engine->depthImageView);
-    return depthImageViewResult == VK_SUCCESS;
+    if (depthImageViewResult != VK_SUCCESS) {
+        return false;
+    }
+    vk_set_object_name(engine->device, (uint64_t)engine->depthImageView, VK_OBJECT_TYPE_IMAGE_VIEW, "Depth_Buffer_ImageView");
+    return true;
 }
 
 bool init_render_pass(VulkanEngine* engine) {
@@ -573,6 +581,8 @@ bool init_render_pass(VulkanEngine* engine) {
         if (vkCreateFramebuffer(engine->device, &fbInfo, NULL, &engine->swapchainFramebuffers[i]) != VK_SUCCESS) {
             return false;
         }
+        const std::string framebufferName = "Swapchain_Framebuffer_" + std::to_string(i);
+        vk_set_object_name(engine->device, (uint64_t)engine->swapchainFramebuffers[i], VK_OBJECT_TYPE_FRAMEBUFFER, framebufferName.c_str());
     }
     return true;
 }
@@ -593,7 +603,11 @@ bool init_descriptor_layout(VulkanEngine* engine) {
     info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
     info.bindingCount = 2;
     info.pBindings = bindings;
-    return vkCreateDescriptorSetLayout(engine->device, &info, nullptr, &engine->descriptorSetLayout) == VK_SUCCESS;
+    if (vkCreateDescriptorSetLayout(engine->device, &info, nullptr, &engine->descriptorSetLayout) != VK_SUCCESS) {
+        return false;
+    }
+    vk_set_object_name(engine->device, (uint64_t)engine->descriptorSetLayout, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, "Global_DescriptorSetLayout");
+    return true;
 }
 
 VkShaderModule load_shader(VkDevice device, const char* path) {
@@ -637,6 +651,11 @@ bool init_pipeline(VulkanEngine* engine) {
         }
         return false;
     }
+
+    vk_set_object_name(engine->device, (uint64_t)vsm, VK_OBJECT_TYPE_SHADER_MODULE, "Icosphere_Vertex_Shader");
+    vk_set_object_name(engine->device, (uint64_t)fsm, VK_OBJECT_TYPE_SHADER_MODULE, "Icosphere_Fragment_Shader");
+    vk_set_object_name(engine->device, (uint64_t)skyboxVsm, VK_OBJECT_TYPE_SHADER_MODULE, "Skybox_Vertex_Shader");
+    vk_set_object_name(engine->device, (uint64_t)skyboxFsm, VK_OBJECT_TYPE_SHADER_MODULE, "Skybox_Fragment_Shader");
 
     VkPipelineShaderStageCreateInfo stages[2] = {};
     stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -727,6 +746,7 @@ bool init_pipeline(VulkanEngine* engine) {
         vkDestroyShaderModule(engine->device, skyboxFsm, nullptr);
         return false;
     }
+    vk_set_object_name(engine->device, (uint64_t)engine->pipelineLayout, VK_OBJECT_TYPE_PIPELINE_LAYOUT, "Main_Pipeline_Layout");
 
     VkGraphicsPipelineCreateInfo pipeInfo{};
     pipeInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
@@ -809,6 +829,7 @@ bool init_buffers(VulkanEngine* engine) {
     if (vkCreateCommandPool(engine->device, &cpIn, nullptr, &engine->commandPool) != VK_SUCCESS) {
         return false;
     }
+    vk_set_object_name(engine->device, (uint64_t)engine->commandPool, VK_OBJECT_TYPE_COMMAND_POOL, "Main_Command_Pool");
 
     auto create_gpu_buffer = [&](VkDeviceSize size, VkBufferUsageFlags usage, const void* srcData, VkBuffer& buf, VmaAllocation& alloc,
                                  const char* name) -> bool {
@@ -822,6 +843,10 @@ bool init_buffers(VulkanEngine* engine) {
         stgAl.usage = VMA_MEMORY_USAGE_CPU_ONLY;
         if (vmaCreateBuffer(engine->allocator, &stgIn, &stgAl, &staging, &stgAlloc, nullptr) != VK_SUCCESS) {
             return false;
+        }
+        {
+            const std::string stagingBufferName = std::string(name) + "_Staging_Buffer";
+            vk_set_object_name(engine->device, (uint64_t)staging, VK_OBJECT_TYPE_BUFFER, stagingBufferName.c_str());
         }
 
         void* map = nullptr;
@@ -857,6 +882,10 @@ bool init_buffers(VulkanEngine* engine) {
             alloc = VK_NULL_HANDLE;
             vmaDestroyBuffer(engine->allocator, staging, stgAlloc);
             return false;
+        }
+        {
+            const std::string stagingCbName = std::string(name) + "_Staging_CommandBuffer";
+            vk_set_object_name(engine->device, (uint64_t)stagingCb, VK_OBJECT_TYPE_COMMAND_BUFFER, stagingCbName.c_str());
         }
         VkCommandBufferBeginInfo bi{};
         bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -959,6 +988,7 @@ bool init_descriptor_pool_and_sets(VulkanEngine* engine) {
     if (vkCreateDescriptorPool(engine->device, &pIn, nullptr, &engine->descriptorPool) != VK_SUCCESS) {
         return false;
     }
+    vk_set_object_name(engine->device, (uint64_t)engine->descriptorPool, VK_OBJECT_TYPE_DESCRIPTOR_POOL, "Global_Descriptor_Pool");
 
     VkDescriptorSetAllocateInfo ai{};
     ai.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -968,6 +998,7 @@ bool init_descriptor_pool_and_sets(VulkanEngine* engine) {
     if (vkAllocateDescriptorSets(engine->device, &ai, &engine->descriptorSet) != VK_SUCCESS) {
         return false;
     }
+    vk_set_object_name(engine->device, (uint64_t)engine->descriptorSet, VK_OBJECT_TYPE_DESCRIPTOR_SET, "Global_Descriptor_Set");
 
     VkDescriptorBufferInfo bi{};
     bi.buffer = engine->uniformBuffer;
@@ -1018,9 +1049,11 @@ bool init_commands_and_sync(VulkanEngine* engine) {
     if (vkCreateSemaphore(engine->device, &si, nullptr, &engine->imageAvailableSemaphore) != VK_SUCCESS) {
         return false;
     }
+    vk_set_object_name(engine->device, (uint64_t)engine->imageAvailableSemaphore, VK_OBJECT_TYPE_SEMAPHORE, "Image_Available_Semaphore");
     if (vkCreateSemaphore(engine->device, &si, nullptr, &engine->renderFinishedSemaphore) != VK_SUCCESS) {
         return false;
     }
+    vk_set_object_name(engine->device, (uint64_t)engine->renderFinishedSemaphore, VK_OBJECT_TYPE_SEMAPHORE, "Render_Finished_Semaphore");
     if (vkCreateFence(engine->device, &fi, nullptr, &engine->inFlightFence) != VK_SUCCESS) {
         return false;
     }

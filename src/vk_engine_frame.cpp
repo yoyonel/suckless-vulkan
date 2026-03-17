@@ -92,7 +92,7 @@ bool vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recreateSw
         return false;
     }
 
-    vk_begin_label(engine->device, engine->commandBuffer, "Render_Icosphere_Pass", 1.0f, 0.5f, 0.0f);
+    vk_begin_label(engine->device, engine->commandBuffer, "Render_Frame_Graphics", 1.0f, 0.5f, 0.0f);
 
     VkClearValue cl[2] = {};
     cl[0].color = {{0.05f, 0.05f, 0.2f, 1.0f}};
@@ -106,20 +106,26 @@ bool vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recreateSw
     rp.clearValueCount = 2;
     rp.pClearValues = cl;
 
+    vk_begin_label(engine->device, engine->commandBuffer, "RenderPass_Begin_And_Bindings", 1.0f, 0.8f, 0.2f);
     vkCmdBeginRenderPass(engine->commandBuffer, &rp, VK_SUBPASS_CONTENTS_INLINE);
     vkCmdBindDescriptorSets(engine->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, engine->pipelineLayout, 0, 1, &engine->descriptorSet, 0, nullptr);
+    vk_end_label(engine->device, engine->commandBuffer);
 
+    vk_begin_label(engine->device, engine->commandBuffer, "Render_Skybox_EnvMap", 0.2f, 0.5f, 1.0f);
     if (engine->showEnvmap) {
         vkCmdBindPipeline(engine->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, engine->skyboxPipeline);
         vkCmdDraw(engine->commandBuffer, 3, 1, 0, 0);
     }
+    vk_end_label(engine->device, engine->commandBuffer);
 
+    vk_begin_label(engine->device, engine->commandBuffer, "Render_Icosphere_Instanced", 0.0f, 1.0f, 0.4f);
     vkCmdBindPipeline(engine->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, engine->graphicsPipeline);
     VkBuffer vertexBuffers[] = {engine->vertexBuffer, engine->instanceBuffer};
     VkDeviceSize offsets[] = {0, 0};
     vkCmdBindVertexBuffers(engine->commandBuffer, 0, 2, vertexBuffers, offsets);
     vkCmdBindIndexBuffer(engine->commandBuffer, engine->indexBuffer, 0, VK_INDEX_TYPE_UINT32);
     vkCmdDrawIndexed(engine->commandBuffer, engine->indexCount, kGridSize * kGridSize, 0, 0, 0);
+    vk_end_label(engine->device, engine->commandBuffer);
 
     vkCmdEndRenderPass(engine->commandBuffer);
     vk_end_label(engine->device, engine->commandBuffer);

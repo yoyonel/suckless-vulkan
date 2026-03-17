@@ -41,6 +41,7 @@ VkCommandBuffer begin_one_time_commands(VulkanEngine* engine) {
     if (vkAllocateCommandBuffers(engine->device, &allocInfo, &commandBuffer) != VK_SUCCESS) {
         return VK_NULL_HANDLE;
     }
+    vk_set_object_name(engine->device, (uint64_t)commandBuffer, VK_OBJECT_TYPE_COMMAND_BUFFER, "EnvHDR_Transfer_CommandBuffer");
 
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -158,6 +159,7 @@ bool init_environment_texture_from_pixels(VulkanEngine* engine, const float* pix
     if (vmaCreateBuffer(engine->allocator, &bufferInfo, &stagingAllocInfo, &stagingBuffer, &stagingAllocation, nullptr) != VK_SUCCESS) {
         return false;
     }
+    vk_set_object_name(engine->device, (uint64_t)stagingBuffer, VK_OBJECT_TYPE_BUFFER, "EnvHDR_Staging_Buffer");
 
     void* mapped = nullptr;
     if (vmaMapMemory(engine->allocator, stagingAllocation, &mapped) != VK_SUCCESS) {
@@ -187,6 +189,7 @@ bool init_environment_texture_from_pixels(VulkanEngine* engine, const float* pix
         vmaDestroyBuffer(engine->allocator, stagingBuffer, stagingAllocation);
         return false;
     }
+    vk_set_object_name(engine->device, (uint64_t)engine->envHdrImage, VK_OBJECT_TYPE_IMAGE, "EnvHDR_Image");
 
     VkCommandBuffer commandBuffer = begin_one_time_commands(engine);
     if (commandBuffer == VK_NULL_HANDLE) {
@@ -194,9 +197,12 @@ bool init_environment_texture_from_pixels(VulkanEngine* engine, const float* pix
         return false;
     }
 
+    vk_begin_label(engine->device, commandBuffer, "Upload_EnvHDR_Texture", 0.0f, 0.8f, 1.0f);
+
     transition_hdr_image_layout(engine, commandBuffer, 0, engine->envHdrMipLevels, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0,
                                 VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
 
+    vk_begin_label(engine->device, commandBuffer, "Copy_EnvHDR_Staging_To_Image", 0.0f, 0.6f, 1.0f);
     VkBufferImageCopy region{};
     region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     region.imageSubresource.mipLevel = 0;
@@ -204,7 +210,9 @@ bool init_environment_texture_from_pixels(VulkanEngine* engine, const float* pix
     region.imageSubresource.layerCount = 1;
     region.imageExtent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1};
     vkCmdCopyBufferToImage(commandBuffer, stagingBuffer, engine->envHdrImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+    vk_end_label(engine->device, commandBuffer);
 
+    vk_begin_label(engine->device, commandBuffer, "Generate_EnvHDR_Mipmaps", 0.0f, 0.4f, 0.8f);
     int32_t mipWidth = width;
     int32_t mipHeight = height;
     for (uint32_t i = 1; i < engine->envHdrMipLevels; ++i) {
@@ -239,6 +247,8 @@ bool init_environment_texture_from_pixels(VulkanEngine* engine, const float* pix
     transition_hdr_image_layout(engine, commandBuffer, engine->envHdrMipLevels - 1, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
                                 VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+    vk_end_label(engine->device, commandBuffer);
+    vk_end_label(engine->device, commandBuffer);
 
     if (!end_one_time_commands(engine, commandBuffer)) {
         vmaDestroyBuffer(engine->allocator, stagingBuffer, stagingAllocation);
@@ -260,6 +270,7 @@ bool init_environment_texture_from_pixels(VulkanEngine* engine, const float* pix
     if (vkCreateImageView(engine->device, &viewInfo, nullptr, &engine->envHdrImageView) != VK_SUCCESS) {
         return false;
     }
+    vk_set_object_name(engine->device, (uint64_t)engine->envHdrImageView, VK_OBJECT_TYPE_IMAGE_VIEW, "EnvHDR_ImageView");
 
     VkSamplerCreateInfo samplerInfo{};
     samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
@@ -275,6 +286,7 @@ bool init_environment_texture_from_pixels(VulkanEngine* engine, const float* pix
     if (vkCreateSampler(engine->device, &samplerInfo, nullptr, &engine->envHdrSampler) != VK_SUCCESS) {
         return false;
     }
+    vk_set_object_name(engine->device, (uint64_t)engine->envHdrSampler, VK_OBJECT_TYPE_SAMPLER, "EnvHDR_Sampler");
 
     if (isFallback) {
         LOG_INFO("engine", "HDR map fallback 1x1 initialisee (%dx%d, mips=%u)", width, height, engine->envHdrMipLevels);

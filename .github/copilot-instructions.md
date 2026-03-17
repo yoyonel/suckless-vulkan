@@ -424,6 +424,26 @@ just test-asan
 just test-validation-layers
 ```
 
+### RenderDoc Observability Directive (Mandatory)
+
+For every feature, fix, or refactor touching rendering, Vulkan resources, or GPU command recording:
+
+- **Always add meaningful resource names** via `vkSetDebugUtilsObjectNameEXT` (through project helper wrappers) for newly created Vulkan objects:
+   - Pipelines, pipeline layouts, render passes, framebuffers
+   - Buffers/images/image views/samplers
+   - Descriptor set layouts/pools/sets
+   - Command pools/command buffers, semaphores/fences, queues
+- **Always add meaningful labels** via `vkCmdBeginDebugUtilsLabelEXT` / `vkCmdEndDebugUtilsLabelEXT` around logical GPU blocks:
+   - Render pass setup/bindings
+   - Skybox pass, geometry pass, post-process pass
+   - Upload/copy/transition/mipmap generation phases
+- **Prefer hierarchical labels** (parent frame region + child pass regions) so Event Browser navigation is immediate.
+- **Use stable naming conventions** (`Feature_ObjectType[_Index]`) to keep captures diff-friendly across runs.
+- **Do not leave anonymous critical resources** in RenderDoc when they are part of the feature being changed.
+- **Keep docs aligned**: when adding/changing labels or naming conventions, update `docs/tracing.md` in the same change.
+
+Rationale: RenderDoc readability is a project quality requirement, not an optional debug extra.
+
 ---
 
 ## 🚫 Anti-Patterns
