@@ -280,7 +280,7 @@ lint-c:
     if clang-tidy --help 2>&1 | grep -q -- '--exclude-header-filter'; then \
         exclude_header_filter="--exclude-header-filter=(.*/)?ext/.*"; \
     fi; \
-    find src tests -name '*.cpp' -type f | sort | xargs -P `nproc` -I {} clang-tidy -quiet -p "${build_dir}" {} --header-filter='(src/.*|tests/.*)' ${exclude_header_filter}
+    find src tests -name '*.cpp' -type f | sort | xargs -P `nproc` -I {} clang-tidy -quiet -p "${build_dir}" {} --header-filter='(src/.*|tests/.*)' --warnings-as-errors='*' ${exclude_header_filter}
 
 # Lance clang-tidy uniquement sur les fichiers C/C++ modifies (rapide pour iteration). Parallelise avec xargs -P $(nproc). Meme logique CI/local que lint-c pour les chemins compile_commands.
 lint-c-changed:
@@ -306,9 +306,9 @@ lint-c-changed:
     fi; \
     if [ ${#changed_headers[@]} -gt 0 ]; then \
         echo "Headers modifies detectes: execution clang-tidy complete (src/tests)."; \
-        find src tests -name '*.cpp' -type f | sort | xargs -P `nproc` -I {} clang-tidy -quiet -p "${build_dir}" {} --header-filter='(src/.*|tests/.*)' ${exclude_header_filter}; \
+        find src tests -name '*.cpp' -type f | sort | xargs -P `nproc` -I {} clang-tidy -quiet -p "${build_dir}" {} --header-filter='(src/.*|tests/.*)' --warnings-as-errors='*' ${exclude_header_filter}; \
     else \
-        printf '%s\0' "${changed_cpp[@]}" | xargs -0 -P `nproc` -I {} clang-tidy -quiet -p "${build_dir}" {} --header-filter='(src/.*|tests/.*)' ${exclude_header_filter}; \
+        printf '%s\0' "${changed_cpp[@]}" | xargs -0 -P `nproc` -I {} clang-tidy -quiet -p "${build_dir}" {} --header-filter='(src/.*|tests/.*)' --warnings-as-errors='*' ${exclude_header_filter}; \
     fi
 
 # Lint CMake.

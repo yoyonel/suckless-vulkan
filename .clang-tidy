@@ -11,5 +11,5 @@ Checks: >
   -readability-braces-around-statements,
   -bugprone-invalid-enum-default-initialization,
   -readability-implicit-bool-conversion
-WarningsAsErrors: ''
+WarningsAsErrors: '*'
 HeaderFilterRegex: 'src/.*|tests/.*'
