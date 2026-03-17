@@ -21,20 +21,43 @@ if(ENABLE_SANITIZERS)
   )
 endif()
 
+# Optional: code coverage instrumentation for unit/logical tests (gcovr style).
+option(ENABLE_COVERAGE "Enable coverage flags for GCC/Clang (gcovr)" OFF)
+if(ENABLE_COVERAGE)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    message(STATUS "Enabling code coverage instrumentation (gcovr)")
+    add_compile_options(-O0 -g --coverage)
+    add_link_options(--coverage)
+  else()
+    message(WARNING "Coverage requested but compiler is not GCC/Clang")
+  endif()
+endif()
+
+# Optional: LLVM code coverage instrumentation (llvm-cov style, clang required).
+option(ENABLE_LLVM_COV "Enable LLVM coverage instrumentation (llvm-cov)" OFF)
+if(ENABLE_LLVM_COV)
+  message(STATUS "Enabling LLVM code coverage instrumentation")
+  set(CMAKE_C_COMPILER clang)
+  set(CMAKE_CXX_COMPILER clang++)
+  add_compile_options(-fprofile-instr-generate -fcoverage-mapping -O0 -g)
+  add_link_options(-fprofile-instr-generate -fcoverage-mapping)
+endif()
+
 find_package(Vulkan REQUIRED)
 find_package(glfw3 REQUIRED)
 # NOUVEAU : On exige GLM
 find_package(glm REQUIRED)
 
-add_executable(vulkan_app src/main.cpp src/vk_engine.cpp ext/vma/vma_impl.cpp)
+add_executable(vulkan_app src/main.cpp src/vk_engine.cpp src/app_log.cpp
+                          src/runtime_controls.cpp ext/vma/vma_impl.cpp)
 target_include_directories(vulkan_app PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_include_directories(vulkan_app SYSTEM PRIVATE ${CMAKE_SOURCE_DIR}/ext)
 # NOUVEAU : On lie glm::glm
 target_link_libraries(vulkan_app Vulkan::Vulkan glfw glm::glm)
 
 enable_testing()
-add_executable(unit_tests tests/test_main.cpp src/vk_engine.cpp
-                          ext/vma/vma_impl.cpp)
+add_executable(unit_tests tests/test_main.cpp src/vk_engine.cpp src/app_log.cpp
+                          src/runtime_controls.cpp ext/vma/vma_impl.cpp)
 target_include_directories(unit_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_include_directories(unit_tests SYSTEM PRIVATE ${CMAKE_SOURCE_DIR}/ext)
 # NOUVEAU : On lie glm::glm aux tests aussi
@@ -44,6 +67,15 @@ add_test(NAME EngineIntegrationTest
                  $<TARGET_FILE:unit_tests>)
 set_tests_properties(EngineIntegrationTest PROPERTIES WORKING_DIRECTORY
                                                       ${CMAKE_SOURCE_DIR})
+
+add_executable(logic_tests tests/test_logic.cpp src/app_log.cpp
+                           src/runtime_controls.cpp)
+target_include_directories(logic_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(logic_tests SYSTEM PRIVATE ${CMAKE_SOURCE_DIR}/ext)
+target_link_libraries(logic_tests glfw)
+add_test(NAME LogicTests COMMAND $<TARGET_FILE:logic_tests>)
+set_tests_properties(LogicTests PROPERTIES WORKING_DIRECTORY
+                                           ${CMAKE_SOURCE_DIR})
 
 # On coupe les warnings pour le fichier source C++ de VMA
 set_source_files_properties(ext/vma/vma_impl.cpp PROPERTIES COMPILE_FLAGS "-w")
