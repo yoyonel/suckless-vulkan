@@ -16,7 +16,10 @@ Toutes les commandes du projet sont abstraites derrière `just` (via le fichier 
 - `just coverage` : Exécute `LogicTests` avec instrumentation coverage et génère les rapports.
 - `just format` : Formate tous les fichiers owner du repo.
 - `just lint` : Lance le lint complet sur tous les fichiers owner du repo.
+- `just lint-iter` : Lint d'iteration rapide (clang-tidy sur fichiers modifies + checks rapides).
 - `just check` : Exécute Format -> Lint -> Tests.
+- `just test-iter` : Lance `LogicTests` + `EngineIntegrationTest` seulement si des fichiers rendu ont change.
+- `just check-iter` : Gate locale rapide pour itérer avant le check complet.
 - `just rebuild` : Nettoie le cache CMake et recompile de zéro.
 
 ### Couverture "owner files"
@@ -66,6 +69,8 @@ Géré par `.clang-format`. Il impose :
 ## 🔬 Analyse Statique : `clang-tidy`
 
 L'analyse statique s'appuie sur le fichier `compile_commands.json` généré par CMake.
+La recette `just lint-c` réutilise `build/release/compile_commands.json` (au lieu de recréer un dossier temporaire), ce qui évite une phase de configuration CMake à chaque exécution.
+La recette `just lint-c-changed` cible uniquement les fichiers C/C++ modifiés; en cas de modification de header, elle repasse automatiquement sur l'ensemble `src/*.cpp` et `tests/*.cpp` pour éviter les faux négatifs.
 Les dépendances tierces rangées sous `ext/` sont déclarées en includes système et référencées explicitement depuis `ext/` afin d'éviter toute confusion avec le code métier et de mieux se comporter dans l'analyse statique hors contexte CMake complet.
 La recette `just lint` force aussi l'exclusion de `ext/` dans les diagnostics remontés par `clang-tidy`, afin de ne conserver que les avertissements relevant du projet.
 La sortie utilise aussi le mode silencieux de `clang-tidy` pour éviter les compteurs de warnings issus des bibliothèques tierces parcourues transitivement.
@@ -111,6 +116,14 @@ Le binaire `logic_tests` couvre les comportements applicatifs ajoutés recemment
 Le flow cible pour les devs est :
 
 - `just test-all`
+
+Pour une boucle d'iteration rapide locale :
+
+- `just check-iter`
+
+Avant commit/push, conserver la gate complete :
+
+- `just format && just lint && just test-all`
 
 ## 📊 Couverture de Code (Coverage)
 
