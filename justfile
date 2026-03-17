@@ -163,9 +163,9 @@ coverage: coverage-report
 # Configure un build instrumente pour llvm-cov (clang obligatoire).
 configure-coverage-llvm:
     @if command -v ccache >/dev/null 2>&1; then \
-        cmake -B build/coverage-llvm -S . -DCMAKE_BUILD_TYPE=Debug -DENABLE_LLVM_COV=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache; \
+        cmake -B build/coverage-llvm -S . -DCMAKE_BUILD_TYPE=Debug -DENABLE_LLVM_COV=ON -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_CXX_COMPILER_LAUNCHER=ccache; \
     else \
-        cmake -B build/coverage-llvm -S . -DCMAKE_BUILD_TYPE=Debug -DENABLE_LLVM_COV=ON; \
+        cmake -B build/coverage-llvm -S . -DCMAKE_BUILD_TYPE=Debug -DENABLE_LLVM_COV=ON -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++; \
     fi
 
 # Build avec instrumentation llvm-cov.
