@@ -29,8 +29,13 @@ vulkan_base/
 ├── shaders/            # Code source des shaders (GLSL)
 ├── src/
 │   ├── main.cpp        # Point d'entrée, gestion de la boucle GLFW
+│   ├── app_log.cpp      # Logging structure (niveaux, callback, filtres)
+│   ├── app_log.h        # API de logging
+│   ├── runtime_controls.cpp # Gestion runtime des controles clavier
+│   ├── runtime_controls.h   # API testable des controles runtime
 │   ├── vk_engine.cpp   # Implémentation du moteur Vulkan
 │   └── vk_engine.h     # Définitions et structure `VulkanEngine`
 └── tests/
-    └── test_main.cpp   # Test d'intégration du rendu et de la capture de frame
+    ├── test_main.cpp   # Test d'intégration du rendu et de la capture de frame
+    └── test_logic.cpp  # Tests logiques (controles, fullscreen, logger)
 ```

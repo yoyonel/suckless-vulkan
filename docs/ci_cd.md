@@ -7,6 +7,7 @@ La CI est executee dans une image Docker dediee (`docker/ci/Dockerfile`) basee s
 ## Workflows
 
 - `ci.yml` : verification continue sur `push` et `pull_request` vers `master`.
+  Inclut un job de couverture (`coverage-report`) qui publie des artefacts de coverage.
 - `release.yml` : publication d'artefacts binaires sur tags `v*` (et declenchement manuel possible).
 - `ci-image.yml` : build et publication de l'image CI vers GHCR.
 
@@ -100,9 +101,62 @@ Après le job `static-checks`, deux jobs optionnels (non-bloquants) diagnostique
   - Les messages incluent des avertissements et erreurs GPU/VRAM
 - **Status:** `continue-on-error: true` — les échecs ne bloquent pas la CI
 
+### Job: Rapport de couverture avec LLVM-Cov
+
+#### `coverage-report-llvm`
+
+- **Objectif:** Générer un rapport détaillé de couverture de code pour tous les tests
+- **Technologie:** LLVM-Cov avec profiling par instrumentation (`fprofile-instr-generate`)
+- **Activation:** Compilé avec `-fprofile-instr-generate -fcoverage-mapping`
+- **Exécution:** Lance `scripts/ci/run_ci_coverage_llvm.sh` dans le conteneur CI
+- **Tests inclus:** LogicTests + EngineIntegrationTest (couverture complète du code métier)
+- **Sortie principale:**
+  - Rapports en HTML dans `build/coverage-llvm/coverage_report/` (source annotations)
+  - Résumé console montrant Regions/Functions/Lines/Branches par fichier
+
+**Exemple résumé CLI:**
+
+```text
+Filename                 Regions  Missed Regions  Cover   Functions  Executed  Lines   Cover
+─────────────────────────────────────────────────────────────────────────────────────────────
+app_log.cpp                  67           21    68.66%        11   100.00%      121   79.34%
+runtime_controls.cpp         56           12    78.57%        11    27.27%       79   64.56%
+vk_engine.cpp               496          118    76.21%        39    97.44%     1010   78.71%
+─────────────────────────────────────────────────────────────────────────────────────────────
+TOTAL                       631          151    76.07%        63    85.71%     1253   78.61%
+```
+
+**Artefacts publiés:** Dossier HTML complet `coverage-report-llvm-html` pour historique de couverture.
+
+**Status:** Job bloquant si compilation/tests échouent; obligatoire pour PR/push vers `master`.
+
+### Job: Rapport de couverture avec GCovr
+
+#### `coverage-report`
+
+- **Objectif:** Couverture alternative avec GCovr (compatible GCC)
+- **Technologie:** GCovr avec flags coverage GCC/Clang (`--coverage`)
+- **Sortie:** Rapports texte/XML/HTML dans `build/coverage/reports/`
+- **Artefacts publiés:** coverage.txt, coverage.xml, coverage.html
+- **Note:** Tests LogicTests uniquement (couverture partielle)
+
 ### Exécution en local
 
-Pour reproduire ces vérifications sur la machine hôte:
+Pour reproduire la couverture de code sur la machine hôte:
+
+```bash
+# Generer rapport LLVM-Cov (recommandé, clang requis)
+just coverage-llvm
+
+# Generer rapport GCovr (compatible GCC/Clang)
+just coverage
+```
+
+Voir [Outillage & Qualite — Couverture](tooling.md#%F0%9F%93%8A-couverture-de-code-coverage) pour les details techniques.
+
+### Exécution en local (mémoire)
+
+Pour reproduire les vérifications de sécurité mémoire sur la machine hôte:
 
 ```bash
 # ASan/UBSan pour CPU/RAM
@@ -113,11 +167,11 @@ just test-asan
 just test-validation-layers
 ```
 
-Voir [Tooling > Sécurité Mémoire](tooling.md#-s%C3%A9curit%C3%A9-m%C3%A9moire) pour les détails techniques.
+Voir [Outillage & Qualite](tooling.md) pour les details techniques.
 
 ## Stratégie de release (Trunk-Based Development)
 
-See [.github/DEVELOPMENT.md](../.github/DEVELOPMENT.md) for the full TBD policy including:
+See `.github/DEVELOPMENT.md` for the full TBD policy including:
 
 - **Release process:** Tags from `master` only; GitHub Actions auto-publishes binaries
 - **Hotfix workflow:** Fixes applied to `master` → tagged → released (no long-lived release branches)

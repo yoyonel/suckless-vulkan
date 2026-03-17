@@ -6,9 +6,14 @@ Le projet maintient des normes de qualité industrielles grâce à une suite d'o
 
 Toutes les commandes du projet sont abstraites derrière `just` (via le fichier `justfile`).
 
+- `just help` : Affiche une aide rapide + la liste complete des recettes.
 - `just build` : Compile les shaders GLSL en SPIR-V, puis compile le code C++.
 - `just run` : Compile et lance l'application.
 - `just test` : Compile puis exécute les tests d'intégration via `ctest`.
+- `just test-all` : Flow recommandé (`EngineIntegrationTest` puis `LogicTests`).
+- `just test-integration` : Exécute uniquement `EngineIntegrationTest`.
+- `just test-logic` : Exécute uniquement `LogicTests`.
+- `just coverage` : Exécute `LogicTests` avec instrumentation coverage et génère les rapports.
 - `just format` : Formate tous les fichiers owner du repo.
 - `just lint` : Lance le lint complet sur tous les fichiers owner du repo.
 - `just check` : Exécute Format -> Lint -> Tests.
@@ -71,9 +76,16 @@ Plusieurs règles ont été consciemment désactivées dans `.clang-tidy` pour s
 | `readability-implicit-bool-conversion` | Permet d'écrire `if (!file)` au lieu de l'encombrant `if (file == nullptr)`. |
 | `bugprone-invalid-enum-default-initialization` | Désactivée car l'initialisation globale `{}` des structures Vulkan initialise les énumérations à `0`, ce qui provoque de faux positifs pour les flags qui n'ont pas de valeur `0` explicite (comme `VkSampleCountFlagBits`). |
 
-## 🧪 Tests d'Intégration
+## 🧪 Strategie de Tests
 
-Le projet ne contient pas encore de framework de tests unitaires classique. Le binaire `unit_tests` est en pratique un test d'intégration qui :
+Le projet contient maintenant deux types de tests CTest complementaires :
+
+- `EngineIntegrationTest` (binaire `unit_tests`) : test d'intégration Vulkan bout-en-bout.
+- `LogicTests` (binaire `logic_tests`) : tests logiques rapides sans rendu GPU.
+
+### EngineIntegrationTest
+
+Le binaire `unit_tests` est un test d'intégration qui :
 
 - Initialise complètement le moteur Vulkan.
 - Rend une frame.
@@ -87,6 +99,77 @@ La capture disque est activee uniquement si la variable d'environnement `VULKAN_
 - Fichier genere : `test_output.png` a la racine du projet (working directory de CTest configuree sur `${CMAKE_SOURCE_DIR}`).
 
 `ctest` passe par le script `scripts/run_test_vulkan.sh`, qui force un mode headless avec `xvfb-run` et Lavapipe quand l'environnement ne fournit pas d'affichage.
+
+### LogicTests
+
+Le binaire `logic_tests` couvre les comportements applicatifs ajoutés recemment :
+
+- Gestion clavier runtime (`Space`, `Up`, `Down`, `R`, `F11`, `Esc`).
+- Bascule fullscreen/fenetre et restauration de geometrie.
+- Logging structure (callback, filtrage par niveau, formatage message).
+
+Le flow cible pour les devs est :
+
+- `just test-all`
+
+## 📊 Couverture de Code (Coverage)
+
+Le projet supporte deux outils pour mesurer la couverture de code sur les tests :
+
+### Option 1: GCovr (compatible GCC et Clang)
+
+Génère des rapports texte, XML (Cobertura) et HTML :
+
+```bash
+just coverage
+```
+
+Rapports générés dans `build/coverage/reports/` :
+
+- `coverage.txt` : résumé texte simplifié
+- `coverage.xml` : Cobertura XML pour imports CI
+- `coverage.html` : rapport HTML avec annotations source
+- `coverage.json` : données JSON brutes
+
+**Limitations:** Couverture seulement des tests logiques (LogicTests), vk_engine.cpp non instrumenté.
+
+### Option 2: LLVM-Cov (recommandée, clang requis)
+
+Rapport détaillé avec console output formaté + HTML :
+
+```bash
+just coverage-llvm
+```
+
+Rapports générés dans `build/coverage-llvm/`:
+
+- `coverage_report/index.html` : HTML interactif avec couverture source
+- Console output : tableau résumé avec Regions/Functions/Lines/Branches
+
+**Avantages:**
+
+- Couverture **complète** : LogicTests + EngineIntegrationTest
+- Inclut tous les fichiers métier := app_log.cpp, runtime_controls.cpp, vk_engine.cpp, icosphere.h
+- Meilleur détail : Regions + Functions + Lines + Branches
+- Formatage console lisible
+
+**Exemple de sortie:**
+
+```text
+📊 LLVM CODE COVERAGE SUMMARY REPORT (All Tests)
+══════════════════════════════════════════════════════════════════════════════
+
+Filename                 Regions  Missed Regions  Cover   Functions  Executed  Lines   Cover
+─────────────────────────────────────────────────────────────────────────────────────────────
+app_log.cpp                  67           21    68.66%        11   100.00%      121   79.34%
+runtime_controls.cpp         56           12    78.57%        11    27.27%       79   64.56%
+vk_engine.cpp               496          118    76.21%        39    97.44%     1010   78.71%
+icosphere.h                  12            0   100.00%         2   100.00%       43  100.00%
+─────────────────────────────────────────────────────────────────────────────────────────────
+TOTAL                       631          151    76.07%        63    85.71%     1253   78.61%
+```
+
+**KPI:** 78.61% du code métier est couvert par les tests.
 
 ## �️ Sécurité Mémoire : Sanitizers et Validation Layers
 
