@@ -165,3 +165,84 @@ jobs:
             -w /work \
             "$CI_IMAGE" \
             bash -lc "just test-validation-layers"
+
+  coverage-report:
+    needs: lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve CI image (GHCR or local fallback)
+        run: |
+          REGISTRY="ghcr.io/${{ github.repository_owner }}"
+          IMAGE="$REGISTRY/suckless-vulkan-ci:latest"
+          if docker pull "$IMAGE"; then
+            echo "CI_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          else
+            docker build --network=host -t local/suckless-vulkan-ci:latest \
+              -f docker/ci/Dockerfile .
+            echo "CI_IMAGE=local/suckless-vulkan-ci:latest" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build tests and generate coverage report
+        run: |
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -e CI=true \
+            -e HOME=/tmp \
+            -v "${{ github.workspace }}:/work" \
+            -w /work \
+            "$CI_IMAGE" \
+            bash -lc "chmod +x scripts/ci/run_ci_coverage.sh && \
+              scripts/ci/run_ci_coverage.sh"
+
+      - name: Upload coverage artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            build/coverage/reports/coverage.txt
+            build/coverage/reports/coverage.xml
+            build/coverage/reports/coverage.html
+          if-no-files-found: error
+
+  coverage-report-llvm:
+    needs: lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve CI image (GHCR or local fallback)
+        run: |
+          REGISTRY="ghcr.io/${{ github.repository_owner }}"
+          IMAGE="$REGISTRY/suckless-vulkan-ci:latest"
+          if docker pull "$IMAGE"; then
+            echo "CI_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          else
+            docker build --network=host -t local/suckless-vulkan-ci:latest \
+              -f docker/ci/Dockerfile .
+            echo "CI_IMAGE=local/suckless-vulkan-ci:latest" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build tests and generate LLVM coverage report
+        run: |
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -e CI=true \
+            -e HOME=/tmp \
+            -v "${{ github.workspace }}:/work" \
+            -w /work \
+            "$CI_IMAGE" \
+            bash -lc "chmod +x scripts/ci/run_ci_coverage_llvm.sh && \
+              scripts/ci/run_ci_coverage_llvm.sh"
+
+      - name: Upload LLVM coverage HTML report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-llvm-html
+          path: build/coverage-llvm/coverage_report/
+          if-no-files-found: error

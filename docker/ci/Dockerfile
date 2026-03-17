@@ -10,9 +10,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     bash \
     ca-certificates \
     build-essential \
+    clang \
     clang-tidy \
     cmake \
     curl \
+    llvm \
     ninja-build \
     pkg-config \
     libglfw3-dev \
@@ -54,7 +56,8 @@ RUN pip3 install --break-system-packages --no-cache-dir \
     uv \
     cmakelang \
     yamllint \
-    pymarkdownlnt
+    pymarkdownlnt \
+    gcovr
 
 # Copy ASan suppressions file for Vulkan SDK/driver false-positives
 COPY .asan_ignorefile /work/.asan_ignorefile
