@@ -126,6 +126,18 @@ test-all: build
     @ctest --test-dir build/release --output-on-failure -R EngineIntegrationTest
     @ctest --test-dir build/release --output-on-failure -R LogicTests
 
+# Tests iteration rapides: LogicTests toujours, IntegrationTest seulement si rendu/Vulkan touche.
+test-iter: build
+    @echo "Execution rapide: LogicTests + IntegrationTest conditionnel"
+    @ctest --test-dir build/release --output-on-failure -R LogicTests
+    @changed_render=$(git diff --name-only --diff-filter=ACMR HEAD -- 'src/vk_engine.cpp' 'src/vk_engine.h' 'src/main.cpp' 'shaders/*.vert' 'shaders/*.frag'); \
+    if [ -n "${changed_render}" ]; then \
+        echo "Fichiers rendu detectes: execution EngineIntegrationTest."; \
+        ctest --test-dir build/release --output-on-failure -R EngineIntegrationTest; \
+    else \
+        echo "Aucun fichier rendu modifie: EngineIntegrationTest saute en iteration."; \
+    fi
+
 # Exécute les tests sous ASan/UBSan.
 test-asan: build-asan
     @echo "Tests avec AddressSanitizer + UndefinedBehaviorSanitizer..."
@@ -246,15 +258,41 @@ format-docs:
 # Lance tous les formateurs.
 format: format-code format-cmake format-shell format-yaml format-docs format-just
 
-# Lance clang-tidy sur le code du projet (hors ext).
+# Lance clang-tidy sur tout le code du projet (hors ext), en re-utilisant build/release.
 lint-c:
-    @build_dir=$(mktemp -d -t clang-tidy-XXXXXX); \
-    cmake -S . -B "${build_dir}" -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON >/dev/null; \
+    @if [ ! -f build/release/compile_commands.json ]; then \
+        echo "compile_commands.json manquant dans build/release: configuration automatique..."; \
+        just configure >/dev/null; \
+    fi; \
     exclude_header_filter=""; \
     if clang-tidy --help 2>&1 | grep -q -- '--exclude-header-filter'; then \
         exclude_header_filter="--exclude-header-filter=(.*/)?ext/.*"; \
     fi; \
-    clang-tidy -quiet -p "${build_dir}" src/*.cpp tests/*.cpp --header-filter='(src/.*|tests/.*)' ${exclude_header_filter}
+    clang-tidy -quiet -p build/release src/*.cpp tests/*.cpp --header-filter='(src/.*|tests/.*)' ${exclude_header_filter}
+
+# Lance clang-tidy uniquement sur les fichiers C/C++ modifies (rapide pour iteration).
+lint-c-changed:
+    @if [ ! -f build/release/compile_commands.json ]; then \
+        echo "compile_commands.json manquant dans build/release: configuration automatique..."; \
+        just configure >/dev/null; \
+    fi; \
+    exclude_header_filter=""; \
+    if clang-tidy --help 2>&1 | grep -q -- '--exclude-header-filter'; then \
+        exclude_header_filter="--exclude-header-filter=(.*/)?ext/.*"; \
+    fi; \
+    mapfile -t changed_cpp < <(git diff --name-only --diff-filter=ACMR HEAD -- 'src/*.cpp' 'tests/*.cpp'); \
+    mapfile -t changed_headers < <(git diff --name-only --diff-filter=ACMR HEAD -- 'src/*.h' 'tests/*.h'); \
+    if [ ${#changed_cpp[@]} -eq 0 ] && [ ${#changed_headers[@]} -eq 0 ]; then \
+        echo "Aucun fichier C/C++ modifie: lint-c-changed ignore."; \
+        exit 0; \
+    fi; \
+    if [ ${#changed_headers[@]} -gt 0 ]; then \
+        echo "Headers modifies detectes: execution clang-tidy complete (src/tests)."; \
+        targets=(src/*.cpp tests/*.cpp); \
+    else \
+        targets=("${changed_cpp[@]}"); \
+    fi; \
+    clang-tidy -quiet -p build/release "${targets[@]}" --header-filter='(src/.*|tests/.*)' ${exclude_header_filter}
 
 # Lint CMake.
 lint-cmake:
@@ -321,11 +359,17 @@ lint-actions:
 # Lint rapide (sans clang-tidy complet ni docker/actions).
 lint-fast: lint-cmake lint-shell lint-yaml lint-just lint-shaders lint-docs
 
+# Lint iteration rapide (inclut clang-tidy sur fichiers modifies).
+lint-iter: lint-c-changed lint-cmake lint-shell lint-yaml lint-just lint-shaders lint-docs
+
 # Lint complet.
 lint: lint-c lint-cmake lint-shell lint-yaml lint-just lint-shaders lint-docs lint-dockerfile lint-actions
 
 # Format + lint + tests (gate local principal).
 check: format lint test
+
+# Gate d'iteration rapide pour les boucles dev locales.
+check-iter: format lint-iter test-iter
 
 # Build local de l'image Docker CI.
 ci-image-build:
