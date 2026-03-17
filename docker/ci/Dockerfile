@@ -12,9 +12,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     clang \
     clang-tidy \
+    clang-tools \
     cmake \
     curl \
     llvm \
+    llvm-dev \
     ninja-build \
     pkg-config \
     libglfw3-dev \
