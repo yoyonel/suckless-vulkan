@@ -55,6 +55,7 @@ add_executable(
   src/vk_engine_frame.cpp
   src/vk_engine_envmap.cpp
   src/vk_engine_runtime.cpp
+  src/vk_engine_init.cpp
   src/camera.cpp
   src/app_log.cpp
   src/runtime_controls.cpp
@@ -72,6 +73,7 @@ add_executable(
   src/vk_engine_frame.cpp
   src/vk_engine_envmap.cpp
   src/vk_engine_runtime.cpp
+  src/vk_engine_init.cpp
   src/camera.cpp
   src/app_log.cpp
   src/runtime_controls.cpp
