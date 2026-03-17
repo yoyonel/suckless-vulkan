@@ -258,7 +258,7 @@ format-docs:
 # Lance tous les formateurs.
 format: format-code format-cmake format-shell format-yaml format-docs format-just
 
-# Lance clang-tidy sur tout le code du projet (hors ext). En CI (CI=true), cmake est regenere dans un dossier temporaire (chemins natifs au conteneur). En local, build/release est reutilise pour la vitesse.
+# Lance clang-tidy en parallèle sur tous les fichiers C/C++ du projet (hors ext). En CI (CI=true), cmake est regenere dans un dossier temporaire (chemins natifs au conteneur). En local, build/release est reutilise pour la vitesse. Parallelise avec xargs -P $(nproc) pour utiliser tous les cores.
 lint-c:
     @if [ "${CI:-}" = "true" ]; then \
         build_dir=$(mktemp -d -t clang-tidy-XXXXXX); \
@@ -274,9 +274,9 @@ lint-c:
     if clang-tidy --help 2>&1 | grep -q -- '--exclude-header-filter'; then \
         exclude_header_filter="--exclude-header-filter=(.*/)?ext/.*"; \
     fi; \
-    clang-tidy -quiet -p "${build_dir}" src/*.cpp tests/*.cpp --header-filter='(src/.*|tests/.*)' ${exclude_header_filter}
+    find src tests -name '*.cpp' -type f | sort | xargs -P `nproc` -I {} clang-tidy -quiet -p "${build_dir}" {} --header-filter='(src/.*|tests/.*)' ${exclude_header_filter}
 
-# Lance clang-tidy uniquement sur les fichiers C/C++ modifies (rapide pour iteration). Meme logique CI/local que lint-c pour les chemins compile_commands.
+# Lance clang-tidy uniquement sur les fichiers C/C++ modifies (rapide pour iteration). Parallelise avec xargs -P $(nproc). Meme logique CI/local que lint-c pour les chemins compile_commands.
 lint-c-changed:
     @if [ "${CI:-}" = "true" ]; then \
         build_dir=$(mktemp -d -t clang-tidy-XXXXXX); \
@@ -300,11 +300,10 @@ lint-c-changed:
     fi; \
     if [ ${#changed_headers[@]} -gt 0 ]; then \
         echo "Headers modifies detectes: execution clang-tidy complete (src/tests)."; \
-        targets=(src/*.cpp tests/*.cpp); \
+        find src tests -name '*.cpp' -type f | sort | xargs -P `nproc` -I {} clang-tidy -quiet -p "${build_dir}" {} --header-filter='(src/.*|tests/.*)' ${exclude_header_filter}; \
     else \
-        targets=("${changed_cpp[@]}"); \
-    fi; \
-    clang-tidy -quiet -p build/release "${targets[@]}" --header-filter='(src/.*|tests/.*)' ${exclude_header_filter}
+        printf '%s\0' "${changed_cpp[@]}" | xargs -0 -P `nproc` -I {} clang-tidy -quiet -p "${build_dir}" {} --header-filter='(src/.*|tests/.*)' ${exclude_header_filter}; \
+    fi
 
 # Lint CMake.
 lint-cmake:
