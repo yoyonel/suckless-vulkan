@@ -72,7 +72,7 @@ refactor(engine): Extract shader compilation logic to separate function
 1. Run `just pre-commit-install` (one-time setup)
 2. Make code changes
 3. Run `just format` → fixes formatting automatically
-4. Run `just lint` → must pass with no errors (warnings OK if intentional)
+4. Run `just lint` → must pass with no errors and no warnings
 5. Run `just test-all` → all tests must pass
 6. Run `just pre-push-run` → final check before commit
 7. Run `git status --short --branch` and review all local changes
@@ -86,6 +86,11 @@ If any hook fails:
 - Read the error message
 - Fix the issue
 - Retry the commit
+
+Warning handling policy during lint execution:
+- A lint command with `exit code 0` is NOT considered successful if warnings are present.
+- Warnings must be treated and fixed before moving to the next step or committing.
+- Use output checks when needed (example: `just lint 2>&1 | grep -i warning`) to confirm warning-free runs.
 
 ---
 
@@ -218,7 +223,7 @@ Before **every commit**, verify:
 # Format all files
 just format
 
-# Lint (must pass)
+# Lint (must pass with zero warnings)
 just lint
 
 # Run all tests
