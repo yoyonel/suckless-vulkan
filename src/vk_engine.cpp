@@ -37,11 +37,15 @@ struct QueueFamilySelection {
 namespace {
 
 constexpr uint32_t kGridSize = 10;
-constexpr float kGridSpacing = 4.0f;
+constexpr float kGridSpacing = 2.5f;
 constexpr float kGridOffset = (static_cast<float>(kGridSize) - 1.0f) * 0.5f * kGridSpacing;
 constexpr float kMinEnvLod = 0.0f;
 constexpr float kEnvLodStep = 0.5f;
 constexpr float kMaxFrameDeltaSeconds = 0.25f;
+constexpr const char* kDefaultEnvFilename = "env.hdr";
+constexpr float kNearPlane = 0.1f;
+constexpr float kFarPlane = 1000.0f;
+constexpr float kLegacyDefaultFov = 60.0f;
 
 } // namespace
 
@@ -263,6 +267,10 @@ static void cleanup_environment_resources(VulkanEngine* engine) {
     destroy_device_handle(engine->device, engine->envHdrImageView, vkDestroyImageView);
     destroy_image_allocation(engine->allocator, engine->envHdrImage, engine->envHdrImageAllocation);
     engine->envHdrMipLevels = 0;
+}
+
+static std::string get_filename_from_path(const std::string& path) {
+    return std::filesystem::path(path).filename().string();
 }
 
 static void cleanup_sync_objects(VulkanEngine* engine) {
@@ -922,7 +930,7 @@ static bool transition_hdr_image_layout(VulkanEngine* engine, VkCommandBuffer co
     return true;
 }
 
-static std::string find_first_hdr_path() {
+static std::vector<std::string> find_hdr_paths() {
     const std::filesystem::path hdrRoot("assets/textures/hdr");
     if (!std::filesystem::exists(hdrRoot)) {
         return {};
@@ -938,16 +946,39 @@ static std::string find_first_hdr_path() {
         }
     }
 
-    if (candidates.empty()) {
-        return {};
-    }
-
     std::sort(candidates.begin(), candidates.end());
-    return candidates[0];
+    return candidates;
 }
 
-static bool init_environment_texture(VulkanEngine* engine) {
-    const std::string hdrPath = find_first_hdr_path();
+static int find_default_hdr_index(const std::vector<std::string>& hdrFiles) {
+    if (hdrFiles.empty()) {
+        return -1;
+    }
+
+    for (size_t i = 0; i < hdrFiles.size(); ++i) {
+        if (get_filename_from_path(hdrFiles[i]) == kDefaultEnvFilename) {
+            return static_cast<int>(i);
+        }
+    }
+
+    return 0;
+}
+
+static bool init_environment_catalog(VulkanEngine* engine) {
+    engine->hdrFiles = find_hdr_paths();
+    engine->currentHdrIndex = find_default_hdr_index(engine->hdrFiles);
+
+    if (engine->currentHdrIndex >= 0) {
+        LOG_INFO("engine", "Catalogue HDR initialise: %zu fichier(s), actif=%s", engine->hdrFiles.size(),
+                 get_filename_from_path(engine->hdrFiles[static_cast<size_t>(engine->currentHdrIndex)]).c_str());
+    } else {
+        LOG_INFO("engine", "Catalogue HDR initialise: 0 fichier, fallback 1x1 actif");
+    }
+
+    return true;
+}
+
+static bool init_environment_texture_from_path(VulkanEngine* engine, const std::string& hdrPath) {
 
     int width = 1;
     int height = 1;
@@ -1130,6 +1161,77 @@ static bool init_environment_texture(VulkanEngine* engine) {
         LOG_INFO("engine", "HDR map chargee: %s (%dx%d, mips=%u)", hdrPath.c_str(), width, height, engine->envHdrMipLevels);
     }
     return true;
+}
+
+static bool init_environment_texture(VulkanEngine* engine) {
+    const std::string hdrPath = (engine->currentHdrIndex >= 0 && engine->currentHdrIndex < static_cast<int>(engine->hdrFiles.size()))
+                                    ? engine->hdrFiles[static_cast<size_t>(engine->currentHdrIndex)]
+                                    : std::string();
+    return init_environment_texture_from_path(engine, hdrPath);
+}
+
+static void update_environment_descriptor(VulkanEngine* engine) {
+    VkDescriptorImageInfo imageInfo{};
+    imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    imageInfo.imageView = engine->envHdrImageView;
+    imageInfo.sampler = engine->envHdrSampler;
+
+    VkWriteDescriptorSet write{};
+    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write.dstSet = engine->descriptorSet;
+    write.dstBinding = 1;
+    write.descriptorCount = 1;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    write.pImageInfo = &imageInfo;
+    vkUpdateDescriptorSets(engine->device, 1, &write, 0, nullptr);
+}
+
+static bool reload_environment_texture(VulkanEngine* engine, int newHdrIndex) {
+    if (newHdrIndex < 0 || newHdrIndex >= static_cast<int>(engine->hdrFiles.size())) {
+        return false;
+    }
+
+    if (vkDeviceWaitIdle(engine->device) != VK_SUCCESS) {
+        return false;
+    }
+
+    cleanup_environment_resources(engine);
+    engine->currentHdrIndex = newHdrIndex;
+    if (!init_environment_texture(engine)) {
+        return false;
+    }
+
+    update_environment_descriptor(engine);
+    engine->envLod = std::clamp(engine->envLod, kMinEnvLod, static_cast<float>(engine->envHdrMipLevels > 0 ? engine->envHdrMipLevels - 1 : 0));
+    LOG_INFO("runtime", "HDR actif: %s", get_filename_from_path(engine->hdrFiles[static_cast<size_t>(engine->currentHdrIndex)]).c_str());
+    return true;
+}
+
+static void switch_environment_texture(VulkanEngine* engine, int direction) {
+    if (engine->hdrFiles.size() <= 1) {
+        return;
+    }
+
+    const int hdrCount = static_cast<int>(engine->hdrFiles.size());
+    int nextIndex = engine->currentHdrIndex + direction;
+    if (nextIndex >= hdrCount) {
+        nextIndex = 0;
+    } else if (nextIndex < 0) {
+        nextIndex = hdrCount - 1;
+    }
+
+    if (!reload_environment_texture(engine, nextIndex)) {
+        LOG_ERROR("runtime", "Echec du changement d'envmap HDR");
+    }
+}
+
+static bool is_shift_down(GLFWwindow* window) {
+    return glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS;
+}
+
+static void adjust_env_lod(VulkanEngine* engine, float delta) {
+    engine->envLod = std::clamp(engine->envLod + delta, kMinEnvLod, static_cast<float>(engine->envHdrMipLevels > 0 ? engine->envHdrMipLevels - 1 : 0));
+    LOG_INFO("runtime", "Env LOD: %.1f", engine->envLod);
 }
 
 static bool init_buffers(VulkanEngine* engine) {
@@ -1407,19 +1509,27 @@ static void handle_runtime_input(VulkanEngine* engine) {
     }
     engine->showEnvmapToggleKeyWasDown = kDown;
 
+    const bool shiftDown = is_shift_down(engine->window);
+
     const bool pgUpDown = glfwGetKey(engine->window, GLFW_KEY_PAGE_UP) == GLFW_PRESS;
-    if (pgUpDown && !engine->envLodUpKeyWasDown) {
-        engine->envLod = std::min(engine->envLod + kEnvLodStep, static_cast<float>(engine->envHdrMipLevels > 0 ? engine->envHdrMipLevels - 1 : 0));
-        LOG_INFO("runtime", "Env LOD: %.1f", engine->envLod);
+    if (pgUpDown && !engine->envPageUpKeyWasDown) {
+        if (shiftDown) {
+            adjust_env_lod(engine, kEnvLodStep);
+        } else {
+            switch_environment_texture(engine, 1);
+        }
     }
-    engine->envLodUpKeyWasDown = pgUpDown;
+    engine->envPageUpKeyWasDown = pgUpDown;
 
     const bool pgDownDown = glfwGetKey(engine->window, GLFW_KEY_PAGE_DOWN) == GLFW_PRESS;
-    if (pgDownDown && !engine->envLodDownKeyWasDown) {
-        engine->envLod = std::max(kMinEnvLod, engine->envLod - kEnvLodStep);
-        LOG_INFO("runtime", "Env LOD: %.1f", engine->envLod);
+    if (pgDownDown && !engine->envPageDownKeyWasDown) {
+        if (shiftDown) {
+            adjust_env_lod(engine, -kEnvLodStep);
+        } else {
+            switch_environment_texture(engine, -1);
+        }
     }
-    engine->envLodDownKeyWasDown = pgDownDown;
+    engine->envPageDownKeyWasDown = pgDownDown;
 }
 
 static void mouse_callback(GLFWwindow* window, double xpos, double ypos) {
@@ -1474,8 +1584,8 @@ static bool recreate_swapchain_dependent_resources(VulkanEngine* engine) {
 
 bool init_vulkan_engine(VulkanEngine* engine) {
     if (!init_core(engine) || !init_allocator(engine) || !init_swapchain(engine) || !init_render_pass(engine) || !init_descriptor_layout(engine) ||
-        !init_pipeline(engine) || !init_buffers(engine) || !init_environment_texture(engine) || !init_descriptor_pool_and_sets(engine) ||
-        !init_commands_and_sync(engine)) {
+        !init_pipeline(engine) || !init_buffers(engine) || !init_environment_catalog(engine) || !init_environment_texture(engine) ||
+        !init_descriptor_pool_and_sets(engine) || !init_commands_and_sync(engine)) {
         cleanup_vulkan_engine(engine);
         return false;
     }
@@ -1490,8 +1600,8 @@ bool init_vulkan_engine(VulkanEngine* engine) {
     engine->escapeKeyWasDown = false;
     engine->cameraToggleKeyWasDown = false;
     engine->showEnvmapToggleKeyWasDown = false;
-    engine->envLodUpKeyWasDown = false;
-    engine->envLodDownKeyWasDown = false;
+    engine->envPageUpKeyWasDown = false;
+    engine->envPageDownKeyWasDown = false;
     engine->isFullscreen = false;
     engine->cameraEnabled = true;
     engine->showEnvmap = true;
@@ -1514,6 +1624,11 @@ bool draw_frame(VulkanEngine* engine) {
         return false;
     }
 
+    update_animation_clock(engine);
+    handle_runtime_input(engine);
+    update_camera_key_state(engine);
+    camera_fixed_update(&engine->camera, engine->lastFrameDeltaSeconds);
+
     uint32_t idx;
     const VkResult acquireResult = vkAcquireNextImageKHR(engine->device, engine->swapchain, UINT64_MAX, engine->imageAvailableSemaphore, nullptr, &idx);
     if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR) {
@@ -1524,11 +1639,6 @@ bool draw_frame(VulkanEngine* engine) {
     }
     engine->lastRenderedImageIndex = idx;
 
-    update_animation_clock(engine);
-    handle_runtime_input(engine);
-    update_camera_key_state(engine);
-    camera_fixed_update(&engine->camera, engine->lastFrameDeltaSeconds);
-
     struct UBOData {
         glm::mat4 vp;
         glm::mat4 modelRotation;
@@ -1538,15 +1648,17 @@ bool draw_frame(VulkanEngine* engine) {
     UBOData uboData;
     uboData.modelRotation = glm::rotate(glm::mat4(1.0f), engine->animationTimeSeconds * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
     glm::mat4 view = glm::lookAt(engine->camera.position, engine->camera.position + engine->camera.front, engine->camera.up);
-    glm::mat4 proj = glm::perspective(glm::radians(engine->camera.zoom),
-                                      static_cast<float>(engine->swapchainExtent.width) / static_cast<float>(engine->swapchainExtent.height), 0.1f, 100.f);
+    glm::mat4 proj =
+        glm::perspective(glm::radians(engine->camera.zoom),
+                         static_cast<float>(engine->swapchainExtent.width) / static_cast<float>(engine->swapchainExtent.height), kNearPlane, kFarPlane);
     proj[1][1] *= -1;
     uboData.vp = proj * view;
 
     // Skybox must stay infinitely far: remove translation and keep fixed FOV.
     glm::mat4 skyboxView = glm::mat4(glm::mat3(view));
-    glm::mat4 skyboxProj = glm::perspective(
-        glm::radians(45.0f), static_cast<float>(engine->swapchainExtent.width) / static_cast<float>(engine->swapchainExtent.height), 0.1f, 100.f);
+    glm::mat4 skyboxProj =
+        glm::perspective(glm::radians(kLegacyDefaultFov),
+                         static_cast<float>(engine->swapchainExtent.width) / static_cast<float>(engine->swapchainExtent.height), kNearPlane, kFarPlane);
     skyboxProj[1][1] *= -1;
     uboData.invViewProj = glm::inverse(skyboxProj * skyboxView);
 

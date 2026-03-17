@@ -5,6 +5,8 @@
 #include <GLFW/glfw3.h>
 #include <chrono>
 #include <stdbool.h>
+#include <string>
+#include <vector>
 #include <vma/vk_mem_alloc.h>
 
 #include "camera.h"
@@ -81,6 +83,8 @@ typedef struct {
     VkImageView envHdrImageView;
     VkSampler envHdrSampler;
     uint32_t envHdrMipLevels;
+    std::vector<std::string> hdrFiles;
+    int currentHdrIndex;
 
     VkCommandPool commandPool;
     VkCommandBuffer commandBuffer;
@@ -102,8 +106,8 @@ typedef struct {
     bool isFullscreen;
     bool cameraToggleKeyWasDown;
     bool showEnvmapToggleKeyWasDown;
-    bool envLodUpKeyWasDown;
-    bool envLodDownKeyWasDown;
+    bool envPageUpKeyWasDown;
+    bool envPageDownKeyWasDown;
     bool cameraEnabled;
     bool showEnvmap;
     float envLod;

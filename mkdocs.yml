@@ -19,8 +19,10 @@ nav:
   - Géométrie & Uniforms: geometry.md
   - Gestion du Depth Buffer: depth_buffer.md
   - Optimisation VRAM (Staging): vram_optimization.md
+  - Caméra Cinétique: kinetic_camera.md
   - Runtime Controls et Logging: runtime_controls_logging.md
   - Pipeline Envmap HDR: envmap_hdr_pipeline.md
   - CI/CD GitHub Actions: ci_cd.md
   - Outillage & Qualité: tooling.md
   - Tracing: tracing.md
+  - Changelog: changelog.md

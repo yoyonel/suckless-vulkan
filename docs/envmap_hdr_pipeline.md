@@ -40,18 +40,22 @@ Effet attendu:
 
 ## Etat Actuel du Chargement HDR
 
-Le chargement est synchronise au startup de l'engine:
+Le chargement est synchronise et fonctionne maintenant avec un catalogue runtime:
 
-- Recherche du premier `.hdr` dans `assets/textures/hdr`.
+- Scan de tous les `.hdr` presents dans `assets/textures/hdr`.
+- Selection de l'envmap active par index (`currentHdrIndex`), avec preference pour `env.hdr` si present.
 - Decode float HDR via `stb_image` (`stbi_loadf`).
 - Upload via staging buffer CPU -> image Vulkan (`VK_FORMAT_R32G32B32A32_SFLOAT`).
 - Generation de mips par blit si support du format (sinon mip chain reduite a 1).
 - Creation de `VkImageView` + `VkSampler` et binding descriptor.
+- Rechargement runtime synchrone possible via `PageUp/PageDown` avec mise a jour du descriptor set.
 
 Code principal:
 
-- `find_first_hdr_path()` dans `src/vk_engine.cpp`
+- `find_hdr_paths()` dans `src/vk_engine.cpp`
+- `init_environment_catalog()` dans `src/vk_engine.cpp`
 - `init_environment_texture()` dans `src/vk_engine.cpp`
+- `reload_environment_texture()` dans `src/vk_engine.cpp`
 
 ## Fallback Actuel (CI et environnements sans assets)
 
@@ -70,8 +74,9 @@ Benefices:
 
 ## Limites de l'Implementation Courante
 
-- Chargement synchrone (potentiel freeze startup).
+- Chargement synchrone (potentiel freeze startup et hitch pendant switch runtime).
 - Pas de prefetch multi-HDR.
+- Pas de transition visuelle pendant le switch.
 - Pas de swap asynchrone atomique des ressources envmap.
 - Pas de budget explicite VRAM pour le cache HDR.
 - Pas de compression/transcodage intermediaire pour limiter bande passante/empreinte.
@@ -83,6 +88,13 @@ Benefices:
 - Scanner et indexer tous les `.hdr` au startup.
 - Exposer `currentHdrIndex` + metadata (nom, resolution, taille).
 - Permettre navigation runtime stable (next/prev) sans restart.
+
+Etat: partiellement implemente.
+
+- Catalogue des HDR disponible.
+- Navigation runtime `PageUp/PageDown` disponible.
+- LOD conserve sur `Shift+PageUp/PageDown`.
+- Metadata et UI de selection encore a faire.
 
 ## Phase B: Chargement asynchrone disque + decode
 

@@ -4,6 +4,16 @@ Bienvenue dans la documentation du moteur Vulkan développé de zéro.
 
 L'objectif de ce projet est de construire une architecture de rendu 3D robuste, performante et hautement contrôlable, en s'appuyant sur l'API bas niveau Vulkan.
 
+## 🆕 Nouveautés Récentes
+
+### Mars 2026
+
+- **[Caméra Cinétique](kinetic_camera.md)** — Système de physique avec momentum et friction, entièrement aligné avec le legacy `suckless-ogl`. Impulsion scroll, décélération progressive, comportement naturel. Documentation complète avec exemples et tableaux de référence.
+- **[Pipeline Envmap HDR](envmap_hdr_pipeline.md)** — Catalogue d'envmaps HDR, changement runtime, roadmap async (Phases A-E). Fallback CI robuste (1x1 black texture).
+- **[Changelog](changelog.md)** — Historique détaillé des changements par phase.
+
+Pour plus de détails, voir [Changelog](changelog.md).
+
 ## 🛠️ Stack Technique
 
 Afin de garantir un compromis idéal entre contrôle absolu et pragmatisme de développement, les choix technologiques suivants ont été arrêtés :

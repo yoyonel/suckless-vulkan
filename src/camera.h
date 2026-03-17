@@ -14,11 +14,16 @@ struct Camera {
     float pitch;
     float movementSpeed;
     float mouseSensitivity;
-    float zoom;
+    float zoom; // FOV for skybox only
 
     float yawTarget;
     float pitchTarget;
     float rotationSmoothing;
+
+    // Kinetic physics
+    glm::vec3 velocityCurrent; // Current 3D velocity (momentum)
+    float acceleration;        // Speed increase factor for WASD input
+    float friction;            // Velocity decay when no input
 
     bool moveForward;
     bool moveBackward;

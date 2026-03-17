@@ -19,18 +19,56 @@ Raccourcis clavier :
 - `Esc` : fermeture propre de l'application.
 - `C` : active/desactive la capture souris pour la camera.
 - `W/A/S/D/Q/E` : deplacement camera (avant/arriere/strafes/haut/bas).
-- `Molette` : zoom camera (FOV).
+- `Molette` : impulse cinétique (ajoute momentum au mouvement camera).
 - `K` : affiche/cache la skybox HDR.
-- `PageUp` : augmente le LOD de sampling de l'envmap.
-- `PageDown` : diminue le LOD de sampling de l'envmap.
+- `PageUp` : passe a l'envmap HDR suivante.
+- `PageDown` : passe a l'envmap HDR precedente.
+- `Shift+PageUp` : augmente le LOD de sampling de l'envmap.
+- `Shift+PageDown` : diminue le LOD de sampling de l'envmap.
 
 Implementation :
 
 - Debounce clavier via `runtime_is_key_pressed_once`.
 - Bascule fullscreen testable via `WindowOps` (injection des operations GLFW).
 - Camera souris via callbacks GLFW (`glfwSetCursorPosCallback`, `glfwSetScrollCallback`) et integration avec `src/camera.cpp`.
-- Skybox HDR fullscreen via pipeline dedie (`shaders/skybox.vert`, `shaders/skybox.frag`) + texture chargee depuis `assets/textures/hdr`.
+- Skybox HDR fullscreen via pipeline dedie (`shaders/skybox.vert`, `shaders/skybox.frag`) + catalogue des `.hdr` charges depuis `assets/textures/hdr`.
+- Changement d'envmap runtime synchrone avec rechargement image/sampler + mise a jour du descriptor set Vulkan.
 - La fermeture est demandee via `glfwSetWindowShouldClose`, puis la boucle sort et appelle le cleanup Vulkan.
+
+## Systeme de Camera Cinetique
+
+La camera utilise un systeme de physique avec **momentum et friction** pour un mouvement fluide et naturel, entièrement aligné avec le legacy `suckless-ogl`.
+
+**Voir [Caméra Cinétique](kinetic_camera.md) pour la documentation complète et détaillée.**
+
+### Survol Rapide
+
+- **Touches WASD/QE** : définissent une `targetVelocity` (direction + vitesse max).
+- **Molette souris** : ajoute une **impulsion cinétique** à la vélocité courante.
+- **Interpolation** : la `velocityCurrent` converge progressivement vers `targetVelocity` via absorption (accélération = 10.0).
+- **Friction** : quand aucune touche n'est pressée, la vélocité s'atténue par 85% pour ralentir naturellement.
+- **Intégration** : `position += velocityCurrent * deltaTime`.
+
+### Paramètres Inherited du Legacy
+
+- Distance initiale: `20.0f`
+- Vitesse mouvement: `15.0f` units/sec
+- Sensibilité souris: `0.15f`
+- Rotation smoothing: `0.18f`
+- Accélération WASD: `10.0f`
+- Friction: `0.85f`
+- Impulsion scroll: `50.0f` units par clique
+- FOV skybox: `60°` (fixe)
+- Planes: near `0.1`, far `1000.0`
+
+### Sensation de Mouvement
+
+1. **Appui W** → accélération lisse vers vitesse max.
+1. **Relâche W** → décélération progressive via friction (pas d'arrêt sec).
+1. **Scroll montant** → impulsion immédiate dans direction avant + inertie.
+1. **Scroll + WASD** → impulsion ajoute à mouvement habituel (effets cumulatifs).
+
+Cet effet procure une **sensation de poids et d'inertie physique** sans code de physique complexe.
 
 ## Fullscreen et Swapchain
 

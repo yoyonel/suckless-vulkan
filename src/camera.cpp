@@ -7,17 +7,22 @@ namespace {
 
 constexpr float kDefaultYaw = -90.0f;
 constexpr float kDefaultPitch = 0.0f;
-constexpr float kDefaultSpeed = 12.0f;
-constexpr float kDefaultSensitivity = 0.12f;
-constexpr float kDefaultZoom = 45.0f;
-constexpr float kDefaultRotationSmoothing = 0.2f;
+constexpr float kDefaultDistance = 20.0f;
+constexpr float kDefaultSpeed = 15.0f;
+constexpr float kDefaultSensitivity = 0.15f;
+constexpr float kDefaultZoom = 60.0f;
+constexpr float kDefaultRotationSmoothing = 0.18f;
+constexpr float kDefaultAcceleration = 10.0f;
+constexpr float kDefaultFriction = 0.85f;
+constexpr float kDefaultScrollSensitivity = 50.0f;
+constexpr float kMinVelocity = 0.01f;
 constexpr float kPitchMax = 89.0f;
 constexpr float kPitchMin = -89.0f;
 
 } // namespace
 
 void camera_init(Camera* camera) {
-    camera->position = glm::vec3(0.0f, 0.0f, 40.0f);
+    camera->position = glm::vec3(0.0f, 0.0f, kDefaultDistance);
     camera->worldUp = glm::vec3(0.0f, 1.0f, 0.0f);
 
     camera->yaw = kDefaultYaw;
@@ -29,6 +34,11 @@ void camera_init(Camera* camera) {
     camera->yawTarget = camera->yaw;
     camera->pitchTarget = camera->pitch;
     camera->rotationSmoothing = kDefaultRotationSmoothing;
+
+    // Initialize kinetic physics
+    camera->velocityCurrent = glm::vec3(0.0f, 0.0f, 0.0f);
+    camera->acceleration = kDefaultAcceleration;
+    camera->friction = kDefaultFriction;
 
     camera->moveForward = false;
     camera->moveBackward = false;
@@ -62,34 +72,51 @@ void camera_process_mouse(Camera* camera, float xoffset, float yoffset) {
 }
 
 void camera_process_scroll(Camera* camera, float yoffset) {
-    camera->zoom -= yoffset;
-    camera->zoom = std::clamp(camera->zoom, 20.0f, 80.0f);
+    // Add scroll impulse to velocity in the direction camera is facing
+    glm::vec3 impulse = camera->front * (yoffset * kDefaultScrollSensitivity);
+    camera->velocityCurrent += impulse;
 }
 
 void camera_fixed_update(Camera* camera, float deltaSeconds) {
-    const float velocity = camera->movementSpeed * deltaSeconds;
+    // 1. Calculate target velocity based on WASD input
+    glm::vec3 targetVelocity(0.0f, 0.0f, 0.0f);
 
     if (camera->moveForward) {
-        camera->position += camera->front * velocity;
+        targetVelocity += camera->front * camera->movementSpeed;
     }
     if (camera->moveBackward) {
-        camera->position -= camera->front * velocity;
+        targetVelocity -= camera->front * camera->movementSpeed;
     }
     if (camera->moveLeft) {
-        camera->position -= camera->right * velocity;
+        targetVelocity -= camera->right * camera->movementSpeed;
     }
     if (camera->moveRight) {
-        camera->position += camera->right * velocity;
+        targetVelocity += camera->right * camera->movementSpeed;
     }
     if (camera->moveUp) {
-        camera->position += camera->worldUp * velocity;
+        targetVelocity += camera->worldUp * camera->movementSpeed;
     }
     if (camera->moveDown) {
-        camera->position -= camera->worldUp * velocity;
+        targetVelocity -= camera->worldUp * camera->movementSpeed;
     }
 
-    const float alpha = std::clamp(camera->rotationSmoothing, 0.0f, 1.0f);
-    camera->yaw += (camera->yawTarget - camera->yaw) * alpha;
-    camera->pitch += (camera->pitchTarget - camera->pitch) * alpha;
+    // 2. Interpolate current velocity towards target velocity
+    //    Alpha is based on acceleration and deltaTime
+    float alpha = std::min(camera->acceleration * deltaSeconds, 1.0f);
+    camera->velocityCurrent = glm::mix(camera->velocityCurrent, targetVelocity, alpha);
+
+    // 3. Apply friction when no input is present (dampen momentum)
+    float targetMagnitude = glm::length(targetVelocity);
+    if (targetMagnitude < kMinVelocity) {
+        camera->velocityCurrent *= camera->friction;
+    }
+
+    // 4. Integrate position based on current velocity
+    camera->position += camera->velocityCurrent * deltaSeconds;
+
+    // 5. Smooth rotation (interpolate towards target orientation)
+    const float rotAlpha = std::clamp(camera->rotationSmoothing, 0.0f, 1.0f);
+    camera->yaw += (camera->yawTarget - camera->yaw) * rotAlpha;
+    camera->pitch += (camera->pitchTarget - camera->pitch) * rotAlpha;
     camera_update_vectors(camera);
 }
