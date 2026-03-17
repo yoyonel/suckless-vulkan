@@ -948,18 +948,29 @@ static std::string find_first_hdr_path() {
 
 static bool init_environment_texture(VulkanEngine* engine) {
     const std::string hdrPath = find_first_hdr_path();
-    if (hdrPath.empty()) {
-        LOG_ERROR("engine", "Aucun fichier HDR trouve dans assets/textures/hdr");
-        return false;
-    }
 
-    int width = 0;
-    int height = 0;
+    int width = 1;
+    int height = 1;
     int channels = 0;
-    float* pixels = stbi_loadf(hdrPath.c_str(), &width, &height, &channels, 4);
-    if (pixels == nullptr || width <= 0 || height <= 0) {
-        LOG_ERROR("engine", "Echec du chargement HDR: %s", hdrPath.c_str());
-        return false;
+    float* pixels = nullptr;
+    bool usedStbi = false;
+    std::vector<float> fallbackPixels;
+
+    if (hdrPath.empty()) {
+        LOG_INFO("engine", "Aucun fichier HDR trouve dans assets/textures/hdr, utilisation d'une texture fallback 1x1");
+        fallbackPixels = {0.0f, 0.0f, 0.0f, 1.0f};
+        pixels = fallbackPixels.data();
+    } else {
+        pixels = stbi_loadf(hdrPath.c_str(), &width, &height, &channels, 4);
+        if (pixels == nullptr || width <= 0 || height <= 0) {
+            LOG_WARNING("engine", "Echec du chargement HDR: %s, utilisation d'une texture fallback 1x1", hdrPath.c_str());
+            width = 1;
+            height = 1;
+            fallbackPixels = {0.0f, 0.0f, 0.0f, 1.0f};
+            pixels = fallbackPixels.data();
+        } else {
+            usedStbi = true;
+        }
     }
 
     const VkDeviceSize imageSize = static_cast<VkDeviceSize>(width) * static_cast<VkDeviceSize>(height) * 4 * sizeof(float);
@@ -984,19 +995,25 @@ static bool init_environment_texture(VulkanEngine* engine) {
     stagingAllocInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
 
     if (vmaCreateBuffer(engine->allocator, &bufferInfo, &stagingAllocInfo, &stagingBuffer, &stagingAllocation, nullptr) != VK_SUCCESS) {
-        stbi_image_free(pixels);
+        if (usedStbi) {
+            stbi_image_free(pixels);
+        }
         return false;
     }
 
     void* mapped = nullptr;
     if (vmaMapMemory(engine->allocator, stagingAllocation, &mapped) != VK_SUCCESS) {
-        stbi_image_free(pixels);
+        if (usedStbi) {
+            stbi_image_free(pixels);
+        }
         vmaDestroyBuffer(engine->allocator, stagingBuffer, stagingAllocation);
         return false;
     }
     memcpy(mapped, pixels, static_cast<size_t>(imageSize));
     vmaUnmapMemory(engine->allocator, stagingAllocation);
-    stbi_image_free(pixels);
+    if (usedStbi) {
+        stbi_image_free(pixels);
+    }
 
     VkImageCreateInfo imageInfo{};
     imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -1107,7 +1124,11 @@ static bool init_environment_texture(VulkanEngine* engine) {
         return false;
     }
 
-    LOG_INFO("engine", "HDR map chargee: %s (%dx%d, mips=%u)", hdrPath.c_str(), width, height, engine->envHdrMipLevels);
+    if (hdrPath.empty()) {
+        LOG_INFO("engine", "HDR map fallback 1x1 initialisee (%dx%d, mips=%u)", width, height, engine->envHdrMipLevels);
+    } else {
+        LOG_INFO("engine", "HDR map chargee: %s (%dx%d, mips=%u)", hdrPath.c_str(), width, height, engine->envHdrMipLevels);
+    }
     return true;
 }
 
