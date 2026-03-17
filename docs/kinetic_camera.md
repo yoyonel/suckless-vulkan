@@ -149,7 +149,7 @@ ______________________________________________________________________
 
 ### Exemple 1 : Mouvement Simple (WASD → Accélération Lisse)
 
-```
+```text
 Temps 0.00s : Appui W
               targetVelocity = front * 15.0
               velocityCurrent = 0 → 15 (interpolation progressive)
@@ -176,7 +176,7 @@ ______________________________________________________________________
 
 ### Exemple 2 : Impulsion au Scroll (Inertie Cinétique)
 
-```
+```text
 Temps 0.00s : Caméra immobile, scroll UP (yoffset = 1)
               Impulsion = front * 50.0
               velocityCurrent = 0 + impulse → 50.0
@@ -199,7 +199,7 @@ ______________________________________________________________________
 
 ### Exemple 3 : Scroll + WASD Contemporain
 
-```
+```text
 Temps 0.00s : WASD appuyé + Scroll UP
               targetVelocity = front * 15.0  (WASD)
               velocityCurrent += front * 50  (Scroll)
@@ -253,14 +253,14 @@ ______________________________________________________________________
 
 | Touche | Action |
 |--------|--------|
-| `W` | Avancer (targetVelocity += front * 15) |
-| `S` | Reculer (targetVelocity -= front * 15) |
-| `A` | Strafing gauche (targetVelocity -= right * 15) |
-| `D` | Strafing droit (targetVelocity += right * 15) |
-| `Q` | Descendre (targetVelocity -= worldUp * 15) |
-| `E` | Monter (targetVelocity += worldUp * 15) |
-| `Molette ↑` | Impulsion avant (+50 front direction) |
-| `Molette ↓` | Impulsion arrière (-50 front direction) |
+| `W` | Avancer (targetVelocity step: 15) |
+| `S` | Reculer (targetVelocity step: -15) |
+| `A` | Strafing gauche (targetVelocity step: -15) |
+| `D` | Strafing droit (targetVelocity step: 15) |
+| `Q` | Descendre (targetVelocity step: -15) |
+| `E` | Monter (targetVelocity step: 15) |
+| `Molette ↑` | Impulsion avant (impulse magnitude: 50) |
+| `Molette ↓` | Impulsion arrière (impulse magnitude: -50) |
 
 ### Animation et Skybox
 
@@ -295,14 +295,14 @@ ______________________________________________________________________
 
 ### Avant (Legacy)
 
-```
+```text
 Scroll → modifie zoom FOV (changement direct)
          (Non-cinétique, change projection)
 ```
 
 ### Après (Vulkan Actuel)
 
-```
+```text
 Scroll → ajoute impulsion à velocityCurrent (cinétique)
          (Physics-based, inertie et friction)
 ```

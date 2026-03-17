@@ -1,6 +1,6 @@
 # Résumé des Changements Récents
 
-## Phase 3 : Système de Caméra Cinétique (Mars 2026)
+## Implémentations Effectuées (Mars 2026)
 
 ### ✨ Nouvelle Fonctionnalité
 
@@ -54,7 +54,8 @@ Une **caméra cinétique complète avec momentum et friction** remplace le syst�
 #### `src/main.cpp`
 
 - Message de contrôles mis à jour:
-  ```
+
+  ```text
   "molette FOV" → "molette impulse cinétique"
   ```
 
@@ -85,7 +86,7 @@ Une **caméra cinétique complète avec momentum et friction** remplace le syst�
 
 ### ✅ Validation
 
-```
+```text
 just format  ✅ Passes (clang-format)
 just lint    ✅ Passes (clang-tidy, 0 errors, 0 warnings)
 just test-all ✅ Passes (EngineIntegrationTest + LogicTests)
@@ -113,7 +114,7 @@ ______________________________________________________________________
 
 ## Phase 2 : HDR Catalogue et Runtime Switching (Mars 2026)
 
-### ✨ Nouvelle Fonctionnalité
+### 🎨 Nouvelle Fonctionnalité (HDR Catalogue)
 
 **Catalogue d'envmap HDR avec changement runtime** remplace l'envmap unique. C'est le début de la stratégie async:
 
@@ -176,25 +177,25 @@ ______________________________________________________________________
 
 ## Prochaines Étapes Possibles
 
-1. **Phase 2B : Async HDR Loading**
+### Phase 2B : Async HDR Loading
 
-   - Thread I/O pour décodage off-render
-   - Queue-based request system
-   - Suppression du sync hitch
-   - **Documentation** : Section dans `envmap_hdr_pipeline.md`
+- Thread I/O pour décodage off-render
+- Queue-based request system
+- Suppression du sync hitch
+- **Documentation** : Section dans `envmap_hdr_pipeline.md`
 
-1. **Phase 2C : Async GPU Upload**
+### Phase 2C : Async GPU Upload
 
-   - Ring buffers + timeline semaphore
-   - Non-blocking GPU transfer
-   - **Documentation** : Extension `envmap_hdr_pipeline.md`
+- Ring buffers + timeline semaphore
+- Non-blocking GPU transfer
+- **Documentation** : Extension `envmap_hdr_pipeline.md`
 
-1. **UX Enhancements**
+### UX Enhancements
 
-   - Affichage metadata envmap (résolution, taille)
-   - Transition visuelle (fade/crossfade)
-   - UI dropdown pour sélection
-   - **Documentation** : Nouveau `docs/envmap_ui.md`
+- Affichage metadata envmap (résolution, taille)
+- Transition visuelle (fade/crossfade)
+- UI dropdown pour sélection
+- **Documentation** : Nouveau `docs/envmap_ui.md`
 
 ______________________________________________________________________
 
@@ -223,7 +224,7 @@ ______________________________________________________________________
 
 **À committer (si non encore committé):**
 
-```
+```bash
 M src/camera.cpp           # Logique cinétique
 M src/camera.h             # Structure augmentée
 M src/vk_engine.cpp        # (Phase 1/2 alignment)
