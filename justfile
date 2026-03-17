@@ -175,11 +175,37 @@ build-coverage-llvm: configure-coverage-llvm shaders
 # Exécute TOUS les tests sur le build llvm-cov instrumenté (LogicTests + EngineIntegrationTest).
 test-coverage-llvm: build-coverage-llvm
     @mkdir -p build/coverage-llvm
+    @echo "Running tests with LLVM profiling..."
     @LLVM_PROFILE_FILE='{{ justfile_directory() }}/build/coverage-llvm/test_%p.profraw' ctest --test-dir build/coverage-llvm --output-on-failure
+    @echo "Merging profile data..."
+    @llvm-profdata merge -sparse build/coverage-llvm/*.profraw -o build/coverage-llvm/coverage.profdata
 
 # Génère des rapports LLVM-cov (HTML + résumé console formaté).
+
+# Utilise directement llvm-cov, sans scripts custom (prefere standard outils).
 coverage-report-llvm: test-coverage-llvm
-    @bash scripts/ci/run_ci_coverage_llvm.sh
+    @echo "Generating HTML report..."
+    @mkdir -p build/coverage-llvm/coverage_report
+    @llvm-cov show -format=html \
+        -instr-profile=build/coverage-llvm/coverage.profdata \
+        build/coverage-llvm/unit_tests \
+        -output-dir=build/coverage-llvm/coverage_report \
+        -ignore-filename-regex='(tests/|ext/)' > /dev/null 2>&1
+    @echo ""
+    @echo "════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════"
+    @echo "📊 LLVM CODE COVERAGE SUMMARY REPORT (All Tests: LogicTests + EngineIntegrationTest)"
+    @echo "════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════"
+    @echo ""
+    @llvm-cov report \
+        -instr-profile=build/coverage-llvm/coverage.profdata \
+        build/coverage-llvm/unit_tests \
+        build/coverage-llvm/logic_tests \
+        -ignore-filename-regex='(tests/|ext/)' || true
+    @echo ""
+    @echo "════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════"
+    @echo "🔗 HTML Report: build/coverage-llvm/coverage_report/index.html"
+    @echo "════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════"
+    @echo ""
 
 # Flow complet de couverture avec llvm-cov (meilleur formatage que gcovr).
 coverage-llvm: coverage-report-llvm

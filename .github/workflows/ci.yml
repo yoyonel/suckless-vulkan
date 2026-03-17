@@ -237,8 +237,7 @@ jobs:
             -v "${{ github.workspace }}:/work" \
             -w /work \
             "$CI_IMAGE" \
-            bash -lc "chmod +x scripts/ci/run_ci_coverage_llvm.sh && \
-              scripts/ci/run_ci_coverage_llvm.sh"
+            bash -lc "just coverage-llvm"
 
       - name: Upload LLVM coverage HTML report
         uses: actions/upload-artifact@v4
