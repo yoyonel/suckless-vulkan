@@ -28,7 +28,6 @@ jobs:
         with:
           dockerfile: docker/ci/Dockerfile
           config: .hadolint.yaml
-          ignore: DL3008 DL3013 DL3813
 
   build-and-push-image:
     needs: lint-dockerfile
