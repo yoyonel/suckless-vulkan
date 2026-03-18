@@ -1,49 +1,90 @@
 # 🛠️ Tracing & Analyse (RenderDoc)
 
-Cette section documente les outils et procédures utilisés pour valider que la géométrie de l'Icosphere réside exclusivement en VRAM et pour analyser les performances du pipeline.
+Cette page documente le workflow RenderDoc du projet, la convention de naming des objets Vulkan, et la decomposition des passes pour faciliter l'analyse frame par frame.
 
-______________________________________________________________________
+## 1. Setup rapide
 
-## 1. Configuration de l'Environnement
+Pour une capture exploitable, preferer une build Debug avec symboles:
 
-Pour une analyse précise, le binaire doit inclure les symboles de debug et désactiver les optimisations de registre qui masquent les données au profiler.
+```bash
+just build-debug
+just renderdoc_bin=/path/to/qrenderdoc renderdoc
+```
 
-- **Cible de build** : `just build-debug`
-- **Chemin du binaire** : `build/debug/vulkan_app`
-- **Lancement** : `just renderdoc_bin=/path/to/qrenderdoc renderdoc`
+Pour une lecture shader plus lisible en Pixel Debugger (moins de desassemblage brut), utiliser le profil shaders debug:
 
-## 2. Instrumentation du Code (Debug Utils)
+```bash
+just renderdoc_bin=/path/to/qrenderdoc renderdoc-debug-shaders
+```
 
-Nous utilisons l'extension `VK_EXT_debug_utils` pour sortir les ressources de l'anonymat dans l'interface de RenderDoc.
+Ce profil compile les shaders avec debug info et sans optimisations agressives:
 
-### A. Naming des Ressources
+- `glslc`: `-g -O0`
 
-Chaque objet Vulkan est étiqueté pour une identification rapide dans le **Resource Inspector** :
+- `glslangValidator` (fallback): `-g -Od`
 
-- **Buffers** : `Icosphere_Vertex_Buffer`, `Icosphere_Index_Buffer`, `Global_MVP_UBO`.
-- **Images** : `Depth_Buffer_Image`, `Main_Swapchain`.
-- **Pipeline** : `Main_Graphics_Pipeline`.
+- Binaire cible: `build/debug/vulkan_app`
 
-### B. Régions de Debug (Labels)
+- Capture typique: touche `F12` depuis RenderDoc (ou hotkey configuree)
 
-Les appels de commandes sont regroupés dans des blocs logiques colorés dans l'**Event Browser** :
+Si RenderDoc n'affiche encore que du desassemblage, verifier que la capture a bien ete faite apres compilation via `renderdoc-debug-shaders`.
 
-- **Render_Icosphere_Pass (Orange)** : Regroupe tout le cycle de rendu d'une frame.
-- **GPU_Staging_Copy (Vert)** : Identifie les transferts ponctuels CPU -> GPU.
+## 2. Instrumentation active (VK_EXT_debug_utils)
 
-## 3. Protocole de Validation "Full GPU"
+Le moteur utilise `VK_EXT_debug_utils` pour nommer les ressources et segmenter les commandes GPU.
 
-Pour confirmer que l'application utilise correctement la VRAM (Device Local Memory) :
+### 2.1 Naming des ressources principales
 
-1. **Capture** : Effectuer une capture de frame (F12).
-1. **Resource Inspector** : Filtrer avec le mot-clé `ico`.
-1. **Memory Check** : Sélectionner `Icosphere_Vertex_Buffer`, cliquer sur l'ID de mémoire associée.
-1. **Verdict** : Le type de mémoire doit être **`eResDeviceMemory`** (indiquant `VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT`).
+Exemples visibles dans le Resource Inspector:
 
-## 4. Analyse du Flux (Timeline)
+- Pipelines: `Main_Graphics_Pipeline`, `Skybox_Graphics_Pipeline`
+- Shader modules: `Icosphere_Vertex_Shader`, `Icosphere_Fragment_Shader`, `Skybox_Vertex_Shader`, `Skybox_Fragment_Shader`
+- Buffers: `Icosphere_Vertex_Buffer`, `Icosphere_Index_Buffer`, `Instance_Offsets_Buffer`, `Global_MVP_UBO`
+- Images et vues: `Main_Swapchain`, `Swapchain_ImageView_<index>`, `Depth_Buffer_Image`, `Depth_Buffer_ImageView`, `EnvHDR_Image`, `EnvHDR_ImageView`
+- Descripteurs: `Global_DescriptorSetLayout`, `Global_Descriptor_Pool`, `Global_Descriptor_Set`
+- Sync/queues: `Graphics_Queue`, `Present_Queue`, `Image_Available_Semaphore`, `Render_Finished_Semaphore`, `Main_Render_Fence`
+- Ressources temporaires: `*_Staging_Buffer`, `*_Staging_CommandBuffer`, `EnvHDR_Transfer_CommandBuffer`
 
-Dans l'**Event Browser**, nous validons l'ordre des opérations :
+### 2.2 Labels RenderDoc (decomposition des passes)
 
-1. **EID 3** : Écriture dans la mémoire cohérente pour la matrice MVP.
-1. **EID 6-13** : Exécution du bloc orange de rendu.
-1. **Present** : Envoi de l'image finale à la Swapchain.
+Dans l'Event Browser, la frame est structuree par niveaux:
+
+- Parent frame: `Render_Frame_Graphics`
+- Preparation render pass: `RenderPass_Begin_And_Bindings`
+- Sous-pass skybox/env map: `Render_Skybox_EnvMap`
+- Sous-pass geometrie instanciee: `Render_Icosphere_Instanced`
+- Upload HDR hors frame principale: `Upload_EnvHDR_Texture`, `Copy_EnvHDR_Staging_To_Image`, `Generate_EnvHDR_Mipmaps`
+
+Cette decomposition permet d'isoler rapidement un cout de draw skybox vs draw geometrie, ou un spike lie a l'upload envmap.
+
+## 3. Capture de reference (frame decomposee)
+
+Image de reference attendue dans la doc:
+
+```text
+docs/assets/images/renderdoc_frame_decomposed.png
+```
+
+![RenderDoc frame decomposition](assets/images/renderdoc_frame_decomposed.png)
+
+Lecture conseillee sur la capture:
+
+1. Verifier le bloc parent `Render_Frame_Graphics`
+1. Verifier la sous-zone `Render_Skybox_EnvMap` (draw 3 vertices fullscreen)
+1. Verifier la sous-zone `Render_Icosphere_Instanced` (draw indexed instancie)
+1. Controler les ressources nommees dans la liste (pipelines, buffers, image views)
+
+## 4. Protocole de validation VRAM (Full GPU)
+
+Pour confirmer que la geometrie est bien en Device Local:
+
+1. Capturer une frame
+1. Filtrer `Icosphere_` dans le Resource Inspector
+1. Ouvrir `Icosphere_Vertex_Buffer` puis l'ID memoire associe
+1. Verifier `eResDeviceMemory` (correspond a `VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT`)
+
+## 5. Diagnostic rapide par symptome
+
+- Skybox absente: verifier `Render_Skybox_EnvMap` + pipeline `Skybox_Graphics_Pipeline`
+- Geometrie absente: verifier `Render_Icosphere_Instanced` + `Icosphere_*_Buffer`
+- Pic ponctuel lors du switch HDR: verifier labels `Upload_EnvHDR_Texture` / `Generate_EnvHDR_Mipmaps`

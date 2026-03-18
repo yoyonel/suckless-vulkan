@@ -4,8 +4,17 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 #include <chrono>
+#include <condition_variable>
+#include <cstdint>
+#include <mutex>
+#include <queue>
 #include <stdbool.h>
+#include <string>
+#include <thread>
+#include <vector>
 #include <vma/vk_mem_alloc.h>
+
+#include "camera.h"
 
 // Configuration de GLM pour Vulkan
 #define GLM_FORCE_RADIANS
@@ -14,6 +23,24 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #define MAX_SWAPCHAIN_IMAGES 8
+
+// Phase 2B: Async HDR Loading
+enum class HdrLoadRequestState : std::uint8_t {
+    Pending, // Queued, waiting for I/O thread
+    Loading, // I/O thread is reading file
+    Ready,   // File loaded into memory, ready for GPU upload
+    Failed   // Load failed (file not found, corrupt, etc.)
+};
+
+struct HdrLoadRequest {
+    int hdrIndex;                  // Index in hdrFiles array
+    HdrLoadRequestState state;     // Current load state
+    std::vector<float> pixelData;  // CPU-side RGBA32F pixel data
+    uint32_t width;                // Image width
+    uint32_t height;               // Image height
+    uint32_t channels;             // Channels (typically 4)
+    std::string sourcePathOrLabel; // Source file path or fallback label
+};
 
 typedef struct {
     float position[3];
@@ -53,6 +80,7 @@ typedef struct {
 
     VkPipelineLayout pipelineLayout;
     VkPipeline graphicsPipeline;
+    VkPipeline skyboxPipeline;
 
     VkBuffer vertexBuffer;
     VmaAllocation vertexBufferAllocation;
@@ -73,6 +101,24 @@ typedef struct {
     VkDescriptorPool descriptorPool;
     VkDescriptorSet descriptorSet;
 
+    VkImage envHdrImage;
+    VmaAllocation envHdrImageAllocation;
+    VkImageView envHdrImageView;
+    VkSampler envHdrSampler;
+    uint32_t envHdrMipLevels;
+    std::vector<std::string> hdrFiles;
+    int currentHdrIndex;
+
+    // Phase 2B: Async HDR loading infrastructure
+    std::queue<HdrLoadRequest> hdrLoadQueue;  // Requests queued for I/O thread
+    std::queue<HdrLoadRequest> hdrReadyQueue; // Ready/failed requests for render thread
+    std::thread hdrIoThread;                  // I/O worker thread
+    std::mutex hdrLoadMutex;                  // Protect queue state
+    std::condition_variable hdrLoadCV;        // Signal I/O thread on new requests
+    bool hdrIoThreadRunning;                  // Control flag for I/O thread
+    bool hdrLoadInFlight;                     // True while worker decodes one request
+    int pendingHdrIndex;                      // Last requested HDR index (-1 if none)
+
     VkCommandPool commandPool;
     VkCommandBuffer commandBuffer;
 
@@ -91,10 +137,20 @@ typedef struct {
     bool fullscreenKeyWasDown;
     bool escapeKeyWasDown;
     bool isFullscreen;
+    bool cameraToggleKeyWasDown;
+    bool showEnvmapToggleKeyWasDown;
+    bool envPageUpKeyWasDown;
+    bool envPageDownKeyWasDown;
+    bool cameraEnabled;
+    bool showEnvmap;
+    float envLod;
     int windowedPosX;
     int windowedPosY;
     int windowedWidth;
     int windowedHeight;
+    float lastFrameDeltaSeconds;
+
+    Camera camera;
     std::chrono::steady_clock::time_point lastFrameTimestamp;
 
 } VulkanEngine;

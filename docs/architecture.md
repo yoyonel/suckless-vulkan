@@ -1,6 +1,14 @@
 # Architecture du Moteur Vulkan
 
-Le fichier `vk_engine.cpp` orchestre l'initialisation complète de l'API Vulkan. Contrairement à OpenGL qui gère une machine à états globale, Vulkan exige la création explicite de chaque composant du pipeline.
+Le moteur n'est plus monolithique: l'architecture est decoupee en modules specialises.
+
+- `src/vk_engine_init.cpp` : initialisation Vulkan + cleanup + recreation swapchain.
+- `src/vk_engine_frame.cpp` : boucle de rendu frame (UBO, render pass, submit/present).
+- `src/vk_engine_runtime.cpp` : callbacks GLFW + gestion input runtime camera/envmap.
+- `src/vk_engine_envmap.cpp` : catalogue HDR, loading async, upload GPU envmap.
+- `src/vk_engine.cpp` : shell API publique + helpers debug utils RenderDoc.
+
+Contrairement a OpenGL qui gere une machine a etats globale, Vulkan exige la creation explicite de chaque composant du pipeline.
 
 ## ⚙️ Séquence d'Initialisation
 

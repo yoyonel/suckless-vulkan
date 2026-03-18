@@ -91,6 +91,8 @@ Warning handling policy during lint execution:
 - A lint command with `exit code 0` is NOT considered successful if warnings are present.
 - Warnings must be treated and fixed before moving to the next step or committing.
 - Use output checks when needed (example: `just lint 2>&1 | grep -i warning`) to confirm warning-free runs.
+- `clang-tidy` warnings (including `performance-*`) are blocking and must be fixed, not deferred.
+- During GitHub Actions monitoring, always run `just ci-docker-all` locally in parallel and fix local warnings/errors immediately to preempt remote failures.
 
 ---
 
@@ -282,10 +284,17 @@ When explicitly requested, follow this sequence:
 3. Create PR with title + detailed description:
    - Use GitHub CLI (`gh pr create`) or equivalent tool integration
    - Base branch must be `master`
-4. Monitor GitHub Actions until completion:
-   - check all workflows and wait for terminal status (`SUCCESS` / `FAILURE`)
-   - report a concise summary of each workflow result to the user
-5. If any workflow fails:
+4. **Parallel validation strategy** (CRITICAL for speed):
+   - **Immediately after push**, launch local CI in background: `just ci-docker-all` (runs full matrix locally)
+   - **Simultaneously**, monitor GitHub Actions remotely (check runs, job status)
+   - **Early problem detection**: If local CI fails → fix immediately, no need to wait for remote
+   - If error found locally → fix code → `just format && just lint && just test-all` → commit → push to re-trigger remote
+   - By the time remote CI validation completes, code is already corrected (zero wasted cycles)
+5. Monitor results:
+   - Local CI: Full verbose output on-machine for debugging
+   - Remote CI: Check all workflows and wait for terminal status (`SUCCESS` / `FAILURE`)
+   - Report a concise summary of each workflow result to the user
+6. If any workflow fails (local or remote):
    - treat as blocked
    - investigate, fix, re-run required checks, and update PR
 
@@ -414,6 +423,26 @@ just test-asan
 ```bash
 just test-validation-layers
 ```
+
+### RenderDoc Observability Directive (Mandatory)
+
+For every feature, fix, or refactor touching rendering, Vulkan resources, or GPU command recording:
+
+- **Always add meaningful resource names** via `vkSetDebugUtilsObjectNameEXT` (through project helper wrappers) for newly created Vulkan objects:
+   - Pipelines, pipeline layouts, render passes, framebuffers
+   - Buffers/images/image views/samplers
+   - Descriptor set layouts/pools/sets
+   - Command pools/command buffers, semaphores/fences, queues
+- **Always add meaningful labels** via `vkCmdBeginDebugUtilsLabelEXT` / `vkCmdEndDebugUtilsLabelEXT` around logical GPU blocks:
+   - Render pass setup/bindings
+   - Skybox pass, geometry pass, post-process pass
+   - Upload/copy/transition/mipmap generation phases
+- **Prefer hierarchical labels** (parent frame region + child pass regions) so Event Browser navigation is immediate.
+- **Use stable naming conventions** (`Feature_ObjectType[_Index]`) to keep captures diff-friendly across runs.
+- **Do not leave anonymous critical resources** in RenderDoc when they are part of the feature being changed.
+- **Keep docs aligned**: when adding/changing labels or naming conventions, update `docs/tracing.md` in the same change.
+
+Rationale: RenderDoc readability is a project quality requirement, not an optional debug extra.
 
 ---
 

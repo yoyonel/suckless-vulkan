@@ -10,6 +10,8 @@ help:
     @echo "Recettes les plus utiles:"
     @echo "  just build                # build release"
     @echo "  just run                  # build + execution"
+    @echo "  just renderdoc            # launch qrenderdoc with debug build"
+    @echo "  just renderdoc-debug-shaders # launch qrenderdoc with shader debug info (-g -O0/-Od)"
     @echo "  just test                 # tous les tests CTest (release)"
     @echo "  just test-all             # flow explicite: integration + logic"
     @echo "  just test-integration     # EngineIntegrationTest uniquement"
@@ -63,13 +65,44 @@ shaders:
     @if command -v glslc >/dev/null 2>&1; then \
         glslc shaders/shader.vert -o shaders/vert.spv; \
         glslc shaders/shader.frag -o shaders/frag.spv; \
+        glslc shaders/skybox.vert -o shaders/skybox_vert.spv; \
+        glslc shaders/skybox.frag -o shaders/skybox_frag.spv; \
         echo "Génération de l'assembleur SPIR-V (.spvasm)..."; \
         glslc -S shaders/shader.vert -o shaders/vert.spvasm; \
         glslc -S shaders/shader.frag -o shaders/frag.spvasm; \
+        glslc -S shaders/skybox.vert -o shaders/skybox_vert.spvasm; \
+        glslc -S shaders/skybox.frag -o shaders/skybox_frag.spvasm; \
     else \
         echo "glslc introuvable, fallback sur glslangValidator pour les .spv"; \
         glslangValidator -V shaders/shader.vert -o shaders/vert.spv; \
         glslangValidator -V shaders/shader.frag -o shaders/frag.spv; \
+        glslangValidator -V shaders/skybox.vert -o shaders/skybox_vert.spv; \
+        glslangValidator -V shaders/skybox.frag -o shaders/skybox_frag.spv; \
+        echo "Génération .spvasm ignorée (glslc requis)."; \
+    fi
+
+# Compile les shaders GLSL en SPIR-V orienté debug RenderDoc (source-level):
+# - glslc: -g -O0
+
+# - glslangValidator: -g -Od
+shaders-debug:
+    @echo "Compilation des shaders en mode debug RenderDoc (-g, sans optimisations)..."
+    @if command -v glslc >/dev/null 2>&1; then \
+        glslc -g -O0 shaders/shader.vert -o shaders/vert.spv; \
+        glslc -g -O0 shaders/shader.frag -o shaders/frag.spv; \
+        glslc -g -O0 shaders/skybox.vert -o shaders/skybox_vert.spv; \
+        glslc -g -O0 shaders/skybox.frag -o shaders/skybox_frag.spv; \
+        echo "Génération de l'assembleur SPIR-V (.spvasm) en mode debug..."; \
+        glslc -g -O0 -S shaders/shader.vert -o shaders/vert.spvasm; \
+        glslc -g -O0 -S shaders/shader.frag -o shaders/frag.spvasm; \
+        glslc -g -O0 -S shaders/skybox.vert -o shaders/skybox_vert.spvasm; \
+        glslc -g -O0 -S shaders/skybox.frag -o shaders/skybox_frag.spvasm; \
+    else \
+        echo "glslc introuvable, fallback sur glslangValidator debug (-g -Od)"; \
+        glslangValidator -g -Od -V shaders/shader.vert -o shaders/vert.spv; \
+        glslangValidator -g -Od -V shaders/shader.frag -o shaders/frag.spv; \
+        glslangValidator -g -Od -V shaders/skybox.vert -o shaders/skybox_vert.spv; \
+        glslangValidator -g -Od -V shaders/skybox.frag -o shaders/skybox_frag.spv; \
         echo "Génération .spvasm ignorée (glslc requis)."; \
     fi
 
@@ -81,6 +114,11 @@ build: configure shaders
 # Compile l'application en Debug.
 build-debug: configure-debug shaders
     @echo "Compilation Debug..."
+    @cmake --build build/debug -j$(nproc)
+
+# Compile l'application en Debug avec shaders compilés pour un debug pixel lisible dans RenderDoc.
+build-debug-renderdoc: configure-debug shaders-debug
+    @echo "Compilation Debug (profil RenderDoc shader debug)..."
     @cmake --build build/debug -j$(nproc)
 
 # Compile l'application en Debug avec ASan/UBSan.
@@ -106,6 +144,12 @@ run-asan: build-asan
 
 # Utilisation : just renderdoc_bin=/chemin/vers/qrenderdoc renderdoc
 renderdoc: build-debug
+    @{{ renderdoc_bin }} --working-dir . ./build/debug/vulkan_app
+
+# Utilisation : just renderdoc_bin=/chemin/vers/qrenderdoc renderdoc-debug-shaders
+
+# Lance qrenderdoc avec shaders compilés en -g sans optimisation (plus lisible en Pixel Debugger).
+renderdoc-debug-shaders: build-debug-renderdoc
     @{{ renderdoc_bin }} --working-dir . ./build/debug/vulkan_app
 
 # Exécute tous les tests CTest du build release.
@@ -274,7 +318,7 @@ lint-c:
     if clang-tidy --help 2>&1 | grep -q -- '--exclude-header-filter'; then \
         exclude_header_filter="--exclude-header-filter=(.*/)?ext/.*"; \
     fi; \
-    find src tests -name '*.cpp' -type f | sort | xargs -P `nproc` -I {} clang-tidy -quiet -p "${build_dir}" {} --header-filter='(src/.*|tests/.*)' ${exclude_header_filter}
+    find src tests -name '*.cpp' -type f | sort | xargs -P `nproc` -I {} clang-tidy -quiet -p "${build_dir}" {} --header-filter='(src/.*|tests/.*)' --warnings-as-errors='*' ${exclude_header_filter}
 
 # Lance clang-tidy uniquement sur les fichiers C/C++ modifies (rapide pour iteration). Parallelise avec xargs -P $(nproc). Meme logique CI/local que lint-c pour les chemins compile_commands.
 lint-c-changed:
@@ -300,9 +344,9 @@ lint-c-changed:
     fi; \
     if [ ${#changed_headers[@]} -gt 0 ]; then \
         echo "Headers modifies detectes: execution clang-tidy complete (src/tests)."; \
-        find src tests -name '*.cpp' -type f | sort | xargs -P `nproc` -I {} clang-tidy -quiet -p "${build_dir}" {} --header-filter='(src/.*|tests/.*)' ${exclude_header_filter}; \
+        find src tests -name '*.cpp' -type f | sort | xargs -P `nproc` -I {} clang-tidy -quiet -p "${build_dir}" {} --header-filter='(src/.*|tests/.*)' --warnings-as-errors='*' ${exclude_header_filter}; \
     else \
-        printf '%s\0' "${changed_cpp[@]}" | xargs -0 -P `nproc` -I {} clang-tidy -quiet -p "${build_dir}" {} --header-filter='(src/.*|tests/.*)' ${exclude_header_filter}; \
+        printf '%s\0' "${changed_cpp[@]}" | xargs -0 -P `nproc` -I {} clang-tidy -quiet -p "${build_dir}" {} --header-filter='(src/.*|tests/.*)' --warnings-as-errors='*' ${exclude_header_filter}; \
     fi
 
 # Lint CMake.
@@ -338,6 +382,8 @@ lint-shaders:
     @echo "Linting des shaders avec glslangValidator..."
     @glslangValidator -V shaders/shader.vert -o /dev/null
     @glslangValidator -V shaders/shader.frag -o /dev/null
+    @glslangValidator -V shaders/skybox.vert -o /dev/null
+    @glslangValidator -V shaders/skybox.frag -o /dev/null
     @echo "Linting Shaders terminé."
 
 # Lint la doc Markdown.

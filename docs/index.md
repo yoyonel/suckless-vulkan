@@ -4,6 +4,16 @@ Bienvenue dans la documentation du moteur Vulkan développé de zéro.
 
 L'objectif de ce projet est de construire une architecture de rendu 3D robuste, performante et hautement contrôlable, en s'appuyant sur l'API bas niveau Vulkan.
 
+## 🆕 Nouveautés Récentes
+
+### Mars 2026
+
+- **[Caméra Cinétique](kinetic_camera.md)** — Système de physique avec momentum et friction, entièrement aligné avec le legacy `suckless-ogl`. Impulsion scroll, décélération progressive, comportement naturel. Documentation complète avec exemples et tableaux de référence.
+- **[Pipeline Envmap HDR](envmap_hdr_pipeline.md)** — Catalogue d'envmaps HDR, changement runtime, roadmap async (Phases A-E). Fallback CI robuste (1x1 black texture).
+- **[Changelog](changelog.md)** — Historique détaillé des changements par phase.
+
+Pour plus de détails, voir [Changelog](changelog.md).
+
 ## 🛠️ Stack Technique
 
 Afin de garantir un compromis idéal entre contrôle absolu et pragmatisme de développement, les choix technologiques suivants ont été arrêtés :
@@ -33,7 +43,11 @@ vulkan_base/
 │   ├── app_log.h        # API de logging
 │   ├── runtime_controls.cpp # Gestion runtime des controles clavier
 │   ├── runtime_controls.h   # API testable des controles runtime
-│   ├── vk_engine.cpp   # Implémentation du moteur Vulkan
+│   ├── vk_engine.cpp   # API publique moteur + helpers debug RenderDoc
+│   ├── vk_engine_init.cpp  # Initialisation/cleanup/recreate swapchain
+│   ├── vk_engine_frame.cpp # Boucle de rendu par frame
+│   ├── vk_engine_runtime.cpp # Input runtime + callbacks GLFW
+│   ├── vk_engine_envmap.cpp # HDR envmap async + upload GPU
 │   └── vk_engine.h     # Définitions et structure `VulkanEngine`
 └── tests/
     ├── test_main.cpp   # Test d'intégration du rendu et de la capture de frame
