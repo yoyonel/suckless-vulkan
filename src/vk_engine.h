@@ -42,6 +42,56 @@ struct HdrLoadRequest {
     std::string sourcePathOrLabel; // Source file path or fallback label
 };
 
+// Phase IBL-0: Synchronous Bake Resources
+struct IblResources {
+    // Baked Images
+    VkImage irradianceMap;
+    VmaAllocation irradianceMapAllocation;
+    VkImageView irradianceMapView;
+    VkSampler irradianceSampler;
+
+    VkImage prefilteredMap;
+    VmaAllocation prefilteredMapAllocation;
+    VkImageView prefilteredMapView;
+    VkSampler prefilteredSampler;
+
+    VkImage brdfLut;
+    VmaAllocation brdfLutAllocation;
+    VkImageView brdfLutView;
+    VkSampler brdfLutSampler;
+
+    // Internal Compute Resources (Luminance Reduction)
+    VkBuffer lumGroupSumsBuffer;
+    VmaAllocation lumGroupSumsAllocation;
+    VkBuffer lumMeanBuffer;
+    VmaAllocation lumMeanAllocation;
+
+    // Compute Pipelines
+    VkPipeline irmapPipeline;
+    VkPipeline spmapPipeline;
+    VkPipeline brdfLutPipeline;
+    VkPipeline lum1Pipeline;
+    VkPipeline lum2Pipeline;
+
+    VkPipelineLayout iblPipelineLayout;
+    VkPipelineLayout lum1PipelineLayout;
+    VkPipelineLayout lum2PipelineLayout;
+    VkDescriptorSetLayout iblDescriptorSetLayout;
+    VkDescriptorSetLayout lum1DescriptorSetLayout;
+    VkDescriptorSetLayout lum2DescriptorSetLayout;
+    VkDescriptorPool computeDescriptorPool;
+
+    // Descriptor sets for individual compute passes
+    VkDescriptorSet lum1DescriptorSet;
+    VkDescriptorSet lum2DescriptorSet;
+    VkDescriptorSet irmapDescriptorSet;
+    VkDescriptorSet spmapDescriptorSet;
+    VkDescriptorSet brdfLutDescriptorSet;
+
+    bool brdfLutBaked;
+    float bakedMeanLuminance;
+};
+
 typedef struct {
     float position[3];
     float color[3];
@@ -92,6 +142,10 @@ typedef struct {
     VkBuffer instanceBuffer;
     VmaAllocation instanceBufferAllocation;
 
+    // Buffer (SSBO) pour stocker les 100 matériaux PBR
+    VkBuffer materialBuffer;
+    VmaAllocation materialBufferAllocation;
+
     // Notre Uniform Buffer et son mapping persistant
     VkBuffer uniformBuffer;
     VmaAllocation uniformBufferAllocation;
@@ -106,6 +160,8 @@ typedef struct {
     VkImageView envHdrImageView;
     VkSampler envHdrSampler;
     uint32_t envHdrMipLevels;
+    uint32_t envHdrWidth;
+    uint32_t envHdrHeight;
     std::vector<std::string> hdrFiles;
     int currentHdrIndex;
 
@@ -144,6 +200,17 @@ typedef struct {
     bool cameraEnabled;
     bool showEnvmap;
     float envLod;
+    int iblDebugMode;
+    float iblDebugScale;
+    bool iblDebugDigitKeyWasDown[10];
+    bool iblDebugPrevKeyWasDown;
+    bool iblDebugNextKeyWasDown;
+    bool iblExportKeyWasDown;
+    bool iblDebugF5KeyWasDown;
+    bool cameraResetKeyWasDown;
+    bool postResetKeyWasDown;
+    bool postExposureAddKeyWasDown;
+    bool postExposureSubKeyWasDown;
     int windowedPosX;
     int windowedPosY;
     int windowedWidth;
@@ -153,6 +220,21 @@ typedef struct {
     Camera camera;
     std::chrono::steady_clock::time_point lastFrameTimestamp;
 
+    IblResources ibl;
+    bool pbrEnabled;
+    bool iblEnabled;
+    float iblIntensity;
+
+    // Post-processing parameters (Legacy Parity)
+    float exposure;
+    float saturation;
+    float contrast;
+    float gamma;
+    float gain;
+    float offset;
+    float wbTemp;
+    float wbTint;
+
 } VulkanEngine;
 
 bool init_vulkan_engine(VulkanEngine* engine);
@@ -161,5 +243,10 @@ void vk_set_object_name(VkDevice device, uint64_t handle, VkObjectType type, con
 void vk_begin_label(VkDevice device, VkCommandBuffer cb, const char* name, float r, float g, float b);
 void vk_end_label(VkDevice device, VkCommandBuffer cb);
 void cleanup_vulkan_engine(VulkanEngine* engine);
+
+// IBL Module
+bool init_ibl(VulkanEngine* engine);
+void cleanup_ibl(VulkanEngine* engine);
+void vk_ibl_bake(VulkanEngine* engine);
 
 #endif

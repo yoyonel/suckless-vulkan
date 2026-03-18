@@ -12,9 +12,9 @@ int main() {
     }
     LOG_INFO("app", "Vulkan initialise avec succes ! La fenetre devrait apparaitre.");
     LOG_INFO("app",
-             "Controles: Espace pause/reprise, Fleche haut accelere, Fleche bas ralentit, R reinitialise, "
+             "Controles: P pause/reprise, SPACE reset camera, Fleche haut accelere, Fleche bas ralentit, R reinitialise anime, "
              "C camera souris on/off, W/A/S/D/Q/E deplacement, molette impulse cinétique, K skybox on/off, PageUp/PageDown HDR, Shift+PageUp/PageDown LOD, F11 "
-             "fullscreen/fenetre, ESC quitter.");
+             "fullscreen/fenetre, ESC quitter, 0..9 modes debug IBL (F5 cycle), [/] mode precedent/suivant, O export maps IBL.");
 
     // main  loop
     while (!glfwWindowShouldClose(engine.window)) {

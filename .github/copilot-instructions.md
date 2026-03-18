@@ -143,6 +143,14 @@ Warning handling policy during lint execution:
 - **Every recipe documented** — Docstring comments visible in `just help`
 - Examples: `just build`, `just test-all`, `just coverage-llvm`, `just lint`
 
+### Justfile Simplicity Rule
+
+- Keep `justfile` recipes as orchestration glue (high-level command chaining).
+- Do not embed long shell loops, branching-heavy workflows, or business logic directly in `justfile`.
+- Move non-trivial shell logic to versioned scripts under `scripts/` and call them from `just` recipes.
+- Scripts referenced by `justfile` must stay small, readable, shellcheck-clean, and covered by existing lint flow.
+- Exception: 1-3 straightforward shell lines are acceptable inline when readability is clearly better than a separate script.
+
 ### CMake (Dependency Management)
 - CMake used for:
   - Dependency discovery (`find_package`)

@@ -2,8 +2,11 @@
 
 // UBO (Binding 0) : View-Projection + rotation commune à toutes les sphères
 layout(binding = 0) uniform UniformBufferObject {
-    mat4 vp;            // View * Projection
-    mat4 modelRotation; // Rotation appliquée à chaque sphère
+    mat4 vp;
+    mat4 modelRotation;
+    mat4 invViewProj;
+    vec4 cameraPosEnvLod;
+    vec4 debugParams;
 }
 ubo;
 
@@ -14,7 +17,10 @@ layout(location = 1) in vec3 inColor;
 // Attribut par instance (binding 1, rate = INSTANCE)
 layout(location = 2) in vec3 instanceOffset;
 
-layout(location = 0) out vec3 fragColor;
+layout(location = 0) out vec3 outWorldPos;
+layout(location = 1) out vec3 outNormal;
+layout(location = 2) out vec3 outAlbedo;
+layout(location = 3) flat out int outMaterialIdx;
 
 void main() {
     // Rotation locale de la sphère
@@ -22,5 +28,10 @@ void main() {
     // Translation vers la position de l'instance dans le monde
     vec4 worldPos = localPos + vec4(instanceOffset, 0.0);
     gl_Position = ubo.vp * worldPos;
-    fragColor = inColor;
+
+    outWorldPos = worldPos.xyz;
+    // For a sphere centered at origin, normal is just the rotated local position
+    outNormal = normalize(localPos.xyz);
+    outAlbedo = inColor;
+    outMaterialIdx = gl_InstanceIndex;
 }

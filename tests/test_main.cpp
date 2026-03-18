@@ -9,7 +9,6 @@
 #pragma GCC diagnostic ignored "-Wunused-function"
 #endif
 
-#define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb/stb_image_write.h>
 
 #if defined(__GNUC__) || defined(__clang__)

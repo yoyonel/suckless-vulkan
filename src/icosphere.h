@@ -24,8 +24,8 @@ class Icosphere {
 
         for (const auto& p : base_pos) {
             glm::vec3 norm = glm::normalize(p);
-            glm::vec3 col = norm * 0.5f + 0.5f; // Normale convertie en couleur RGB
-            vertices.push_back({{norm.x, norm.y, norm.z}, {col.x, col.y, col.z}});
+            // Store RAW normal in the "color" attribute for ISO parity (shader does N*0.5+0.5)
+            vertices.push_back({{norm.x, norm.y, norm.z}, {norm.x, norm.y, norm.z}});
         }
 
         for (int i = 0; i < subdivisions; ++i) {
@@ -60,9 +60,8 @@ class Icosphere {
         glm::vec3 pos2 = glm::vec3(vertices[p2].position[0], vertices[p2].position[1], vertices[p2].position[2]);
 
         glm::vec3 mid = glm::normalize((pos1 + pos2) * 0.5f);
-        glm::vec3 col = mid * 0.5f + 0.5f;
-
-        vertices.push_back({{mid.x, mid.y, mid.z}, {col.x, col.y, col.z}});
+        // Store RAW normal in the "color" attribute
+        vertices.push_back({{mid.x, mid.y, mid.z}, {mid.x, mid.y, mid.z}});
         uint32_t index = vertices.size() - 1;
         edge_map[key] = index;
         return index;

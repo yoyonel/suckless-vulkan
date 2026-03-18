@@ -13,12 +13,14 @@ help:
     @echo "  just renderdoc            # launch qrenderdoc with debug build"
     @echo "  just renderdoc-debug-shaders # launch qrenderdoc with shader debug info (-g -O0/-Od)"
     @echo "  just test                 # tous les tests CTest (release)"
+    @echo "  just shaders-ibl          # compile the 5 IBL compute shaders to SPIR-V"
     @echo "  just test-all             # flow explicite: integration + logic"
     @echo "  just test-integration     # EngineIntegrationTest uniquement"
     @echo "  just test-logic           # LogicTests uniquement"
     @echo "  just coverage             # rapport de couverture tests logiques"
     @echo "  just lint                 # lint complet"
     @echo "  just check                # format + lint + test"
+    @echo "  just verify-ibl           # compare OGL vs Vulkan IBL maps"
     @echo ""
     @echo "Toutes les recettes disponibles:"
     @just --list
@@ -62,49 +64,26 @@ configure-coverage:
 # Compile les shaders GLSL en SPIR-V (+ asm si glslc disponible).
 shaders:
     @echo "Compilation des shaders..."
-    @if command -v glslc >/dev/null 2>&1; then \
-        glslc shaders/shader.vert -o shaders/vert.spv; \
-        glslc shaders/shader.frag -o shaders/frag.spv; \
-        glslc shaders/skybox.vert -o shaders/skybox_vert.spv; \
-        glslc shaders/skybox.frag -o shaders/skybox_frag.spv; \
-        echo "Génération de l'assembleur SPIR-V (.spvasm)..."; \
-        glslc -S shaders/shader.vert -o shaders/vert.spvasm; \
-        glslc -S shaders/shader.frag -o shaders/frag.spvasm; \
-        glslc -S shaders/skybox.vert -o shaders/skybox_vert.spvasm; \
-        glslc -S shaders/skybox.frag -o shaders/skybox_frag.spvasm; \
-    else \
-        echo "glslc introuvable, fallback sur glslangValidator pour les .spv"; \
-        glslangValidator -V shaders/shader.vert -o shaders/vert.spv; \
-        glslangValidator -V shaders/shader.frag -o shaders/frag.spv; \
-        glslangValidator -V shaders/skybox.vert -o shaders/skybox_vert.spv; \
-        glslangValidator -V shaders/skybox.frag -o shaders/skybox_frag.spv; \
-        echo "Génération .spvasm ignorée (glslc requis)."; \
-    fi
+    @scripts/compile_shaders.sh raster
+    @scripts/compile_shaders.sh ibl
 
 # Compile les shaders GLSL en SPIR-V orienté debug RenderDoc (source-level):
 # - glslc: -g -O0
-
 # - glslangValidator: -g -Od
+
+# Compile les 5 shaders compute IBL (luminance x2, BRDF LUT, irradiance, specular).
+shaders-ibl:
+    @echo "Compilation des shaders compute IBL..."
+    @scripts/compile_shaders.sh ibl
+
+# Compile les 5 shaders compute IBL en mode debug RenderDoc (-g -O0 / -g -Od).
+shaders-debug-ibl:
+    @echo "Compilation des shaders compute IBL en mode debug RenderDoc..."
+    @scripts/compile_shaders.sh ibl-debug
+
 shaders-debug:
     @echo "Compilation des shaders en mode debug RenderDoc (-g, sans optimisations)..."
-    @if command -v glslc >/dev/null 2>&1; then \
-        glslc -g -O0 shaders/shader.vert -o shaders/vert.spv; \
-        glslc -g -O0 shaders/shader.frag -o shaders/frag.spv; \
-        glslc -g -O0 shaders/skybox.vert -o shaders/skybox_vert.spv; \
-        glslc -g -O0 shaders/skybox.frag -o shaders/skybox_frag.spv; \
-        echo "Génération de l'assembleur SPIR-V (.spvasm) en mode debug..."; \
-        glslc -g -O0 -S shaders/shader.vert -o shaders/vert.spvasm; \
-        glslc -g -O0 -S shaders/shader.frag -o shaders/frag.spvasm; \
-        glslc -g -O0 -S shaders/skybox.vert -o shaders/skybox_vert.spvasm; \
-        glslc -g -O0 -S shaders/skybox.frag -o shaders/skybox_frag.spvasm; \
-    else \
-        echo "glslc introuvable, fallback sur glslangValidator debug (-g -Od)"; \
-        glslangValidator -g -Od -V shaders/shader.vert -o shaders/vert.spv; \
-        glslangValidator -g -Od -V shaders/shader.frag -o shaders/frag.spv; \
-        glslangValidator -g -Od -V shaders/skybox.vert -o shaders/skybox_vert.spv; \
-        glslangValidator -g -Od -V shaders/skybox.frag -o shaders/skybox_frag.spv; \
-        echo "Génération .spvasm ignorée (glslc requis)."; \
-    fi
+    @scripts/compile_shaders.sh raster-debug
 
 # Compile l'application en Release.
 build: configure shaders
@@ -380,10 +359,7 @@ lint-just:
 # Valide les shaders via glslangValidator.
 lint-shaders:
     @echo "Linting des shaders avec glslangValidator..."
-    @glslangValidator -V shaders/shader.vert -o /dev/null
-    @glslangValidator -V shaders/shader.frag -o /dev/null
-    @glslangValidator -V shaders/skybox.vert -o /dev/null
-    @glslangValidator -V shaders/skybox.frag -o /dev/null
+    @scripts/compile_shaders.sh lint
     @echo "Linting Shaders terminé."
 
 # Lint la doc Markdown.
@@ -427,6 +403,18 @@ check: format lint test
 
 # Gate d'iteration rapide pour les boucles dev locales.
 check-iter: format lint-iter test-iter
+
+# Compare IBL maps between OpenGL and Vulkan
+verify-ibl: build
+    @echo "--- 🧹 Cleaning old dumps ---"
+    @rm -rf /tmp/ibl_tests
+    @mkdir -p /tmp/ibl_tests/ogl /tmp/ibl_tests/vk
+    @echo "--- 🎨 Generating OGL Reference ---"
+    @cd ../suckless-ogl && cmake -B build && cmake --build build --target test_ibl_extract -j$(nproc) && ./build/tests/test_ibl_extract abandoned_garage_4k.hdr /tmp/ibl_tests/ogl
+    @echo "--- 🌋 Generating Vulkan Results ---"
+    @SVK_IBL_DUMP=1 SVK_IBL_HDR=abandoned_garage_4k.hdr just test-all || true
+    @echo "--- 📊 Comparing Results ---"
+    @uv run scripts/verify_ibl.py
 
 # Build local de l'image Docker CI.
 ci-image-build:

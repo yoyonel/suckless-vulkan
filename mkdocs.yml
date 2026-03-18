@@ -25,4 +25,6 @@ nav:
   - CI/CD GitHub Actions: ci_cd.md
   - Outillage & Qualité: tooling.md
   - Tracing: tracing.md
+  - Système de Validation IBL: ibl_validation_system.md
+  - Post-Mortem Portage IBL Vulkan: ibl_vulkan_porting_postmortem.md
   - Changelog: changelog.md

@@ -130,6 +130,72 @@ int find_default_hdr_index(const std::vector<std::string>& hdrFiles) {
     return 0;
 }
 
+namespace {
+
+bool create_hdr_staging_buffer(VulkanEngine* engine, const float* pixels, int width, int height, VkBuffer& stagingBuffer, VmaAllocation& stagingAllocation) {
+    const VkDeviceSize imageSize = static_cast<VkDeviceSize>(width) * static_cast<VkDeviceSize>(height) * 4 * sizeof(float);
+
+    VkBufferCreateInfo bufferInfo{};
+    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bufferInfo.size = imageSize;
+    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+
+    VmaAllocationCreateInfo stagingAllocInfo{};
+    stagingAllocInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+
+    if (vmaCreateBuffer(engine->allocator, &bufferInfo, &stagingAllocInfo, &stagingBuffer, &stagingAllocation, nullptr) != VK_SUCCESS) {
+        return false;
+    }
+
+    void* mapped = nullptr;
+    if (vmaMapMemory(engine->allocator, stagingAllocation, &mapped) != VK_SUCCESS) {
+        vmaDestroyBuffer(engine->allocator, stagingBuffer, stagingAllocation);
+        return false;
+    }
+    memcpy(mapped, pixels, static_cast<size_t>(imageSize));
+    vmaUnmapMemory(engine->allocator, stagingAllocation);
+    return true;
+}
+
+void generate_hdr_mipmaps(VulkanEngine* engine, VkCommandBuffer commandBuffer, int32_t width, int32_t height) {
+    int32_t mipWidth = width;
+    int32_t mipHeight = height;
+    for (uint32_t i = 1; i < engine->envHdrMipLevels; ++i) {
+        transition_hdr_image_layout(engine, commandBuffer, i - 1, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                    VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+        VkImageBlit blit{};
+        blit.srcOffsets[0] = {0, 0, 0};
+        blit.srcOffsets[1] = {mipWidth, mipHeight, 1};
+        blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        blit.srcSubresource.mipLevel = i - 1;
+        blit.srcSubresource.baseArrayLayer = 0;
+        blit.srcSubresource.layerCount = 1;
+        blit.dstOffsets[0] = {0, 0, 0};
+        blit.dstOffsets[1] = {std::max(1, mipWidth / 2), std::max(1, mipHeight / 2), 1};
+        blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        blit.dstSubresource.mipLevel = i;
+        blit.dstSubresource.baseArrayLayer = 0;
+        blit.dstSubresource.layerCount = 1;
+
+        vkCmdBlitImage(commandBuffer, engine->envHdrImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, engine->envHdrImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
+                       &blit, VK_FILTER_LINEAR);
+
+        transition_hdr_image_layout(engine, commandBuffer, i - 1, 1, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                                    VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                    VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+
+        mipWidth = std::max(1, mipWidth / 2);
+        mipHeight = std::max(1, mipHeight / 2);
+    }
+
+    transition_hdr_image_layout(engine, commandBuffer, engine->envHdrMipLevels - 1, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+                                VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+}
+
+} // namespace
+
 bool init_environment_texture_from_pixels(VulkanEngine* engine, const float* pixels, int width, int height, const std::string& sourceLabel, bool isFallback) {
     if (pixels == nullptr || width <= 0 || height <= 0) {
         return false;
@@ -148,32 +214,19 @@ bool init_environment_texture_from_pixels(VulkanEngine* engine, const float* pix
     VkBuffer stagingBuffer = VK_NULL_HANDLE;
     VmaAllocation stagingAllocation = VK_NULL_HANDLE;
 
-    VkBufferCreateInfo bufferInfo{};
-    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    bufferInfo.size = imageSize;
-    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-
-    VmaAllocationCreateInfo stagingAllocInfo{};
-    stagingAllocInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
-
-    if (vmaCreateBuffer(engine->allocator, &bufferInfo, &stagingAllocInfo, &stagingBuffer, &stagingAllocation, nullptr) != VK_SUCCESS) {
+    if (!create_hdr_staging_buffer(engine, pixels, width, height, stagingBuffer, stagingAllocation)) {
         return false;
     }
     vk_set_object_name(engine->device, (uint64_t)stagingBuffer, VK_OBJECT_TYPE_BUFFER, "EnvHDR_Staging_Buffer");
 
-    void* mapped = nullptr;
-    if (vmaMapMemory(engine->allocator, stagingAllocation, &mapped) != VK_SUCCESS) {
-        vmaDestroyBuffer(engine->allocator, stagingBuffer, stagingAllocation);
-        return false;
-    }
-    memcpy(mapped, pixels, static_cast<size_t>(imageSize));
-    vmaUnmapMemory(engine->allocator, stagingAllocation);
+    engine->envHdrWidth = static_cast<uint32_t>(width);
+    engine->envHdrHeight = static_cast<uint32_t>(height);
 
     VkImageCreateInfo imageInfo{};
     imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     imageInfo.imageType = VK_IMAGE_TYPE_2D;
-    imageInfo.extent.width = static_cast<uint32_t>(width);
-    imageInfo.extent.height = static_cast<uint32_t>(height);
+    imageInfo.extent.width = engine->envHdrWidth;
+    imageInfo.extent.height = engine->envHdrHeight;
     imageInfo.extent.depth = 1;
     imageInfo.mipLevels = engine->envHdrMipLevels;
     imageInfo.arrayLayers = 1;
@@ -213,40 +266,7 @@ bool init_environment_texture_from_pixels(VulkanEngine* engine, const float* pix
     vk_end_label(engine->device, commandBuffer);
 
     vk_begin_label(engine->device, commandBuffer, "Generate_EnvHDR_Mipmaps", 0.0f, 0.4f, 0.8f);
-    int32_t mipWidth = width;
-    int32_t mipHeight = height;
-    for (uint32_t i = 1; i < engine->envHdrMipLevels; ++i) {
-        transition_hdr_image_layout(engine, commandBuffer, i - 1, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                                    VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
-
-        VkImageBlit blit{};
-        blit.srcOffsets[0] = {0, 0, 0};
-        blit.srcOffsets[1] = {mipWidth, mipHeight, 1};
-        blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        blit.srcSubresource.mipLevel = i - 1;
-        blit.srcSubresource.baseArrayLayer = 0;
-        blit.srcSubresource.layerCount = 1;
-        blit.dstOffsets[0] = {0, 0, 0};
-        blit.dstOffsets[1] = {std::max(1, mipWidth / 2), std::max(1, mipHeight / 2), 1};
-        blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        blit.dstSubresource.mipLevel = i;
-        blit.dstSubresource.baseArrayLayer = 0;
-        blit.dstSubresource.layerCount = 1;
-
-        vkCmdBlitImage(commandBuffer, engine->envHdrImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, engine->envHdrImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
-                       &blit, VK_FILTER_LINEAR);
-
-        transition_hdr_image_layout(engine, commandBuffer, i - 1, 1, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                                    VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                                    VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-
-        mipWidth = std::max(1, mipWidth / 2);
-        mipHeight = std::max(1, mipHeight / 2);
-    }
-
-    transition_hdr_image_layout(engine, commandBuffer, engine->envHdrMipLevels - 1, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
-                                VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+    generate_hdr_mipmaps(engine, commandBuffer, width, height);
     vk_end_label(engine->device, commandBuffer);
     vk_end_label(engine->device, commandBuffer);
 
@@ -293,6 +313,66 @@ bool init_environment_texture_from_pixels(VulkanEngine* engine, const float* pix
     } else {
         LOG_INFO("engine", "HDR map chargee: %s (%dx%d, mips=%u)", sourceLabel.c_str(), width, height, engine->envHdrMipLevels);
     }
+
+    // Phase IBL-0: Synchronous Bake
+    // The envHdrImageView is now valid, we can bake IBL maps
+    vk_ibl_bake(engine);
+
+    // Update global descriptor set with the new IBL maps
+    if (engine->descriptorSet != VK_NULL_HANDLE) {
+        VkDescriptorImageInfo envInfo{};
+        envInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        envInfo.imageView = engine->envHdrImageView;
+        envInfo.sampler = engine->envHdrSampler;
+
+        VkDescriptorImageInfo irrInfo{};
+        irrInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        irrInfo.imageView = engine->ibl.irradianceMapView ? engine->ibl.irradianceMapView : engine->envHdrImageView;
+        irrInfo.sampler = engine->ibl.irradianceSampler ? engine->ibl.irradianceSampler : engine->envHdrSampler;
+
+        VkDescriptorImageInfo prefInfo{};
+        prefInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        prefInfo.imageView = engine->ibl.prefilteredMapView ? engine->ibl.prefilteredMapView : engine->envHdrImageView;
+        prefInfo.sampler = engine->ibl.prefilteredSampler ? engine->ibl.prefilteredSampler : engine->envHdrSampler;
+
+        VkDescriptorImageInfo lutInfo{};
+        lutInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        lutInfo.imageView = engine->ibl.brdfLutView ? engine->ibl.brdfLutView : engine->envHdrImageView;
+        lutInfo.sampler = engine->ibl.brdfLutSampler ? engine->ibl.brdfLutSampler : engine->envHdrSampler;
+
+        VkWriteDescriptorSet writes[4] = {};
+
+        writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[0].dstSet = engine->descriptorSet;
+        writes[0].dstBinding = 1;
+        writes[0].descriptorCount = 1;
+        writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[0].pImageInfo = &envInfo;
+
+        writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[1].dstSet = engine->descriptorSet;
+        writes[1].dstBinding = 2;
+        writes[1].descriptorCount = 1;
+        writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[1].pImageInfo = &irrInfo;
+
+        writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[2].dstSet = engine->descriptorSet;
+        writes[2].dstBinding = 3;
+        writes[2].descriptorCount = 1;
+        writes[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[2].pImageInfo = &prefInfo;
+
+        writes[3].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[3].dstSet = engine->descriptorSet;
+        writes[3].dstBinding = 4;
+        writes[3].descriptorCount = 1;
+        writes[3].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[3].pImageInfo = &lutInfo;
+
+        vkUpdateDescriptorSets(engine->device, 4, writes, 0, nullptr);
+    }
+
     return true;
 }
 
@@ -319,22 +399,6 @@ bool init_environment_texture_from_path(VulkanEngine* engine, const std::string&
     const bool ok = init_environment_texture_from_pixels(engine, loadedPixels, width, height, hdrPath, false);
     stbi_image_free(loadedPixels);
     return ok;
-}
-
-void update_environment_descriptor(VulkanEngine* engine) {
-    VkDescriptorImageInfo imageInfo{};
-    imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    imageInfo.imageView = engine->envHdrImageView;
-    imageInfo.sampler = engine->envHdrSampler;
-
-    VkWriteDescriptorSet write{};
-    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    write.dstSet = engine->descriptorSet;
-    write.dstBinding = 1;
-    write.descriptorCount = 1;
-    write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    write.pImageInfo = &imageInfo;
-    vkUpdateDescriptorSets(engine->device, 1, &write, 0, nullptr);
 }
 
 void request_environment_texture_async(VulkanEngine* engine, int newHdrIndex) {
@@ -452,6 +516,17 @@ bool vk_init_environment_catalog(VulkanEngine* engine) {
 }
 
 bool vk_init_environment_texture(VulkanEngine* engine) {
+    const char* envHdr = std::getenv("SVK_IBL_HDR");
+    if (envHdr && envHdr[0] != '\0') {
+        for (size_t i = 0; i < engine->hdrFiles.size(); ++i) {
+            if (engine->hdrFiles[i].find(envHdr) != std::string::npos) {
+                engine->currentHdrIndex = static_cast<int>(i);
+                LOG_INFO("ibl", "SVK_IBL_HDR found: %s (index %d)", engine->hdrFiles[i].c_str(), (int)i);
+                break;
+            }
+        }
+    }
+
     const std::string hdrPath = (engine->currentHdrIndex >= 0 && engine->currentHdrIndex < static_cast<int>(engine->hdrFiles.size()))
                                     ? engine->hdrFiles[static_cast<size_t>(engine->currentHdrIndex)]
                                     : std::string();
@@ -537,7 +612,66 @@ void vk_process_ready_environment_texture(VulkanEngine* engine) {
     }
 
     engine->currentHdrIndex = ready.hdrIndex;
-    update_environment_descriptor(engine);
+
+    // Phase IBL-0: Synchronous Bake
+    // The envHdrImageView is now valid, we can bake IBL maps
+    vk_ibl_bake(engine);
+
+    // Update descriptors including IBL maps
+    if (engine->descriptorSet != VK_NULL_HANDLE) {
+        VkDescriptorImageInfo envInfo{};
+        envInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        envInfo.imageView = engine->envHdrImageView;
+        envInfo.sampler = engine->envHdrSampler;
+
+        VkDescriptorImageInfo irrInfo{};
+        irrInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        irrInfo.imageView = engine->ibl.irradianceMapView ? engine->ibl.irradianceMapView : engine->envHdrImageView;
+        irrInfo.sampler = engine->ibl.irradianceSampler ? engine->ibl.irradianceSampler : engine->envHdrSampler;
+
+        VkDescriptorImageInfo prefInfo{};
+        prefInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        prefInfo.imageView = engine->ibl.prefilteredMapView ? engine->ibl.prefilteredMapView : engine->envHdrImageView;
+        prefInfo.sampler = engine->ibl.prefilteredSampler ? engine->ibl.prefilteredSampler : engine->envHdrSampler;
+
+        VkDescriptorImageInfo lutInfo{};
+        lutInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        lutInfo.imageView = engine->ibl.brdfLutView ? engine->ibl.brdfLutView : engine->envHdrImageView;
+        lutInfo.sampler = engine->ibl.brdfLutSampler ? engine->ibl.brdfLutSampler : engine->envHdrSampler;
+
+        VkWriteDescriptorSet writes[4] = {};
+
+        writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[0].dstSet = engine->descriptorSet;
+        writes[0].dstBinding = 1;
+        writes[0].descriptorCount = 1;
+        writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[0].pImageInfo = &envInfo;
+
+        writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[1].dstSet = engine->descriptorSet;
+        writes[1].dstBinding = 2;
+        writes[1].descriptorCount = 1;
+        writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[1].pImageInfo = &irrInfo;
+
+        writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[2].dstSet = engine->descriptorSet;
+        writes[2].dstBinding = 3;
+        writes[2].descriptorCount = 1;
+        writes[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[2].pImageInfo = &prefInfo;
+
+        writes[3].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[3].dstSet = engine->descriptorSet;
+        writes[3].dstBinding = 4;
+        writes[3].descriptorCount = 1;
+        writes[3].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[3].pImageInfo = &lutInfo;
+
+        vkUpdateDescriptorSets(engine->device, 4, writes, 0, nullptr);
+    }
+
     engine->envLod = std::clamp(engine->envLod, kMinEnvLod, static_cast<float>(engine->envHdrMipLevels > 0 ? engine->envHdrMipLevels - 1 : 0));
     LOG_INFO("runtime", "HDR actif: %s", get_filename_from_path(ready.sourcePathOrLabel).c_str());
 }

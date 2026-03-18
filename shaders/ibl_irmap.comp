@@ -1,0 +1,98 @@
+#version 450 core
+
+layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform sampler2D envMap;
+layout(set = 0, binding = 1, rgba16f) writeonly uniform image2D irradianceMap;
+
+layout(push_constant) uniform PushConstants {
+    float clampThreshold;
+    int offsetY;
+    int maxY;
+} pc;
+
+const float PI = 3.14159265359;
+const float TWO_PI = 2.0 * PI;
+
+// dirToUV: Vulkan UV y=0 = image TOP = north sky.
+// Y-flip (0.5 - ...) ensures north pole (v.y=+1) -> UV y=0.
+// Matches rendering shader and env map convention.
+// Legacy OGL uses no flip relying on double-inversion (OGL UV y=0 = bottom);
+// Vulkan requires explicit correction.
+vec2 dirToUV(vec3 v) {
+    float phi = (abs(v.z) < 1e-5 && abs(v.x) < 1e-5) ? 0.0 : atan(v.z, v.x);
+    vec2 uv = vec2(phi, asin(clamp(v.y, -1.0, 1.0)));
+    uv *= vec2(0.15915494, 0.31830988); // 1/(2*PI), 1/PI
+    uv.x += 0.5;
+    uv.y = 0.5 - uv.y; // flip: v.y=+1 (north) -> UV y=0 (Vulkan image top)
+    return uv;
+}
+
+// uvToDir: Vulkan imageStore y=0 = image TOP.
+// y=0 must map to north pole to match rendering shader and env map (north sky at
+// Vulkan UV y=0). Flip theta sign vs legacy OGL compute convention.
+vec3 uvToDir(vec2 uv) {
+    float phi = (uv.x - 0.5) * TWO_PI;
+    float theta = (0.5 - uv.y) * PI; // flip: uv.y=0 -> +PI/2 -> y=+1 (north)
+    return vec3(cos(theta) * cos(phi), sin(theta), cos(theta) * sin(phi));
+}
+
+void OrthonormalBasis(vec3 n, out vec3 t, out vec3 b) {
+    vec3 up = abs(n.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(0.0, 0.0, 1.0);
+    t = normalize(cross(up, n));
+    b = cross(n, t);
+}
+
+vec3 soft_clamp_smoothstep(vec3 color) {
+    float lum = dot(color, vec3(0.2126, 0.7152, 0.0722));
+    float transition_start = pc.clampThreshold;
+    float transition_end = pc.clampThreshold * 1.5;
+
+    if (lum <= transition_start) return color;
+    if (lum >= transition_end) return color * (transition_end / lum);
+
+    float t = (lum - transition_start) / (transition_end - transition_start);
+    float blend = 1.0 - smoothstep(0.0, 1.0, t) * 0.5;
+    return color * blend;
+}
+
+void main() {
+    ivec2 outSize = imageSize(irradianceMap);
+    ivec2 pos = ivec2(gl_GlobalInvocationID.x, int(gl_GlobalInvocationID.y) + pc.offsetY);
+
+    if (pos.x >= outSize.x || pos.y >= outSize.y || pos.y >= pc.maxY)
+        return;
+
+    vec2 uv = vec2(pos) / vec2(outSize);
+    vec3 N = normalize(uvToDir(uv));
+
+    vec3 irradiance = vec3(0.0);
+    vec3 up, right;
+    OrthonormalBasis(N, right, up);
+
+    float sampleDelta = 0.025;
+    float nrSamples = 0.0;
+
+    for (float phi = 0.0; phi < TWO_PI; phi += sampleDelta) {
+        for (float theta = 0.0; theta < 0.5 * PI; theta += sampleDelta) {
+            vec3 tangentSample = vec3(sin(theta) * cos(phi), sin(theta) * sin(phi), cos(theta));
+            vec3 sampleVec = tangentSample.x * right + tangentSample.y * up + tangentSample.z * N;
+
+            vec3 envColor = textureLod(envMap, dirToUV(sampleVec), 0.0).rgb;
+
+            if (any(isnan(envColor)) || any(isinf(envColor))) envColor = vec3(0.0);
+            envColor = max(envColor, vec3(0.0));
+            envColor = soft_clamp_smoothstep(envColor);
+
+            irradiance += envColor * cos(theta) * sin(theta);
+            nrSamples++;
+        }
+    }
+
+    irradiance = PI * irradiance * (1.0 / nrSamples);
+
+    if (any(isnan(irradiance)) || any(isinf(irradiance))) irradiance = vec3(0.0);
+    irradiance = max(irradiance, vec3(0.0));
+
+    imageStore(irradianceMap, pos, vec4(irradiance, 1.0));
+}

@@ -1,6 +1,6 @@
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 cmake_minimum_required(VERSION 3.20)
-project(VulkanApp CXX)
+project(VulkanApp CXX C)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -56,10 +56,14 @@ add_executable(
   src/vk_engine_envmap.cpp
   src/vk_engine_runtime.cpp
   src/vk_engine_init.cpp
+  src/vk_engine_ibl.cpp
   src/camera.cpp
   src/app_log.cpp
   src/runtime_controls.cpp
-  ext/vma/vma_impl.cpp)
+  src/stb_image_write_impl.cpp
+  src/material_loader.cpp
+  ext/vma/vma_impl.cpp
+  ext/cjson/cJSON.c)
 target_include_directories(vulkan_app PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_include_directories(vulkan_app SYSTEM PRIVATE ${CMAKE_SOURCE_DIR}/ext)
 # NOUVEAU : On lie glm::glm
@@ -74,10 +78,14 @@ add_executable(
   src/vk_engine_envmap.cpp
   src/vk_engine_runtime.cpp
   src/vk_engine_init.cpp
+  src/vk_engine_ibl.cpp
   src/camera.cpp
   src/app_log.cpp
   src/runtime_controls.cpp
-  ext/vma/vma_impl.cpp)
+  src/stb_image_write_impl.cpp
+  src/material_loader.cpp
+  ext/vma/vma_impl.cpp
+  ext/cjson/cJSON.c)
 target_include_directories(unit_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_include_directories(unit_tests SYSTEM PRIVATE ${CMAKE_SOURCE_DIR}/ext)
 # NOUVEAU : On lie glm::glm aux tests aussi
@@ -89,10 +97,10 @@ set_tests_properties(EngineIntegrationTest PROPERTIES WORKING_DIRECTORY
                                                       ${CMAKE_SOURCE_DIR})
 
 add_executable(logic_tests tests/test_logic.cpp src/app_log.cpp
-                           src/runtime_controls.cpp)
+                           src/runtime_controls.cpp src/camera.cpp)
 target_include_directories(logic_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_include_directories(logic_tests SYSTEM PRIVATE ${CMAKE_SOURCE_DIR}/ext)
-target_link_libraries(logic_tests glfw)
+target_link_libraries(logic_tests glfw glm::glm)
 add_test(NAME LogicTests COMMAND $<TARGET_FILE:logic_tests>)
 set_tests_properties(LogicTests PROPERTIES WORKING_DIRECTORY
                                            ${CMAKE_SOURCE_DIR})

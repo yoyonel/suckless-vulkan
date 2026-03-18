@@ -1,0 +1,42 @@
+#version 450 core
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, std430) readonly buffer GroupSums {
+    float groupSums[];
+};
+
+layout(set = 0, binding = 1, std430) buffer Result {
+    float meanLuminance;
+};
+
+layout(push_constant) uniform PushConstants {
+    uint numGroups;
+    uint numPixels;
+} pc;
+
+shared float sharedSum[256];
+
+void main()
+{
+    uint id = gl_LocalInvocationID.x;
+    float sum = 0.0;
+
+    for (uint i = id; i < pc.numGroups; i += 256) {
+        sum += groupSums[i];
+    }
+
+    sharedSum[id] = sum;
+    barrier();
+
+    for (uint stride = 128; stride > 0; stride >>= 1) {
+        if (id < stride) {
+            sharedSum[id] += sharedSum[id + stride];
+        }
+        barrier();
+    }
+
+    if (id == 0) {
+        meanLuminance = sharedSum[0] / float(pc.numPixels);
+    }
+}

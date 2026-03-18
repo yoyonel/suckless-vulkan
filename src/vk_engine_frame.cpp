@@ -63,9 +63,12 @@ bool vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recreateSw
         glm::mat4 modelRotation;
         glm::mat4 invViewProj;
         glm::vec4 cameraPosEnvLod;
+        glm::vec4 debugParams;
+        glm::vec4 postParams1;
+        glm::vec4 postParams2;
     };
     UBOData uboData;
-    uboData.modelRotation = glm::rotate(glm::mat4(1.0f), engine->animationTimeSeconds * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    uboData.modelRotation = glm::mat4(1.0f);
     glm::mat4 view = glm::lookAt(engine->camera.position, engine->camera.position + engine->camera.front, engine->camera.up);
     glm::mat4 proj =
         glm::perspective(glm::radians(engine->camera.zoom),
@@ -81,6 +84,9 @@ bool vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recreateSw
     uboData.invViewProj = glm::inverse(skyboxProj * skyboxView);
 
     uboData.cameraPosEnvLod = glm::vec4(engine->camera.position, engine->envLod);
+    uboData.debugParams = glm::vec4(static_cast<float>(engine->iblDebugMode), engine->iblDebugScale, 0.0f, 0.0f);
+    uboData.postParams1 = glm::vec4(engine->exposure, engine->saturation, engine->contrast, engine->gamma);
+    uboData.postParams2 = glm::vec4(engine->gain, engine->offset, engine->wbTemp, engine->wbTint);
     memcpy(engine->uniformBufferMapped, &uboData, sizeof(uboData));
 
     if (vkResetCommandBuffer(engine->commandBuffer, 0) != VK_SUCCESS) {

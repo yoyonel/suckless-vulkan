@@ -2,6 +2,7 @@
 #include "app_log.h"
 #include "camera.h"
 #include "icosphere.h"
+#include "material_loader.h"
 #include "vk_engine_envmap.h"
 #include "vk_engine_runtime.h"
 #include <algorithm>
@@ -15,6 +16,40 @@ namespace {
 constexpr uint32_t kGridSize = 10;
 constexpr float kGridSpacing = 2.5f;
 constexpr float kGridOffset = (static_cast<float>(kGridSize) - 1.0f) * 0.5f * kGridSpacing;
+constexpr size_t kMaterialInstanceCount = static_cast<size_t>(kGridSize) * static_cast<size_t>(kGridSize);
+constexpr const char* kMaterialJsonPath = "assets/materials/pbr_materials.json";
+constexpr int kLegacyWindowWidth = 1024;
+constexpr int kLegacyWindowHeight = 768;
+
+MaterialGpu make_default_material() {
+    MaterialGpu material{};
+    material.albedo_metallic[0] = 0.0f;
+    material.albedo_metallic[1] = 0.0f;
+    material.albedo_metallic[2] = 0.0f;
+    material.albedo_metallic[3] = 0.0f;
+    material.roughness_ao_pad[0] = 0.5f;
+    material.roughness_ao_pad[1] = 1.0f;
+    material.roughness_ao_pad[2] = 0.0f;
+    material.roughness_ao_pad[3] = 0.0f;
+    return material;
+}
+
+bool load_legacy_materials_for_grid(std::vector<MaterialGpu>& materials, size_t instanceCount) {
+    if (!MaterialLoader::load_materials(kMaterialJsonPath, materials)) {
+        LOG_ERROR("material", "Failed to load material presets from %s", kMaterialJsonPath);
+        return false;
+    }
+
+    if (materials.size() != instanceCount) {
+        if (materials.size() < instanceCount) {
+            LOG_WARNING("material", "Material preset count (%zu) is lower than instance count (%zu); filling missing entries with legacy defaults.",
+                        materials.size(), instanceCount);
+        }
+        materials.resize(instanceCount, make_default_material());
+    }
+
+    return true;
+}
 
 struct QueueFamilySelection {
     uint32_t graphicsFamily = UINT32_MAX;
@@ -247,6 +282,7 @@ void cleanup_descriptor_resources(VulkanEngine* engine) {
 void cleanup_buffer_resources(VulkanEngine* engine) {
     unmap_allocation(engine->allocator, engine->uniformBufferAllocation, engine->uniformBufferMapped);
     destroy_buffer_allocation(engine->allocator, engine->uniformBuffer, engine->uniformBufferAllocation);
+    destroy_buffer_allocation(engine->allocator, engine->materialBuffer, engine->materialBufferAllocation);
     destroy_buffer_allocation(engine->allocator, engine->instanceBuffer, engine->instanceBufferAllocation);
     destroy_buffer_allocation(engine->allocator, engine->vertexBuffer, engine->vertexBufferAllocation);
     destroy_buffer_allocation(engine->allocator, engine->indexBuffer, engine->indexBufferAllocation);
@@ -291,7 +327,8 @@ bool init_core(VulkanEngine* engine) {
     }
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
-    engine->window = glfwCreateWindow(800, 600, "Vulkan - Icosphere Full GPU", NULL, NULL);
+    // Keep startup viewport ISO with legacy OpenGL app (1024x768).
+    engine->window = glfwCreateWindow(kLegacyWindowWidth, kLegacyWindowHeight, "Vulkan - Icosphere Full GPU", NULL, NULL);
     if (engine->window == nullptr) {
         return false;
     }
@@ -588,21 +625,24 @@ bool init_render_pass(VulkanEngine* engine) {
 }
 
 bool init_descriptor_layout(VulkanEngine* engine) {
-    VkDescriptorSetLayoutBinding bindings[2] = {};
-    bindings[0].binding = 0;
-    bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    bindings[0].descriptorCount = 1;
-    bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-
-    bindings[1].binding = 1;
-    bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    bindings[1].descriptorCount = 1;
-    bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    std::vector<VkDescriptorSetLayoutBinding> bindings = {
+        // Binding 0: Uniform Buffer (MVP + Config)
+        {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+        // Binding 1: HDR Environment Map
+        {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+        // Binding 2: Irradiance Map
+        {2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+        // Binding 3: Prefiltered Specular Map
+        {3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+        // Binding 4: BRDF LUT
+        {4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+        // Binding 5: Array of Materials (SSBO)
+        {5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}};
 
     VkDescriptorSetLayoutCreateInfo info{};
     info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    info.bindingCount = 2;
-    info.pBindings = bindings;
+    info.bindingCount = static_cast<uint32_t>(bindings.size());
+    info.pBindings = bindings.data();
     if (vkCreateDescriptorSetLayout(engine->device, &info, nullptr, &engine->descriptorSetLayout) != VK_SUCCESS) {
         return false;
     }
@@ -716,7 +756,7 @@ bool init_pipeline(VulkanEngine* engine) {
     rs.polygonMode = VK_POLYGON_MODE_FILL;
     rs.lineWidth = 1.0f;
     rs.cullMode = VK_CULL_MODE_BACK_BIT;
-    rs.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rs.frontFace = VK_FRONT_FACE_CLOCKWISE;
 
     VkPipelineMultisampleStateCreateInfo ms{};
     ms.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
@@ -943,18 +983,28 @@ bool init_buffers(VulkanEngine* engine) {
     }
 
     // Generation de la grille d'instances
-    const size_t instanceCount = static_cast<size_t>(kGridSize) * static_cast<size_t>(kGridSize);
+    const size_t instanceCount = kMaterialInstanceCount;
     std::vector<glm::vec3> instancePositions(instanceCount);
     for (uint32_t row = 0; row < kGridSize; ++row) {
         for (uint32_t col = 0; col < kGridSize; ++col) {
             const size_t instanceIndex = (static_cast<size_t>(row) * static_cast<size_t>(kGridSize)) + static_cast<size_t>(col);
             const float x = (static_cast<float>(col) * kGridSpacing) - kGridOffset;
-            const float y = (static_cast<float>(row) * kGridSpacing) - kGridOffset;
+            const float y = -((static_cast<float>(row) * kGridSpacing) - kGridOffset);
             instancePositions[instanceIndex] = {x, y, 0.0f};
         }
     }
     if (!create_gpu_buffer(instancePositions.size() * sizeof(glm::vec3), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, instancePositions.data(), engine->instanceBuffer,
                            engine->instanceBufferAllocation, "Instance_Offsets_Buffer")) {
+        return false;
+    }
+
+    std::vector<MaterialGpu> materials;
+    if (!load_legacy_materials_for_grid(materials, instanceCount)) {
+        return false;
+    }
+
+    if (!create_gpu_buffer(materials.size() * sizeof(MaterialGpu), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, materials.data(), engine->materialBuffer,
+                           engine->materialBufferAllocation, "PBR_Materials_SSBO")) {
         return false;
     }
 
@@ -974,16 +1024,18 @@ bool init_buffers(VulkanEngine* engine) {
 }
 
 bool init_descriptor_pool_and_sets(VulkanEngine* engine) {
-    VkDescriptorPoolSize sizes[2] = {};
+    VkDescriptorPoolSize sizes[3] = {};
     sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     sizes[0].descriptorCount = 1;
     sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    sizes[1].descriptorCount = 1;
+    sizes[1].descriptorCount = 4; // environment, irradiance, prefiltered, brdfLut
+    sizes[2].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    sizes[2].descriptorCount = 1;
 
     VkDescriptorPoolCreateInfo pIn{};
     pIn.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     pIn.maxSets = 1;
-    pIn.poolSizeCount = 2;
+    pIn.poolSizeCount = 3;
     pIn.pPoolSizes = sizes;
     if (vkCreateDescriptorPool(engine->device, &pIn, nullptr, &engine->descriptorPool) != VK_SUCCESS) {
         return false;
@@ -1003,14 +1055,36 @@ bool init_descriptor_pool_and_sets(VulkanEngine* engine) {
     VkDescriptorBufferInfo bi{};
     bi.buffer = engine->uniformBuffer;
     bi.offset = 0;
-    bi.range = (3 * sizeof(glm::mat4)) + sizeof(glm::vec4);
+    bi.range = (3 * sizeof(glm::mat4)) + (2 * sizeof(glm::vec4));
 
-    VkDescriptorImageInfo imageInfo{};
-    imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    imageInfo.imageView = engine->envHdrImageView;
-    imageInfo.sampler = engine->envHdrSampler;
+    VkDescriptorBufferInfo materialBufferInfo{};
+    materialBufferInfo.buffer = engine->materialBuffer;
+    materialBufferInfo.offset = 0;
+    materialBufferInfo.range = VK_WHOLE_SIZE;
 
-    VkWriteDescriptorSet writes[2] = {};
+    VkDescriptorImageInfo envInfo{};
+    envInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    envInfo.imageView = engine->envHdrImageView;
+    envInfo.sampler = engine->envHdrSampler;
+
+    // Provide dummy or real image info for IBL maps (initially they might be empty, but they are created in init_ibl)
+    // We assume init_ibl has been called before this function.
+    VkDescriptorImageInfo irrInfo{};
+    irrInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    irrInfo.imageView = engine->ibl.irradianceMapView ? engine->ibl.irradianceMapView : engine->envHdrImageView;
+    irrInfo.sampler = engine->ibl.irradianceSampler ? engine->ibl.irradianceSampler : engine->envHdrSampler;
+
+    VkDescriptorImageInfo prefInfo{};
+    prefInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    prefInfo.imageView = engine->ibl.prefilteredMapView ? engine->ibl.prefilteredMapView : engine->envHdrImageView;
+    prefInfo.sampler = engine->ibl.prefilteredSampler ? engine->ibl.prefilteredSampler : engine->envHdrSampler;
+
+    VkDescriptorImageInfo lutInfo{};
+    lutInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    lutInfo.imageView = engine->ibl.brdfLutView ? engine->ibl.brdfLutView : engine->envHdrImageView;
+    lutInfo.sampler = engine->ibl.brdfLutSampler ? engine->ibl.brdfLutSampler : engine->envHdrSampler;
+
+    VkWriteDescriptorSet writes[6] = {};
     writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     writes[0].dstSet = engine->descriptorSet;
     writes[0].dstBinding = 0;
@@ -1023,9 +1097,37 @@ bool init_descriptor_pool_and_sets(VulkanEngine* engine) {
     writes[1].dstBinding = 1;
     writes[1].descriptorCount = 1;
     writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    writes[1].pImageInfo = &imageInfo;
+    writes[1].pImageInfo = &envInfo;
 
-    vkUpdateDescriptorSets(engine->device, 2, writes, 0, nullptr);
+    writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[2].dstSet = engine->descriptorSet;
+    writes[2].dstBinding = 2;
+    writes[2].descriptorCount = 1;
+    writes[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writes[2].pImageInfo = &irrInfo;
+
+    writes[3].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[3].dstSet = engine->descriptorSet;
+    writes[3].dstBinding = 3;
+    writes[3].descriptorCount = 1;
+    writes[3].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writes[3].pImageInfo = &prefInfo;
+
+    writes[4].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[4].dstSet = engine->descriptorSet;
+    writes[4].dstBinding = 4;
+    writes[4].descriptorCount = 1;
+    writes[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writes[4].pImageInfo = &lutInfo;
+
+    writes[5].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[5].dstSet = engine->descriptorSet;
+    writes[5].dstBinding = 5;
+    writes[5].descriptorCount = 1;
+    writes[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    writes[5].pBufferInfo = &materialBufferInfo;
+
+    vkUpdateDescriptorSets(engine->device, 6, writes, 0, nullptr);
     return true;
 }
 
@@ -1084,12 +1186,63 @@ bool vk_recreate_swapchain(VulkanEngine* engine) {
 }
 
 bool vk_init_vulkan_engine(VulkanEngine* engine) {
-    if (!init_core(engine) || !init_allocator(engine) || !init_swapchain(engine) || !init_render_pass(engine) || !init_descriptor_layout(engine) ||
-        !init_pipeline(engine) || !init_buffers(engine) || !vk_init_environment_catalog(engine) || !vk_init_environment_texture(engine) ||
-        !init_descriptor_pool_and_sets(engine) || !init_commands_and_sync(engine)) {
-        vk_cleanup_vulkan_engine(engine);
+    LOG_INFO("app", "Starting engine initialization...");
+    if (!init_core(engine)) {
+        LOG_ERROR("app", "init_core failed");
         return false;
     }
+    if (!init_allocator(engine)) {
+        LOG_ERROR("app", "init_allocator failed");
+        return false;
+    }
+    if (!init_swapchain(engine)) {
+        LOG_ERROR("app", "init_swapchain failed");
+        return false;
+    }
+    if (!init_render_pass(engine)) {
+        LOG_ERROR("app", "init_render_pass failed");
+        return false;
+    }
+    if (!init_descriptor_layout(engine)) {
+        LOG_ERROR("app", "init_descriptor_layout failed");
+        return false;
+    }
+    if (!init_pipeline(engine)) {
+        LOG_ERROR("app", "init_pipeline failed");
+        return false;
+    }
+    if (!init_buffers(engine)) {
+        LOG_ERROR("app", "init_buffers failed");
+        return false;
+    }
+    if (!vk_init_environment_catalog(engine)) {
+        LOG_ERROR("app", "vk_init_environment_catalog failed");
+        return false;
+    }
+    if (!init_ibl(engine)) {
+        LOG_ERROR("app", "init_ibl failed");
+        return false;
+    }
+
+    LOG_INFO("app", "Initializing commands and sync objects...");
+    if (!init_commands_and_sync(engine)) {
+        LOG_ERROR("app", "init_commands_and_sync failed");
+        return false;
+    }
+
+    LOG_INFO("app", "Initializing descriptor pool and sets (commandPool=%p)...", (void*)engine->commandPool);
+    if (!init_descriptor_pool_and_sets(engine)) {
+        LOG_ERROR("app", "init_descriptor_pool_and_sets failed");
+        return false;
+    }
+
+    LOG_INFO("app", "Initializing environment texture (triggers bake)...");
+    if (!vk_init_environment_texture(engine)) {
+        LOG_ERROR("app", "vk_init_environment_texture failed");
+        return false;
+    }
+
+    LOG_INFO("app", "Initialization complete.");
     engine->animationTimeSeconds = 0.0f;
     engine->animationSpeed = 1.0f;
     engine->animationPaused = false;
@@ -1099,14 +1252,38 @@ bool vk_init_vulkan_engine(VulkanEngine* engine) {
     engine->speedDownKeyWasDown = false;
     engine->fullscreenKeyWasDown = false;
     engine->escapeKeyWasDown = false;
+    engine->isFullscreen = false;
     engine->cameraToggleKeyWasDown = false;
     engine->showEnvmapToggleKeyWasDown = false;
     engine->envPageUpKeyWasDown = false;
     engine->envPageDownKeyWasDown = false;
-    engine->isFullscreen = false;
-    engine->cameraEnabled = true;
+    engine->cameraEnabled = false;
     engine->showEnvmap = true;
     engine->envLod = 0.0f;
+    engine->iblDebugMode = 0;
+    engine->iblDebugScale = 1.0f;
+    engine->iblIntensity = 1.0f;
+    for (int i = 0; i < 10; ++i) {
+        engine->iblDebugDigitKeyWasDown[i] = false;
+    }
+    engine->iblDebugPrevKeyWasDown = false;
+    engine->iblDebugNextKeyWasDown = false;
+    engine->iblExportKeyWasDown = false;
+    engine->iblDebugF5KeyWasDown = false;
+    engine->cameraResetKeyWasDown = false;
+    engine->postResetKeyWasDown = false;
+    engine->postExposureAddKeyWasDown = false;
+    engine->postExposureSubKeyWasDown = false;
+
+    engine->exposure = 1.0f;
+    engine->saturation = 1.0f;
+    engine->contrast = 1.0f;
+    engine->gamma = 1.0f;
+    engine->gain = 1.0f;
+    engine->offset = 0.0f;
+    engine->wbTemp = 6500.0f;
+    engine->wbTint = 0.0f;
+
     engine->lastFrameDeltaSeconds = 0.0f;
     engine->hdrIoThreadRunning = false;
     engine->hdrLoadInFlight = false;
@@ -1121,6 +1298,12 @@ bool vk_init_vulkan_engine(VulkanEngine* engine) {
         return false;
     }
     LOG_INFO("engine", "Vulkan initialise avec succes !");
+    LOG_INFO("postprocess", "Default Exposure: %.2f", engine->exposure);
+    LOG_INFO("postprocess", "Default IBL Intensity: %.2f (Scale: %.2f)", engine->iblIntensity, engine->iblDebugScale);
+    LOG_INFO("postprocess", "Default Tonemapper: Filmic ACES (DISABLED by default for Legacy OGL-ISO parity)");
+    LOG_INFO("postprocess", "Default Color Grading: Sat=%.2f, Contrast=%.2f, Gamma=%.2f, Gain=%.2f, Offset=%.2f", engine->saturation, engine->contrast,
+             engine->gamma, engine->gain, engine->offset);
+    LOG_INFO("postprocess", "Default White Balance: Temp=%.1f, Tint=%.2f", engine->wbTemp, engine->wbTint);
     return true;
 }
 
@@ -1133,6 +1316,7 @@ void vk_cleanup_vulkan_engine(VulkanEngine* engine) {
 
     cleanup_sync_objects(engine);
     cleanup_descriptor_resources(engine);
+    cleanup_ibl(engine);
     cleanup_buffer_resources(engine);
     cleanup_render_resources(engine);
     cleanup_core_resources(engine);
