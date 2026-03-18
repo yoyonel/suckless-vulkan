@@ -7,7 +7,8 @@ Cette page documente les fonctionnalites runtime recentes : controles clavier, b
 Les controles sont repartis entre :
 
 - `src/runtime_controls.cpp` / `src/runtime_controls.h` pour les controles systeme (pause, vitesse, fullscreen, fermeture).
-- `src/vk_engine.cpp` pour les controles camera/skybox relies au rendu par frame.
+- `src/vk_engine_runtime.cpp` pour les controles camera/skybox et callbacks GLFW.
+- `src/vk_engine_frame.cpp` pour l'integration par frame (`vk_handle_runtime_input`, camera, rendu).
 
 Raccourcis clavier :
 
@@ -79,6 +80,11 @@ Le passage fullscreen/fenetre change la taille de surface; le moteur gere :
 - Recreation des ressources dependantes du swapchain (swapchain, renderpass, pipeline, depth, framebuffers).
 
 Ce comportement est implemente dans `src/vk_engine.cpp`.
+
+Depuis la decomposition du moteur, il est surtout reparti entre :
+
+- `src/vk_engine_init.cpp` pour la recreation swapchain/pipeline.
+- `src/vk_engine_frame.cpp` pour la detection `OUT_OF_DATE/SUBOPTIMAL` pendant draw/present.
 
 ## Logging Structure
 

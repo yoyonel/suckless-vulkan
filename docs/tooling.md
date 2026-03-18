@@ -144,7 +144,7 @@ Rapports générés dans `build/coverage/reports/` :
 - `coverage.html` : rapport HTML avec annotations source
 - `coverage.json` : données JSON brutes
 
-**Limitations:** Couverture seulement des tests logiques (LogicTests), vk_engine.cpp non instrumenté.
+**Limitations:** Couverture seulement des tests logiques (LogicTests), une partie du moteur de rendu n'est pas couverte.
 
 ### Option 2: LLVM-Cov (recommandée, clang requis)
 
@@ -162,7 +162,7 @@ Rapports générés dans `build/coverage-llvm/`:
 **Avantages:**
 
 - Couverture **complète** : LogicTests + EngineIntegrationTest
-- Inclut tous les fichiers métier := app_log.cpp, runtime_controls.cpp, vk_engine.cpp, icosphere.h
+- Inclut les fichiers metier (dont modules `vk_engine_*`, `app_log.cpp`, `runtime_controls.cpp`, `icosphere.h`)
 - Meilleur détail : Regions + Functions + Lines + Branches
 - Formatage console lisible
 
@@ -176,13 +176,15 @@ Filename                 Regions  Missed Regions  Cover   Functions  Executed  L
 ─────────────────────────────────────────────────────────────────────────────────────────────
 app_log.cpp                  67           21    68.66%        11   100.00%      121   79.34%
 runtime_controls.cpp         56           12    78.57%        11    27.27%       79   64.56%
-vk_engine.cpp               496          118    76.21%        39    97.44%     1010   78.71%
+vk_engine_init.cpp         ...          ...      ...         ...      ...      ...      ...
+vk_engine_frame.cpp        ...          ...      ...         ...      ...      ...      ...
+vk_engine_envmap.cpp       ...          ...      ...         ...      ...      ...      ...
 icosphere.h                  12            0   100.00%         2   100.00%       43  100.00%
 ─────────────────────────────────────────────────────────────────────────────────────────────
 TOTAL                       631          151    76.07%        63    85.71%     1253   78.61%
 ```
 
-**KPI:** 78.61% du code métier est couvert par les tests.
+**KPI:** A recalculer a chaque run `just coverage-llvm` (ne pas figer des chiffres historiques).
 
 ## �️ Sécurité Mémoire : Sanitizers et Validation Layers
 

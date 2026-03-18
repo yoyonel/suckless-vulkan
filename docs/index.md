@@ -43,7 +43,11 @@ vulkan_base/
 │   ├── app_log.h        # API de logging
 │   ├── runtime_controls.cpp # Gestion runtime des controles clavier
 │   ├── runtime_controls.h   # API testable des controles runtime
-│   ├── vk_engine.cpp   # Implémentation du moteur Vulkan
+│   ├── vk_engine.cpp   # API publique moteur + helpers debug RenderDoc
+│   ├── vk_engine_init.cpp  # Initialisation/cleanup/recreate swapchain
+│   ├── vk_engine_frame.cpp # Boucle de rendu par frame
+│   ├── vk_engine_runtime.cpp # Input runtime + callbacks GLFW
+│   ├── vk_engine_envmap.cpp # HDR envmap async + upload GPU
 │   └── vk_engine.h     # Définitions et structure `VulkanEngine`
 └── tests/
     ├── test_main.cpp   # Test d'intégration du rendu et de la capture de frame

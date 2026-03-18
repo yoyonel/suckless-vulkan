@@ -15,7 +15,7 @@ Le rendu envmap est implemente avec un pipeline fullscreen dedie:
 
 - Vertex shader: `shaders/skybox.vert`
 - Fragment shader: `shaders/skybox.frag`
-- Initialisation pipeline: `src/vk_engine.cpp`
+- Initialisation pipeline: `src/vk_engine_init.cpp`
 
 Principes techniques:
 
@@ -52,11 +52,11 @@ Le chargement combine maintenant une etape async (IO/decode CPU) et une etape GP
 
 Code principal:
 
-- `find_hdr_paths()` dans `src/vk_engine.cpp`
-- `init_environment_catalog()` dans `src/vk_engine.cpp`
-- `init_environment_texture()` dans `src/vk_engine.cpp`
-- `request_environment_texture_async()` dans `src/vk_engine.cpp`
-- `process_ready_environment_texture()` dans `src/vk_engine.cpp`
+- `find_hdr_paths()` dans `src/vk_engine_envmap.cpp`
+- `vk_init_environment_catalog()` dans `src/vk_engine_envmap.cpp`
+- `vk_init_environment_texture()` dans `src/vk_engine_envmap.cpp`
+- `request_environment_texture_async()` dans `src/vk_engine_envmap.cpp`
+- `vk_process_ready_environment_texture()` dans `src/vk_engine_envmap.cpp`
 
 ## Fallback Actuel (CI et environnements sans assets)
 
@@ -118,6 +118,12 @@ Etat: implemente.
 - Synchronisation fine (timeline semaphore ou fences/event selon politique projet).
 - Swap atomique des handles image/view/sampler lorsque le nouvel envmap est ready.
 
+Etat: partiellement implemente.
+
+- Upload GPU effectif deja segmente (decode async sur thread IO, upload sur thread render).
+- Marquage/labeling RenderDoc en place sur upload/copy/mips.
+- Ring de staging + sync timeline + cache multi-envmaps restent a implementer.
+
 ## Phase D: Optimisation memoire et bande passante
 
 - Politique de cache (N envmaps max, eviction LRU).
@@ -159,6 +165,10 @@ A chaque evolution du pipeline:
 ## References
 
 - `src/vk_engine.cpp`
+- `src/vk_engine_init.cpp`
+- `src/vk_engine_frame.cpp`
+- `src/vk_engine_runtime.cpp`
+- `src/vk_engine_envmap.cpp`
 - `src/vk_engine.h`
 - `src/camera.cpp`
 - `shaders/skybox.vert`

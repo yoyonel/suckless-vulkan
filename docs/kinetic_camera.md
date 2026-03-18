@@ -349,12 +349,12 @@ ______________________________________________________________________
 
 ## Implémentation Détachée des Touches
 
-Pour modifier les bindings clavier, voir `src/vk_engine.cpp` (`handle_runtime_input()` et callbacks GLFW).
+Pour modifier les bindings clavier, voir `src/vk_engine_runtime.cpp` (`vk_handle_runtime_input()` et callbacks GLFW).
 
 La séparation entre:
 
 - **Logique caméra** : `src/camera.cpp` (physique pure)
-- **Gestion touches** : `src/vk_engine.cpp` (I/O GLFW → flags)
+- **Gestion touches** : `src/vk_engine_runtime.cpp` (I/O GLFW -> flags)
 
 ...permet d'ajuster contrôles sans toucher à la physique.
 
@@ -367,7 +367,7 @@ ______________________________________________________________________
 ```cpp
 void draw_frame(VulkanEngine* engine) {
     // 1. Traiter les touches → met à jour flags
-    handle_runtime_input(engine);
+    vk_handle_runtime_input(engine);
     
     // 2. Mettre à jour caméra avec physics cinétique
     camera_fixed_update(&engine->camera, engine->lastFrameDeltaSeconds);
@@ -387,12 +387,11 @@ void draw_frame(VulkanEngine* engine) {
 
 ```cpp
 static void scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
-    camera_process_scroll(&engine->camera, (float)yoffset);
+    vk_scroll_callback(window, xoffset, yoffset);
 }
 
 static void mouse_callback(GLFWwindow* window, double xpos, double ypos) {
-    // Calcul offset et appel camera_process_mouse()
-    camera_process_mouse(&engine->camera, xoffset, yoffset);
+    vk_mouse_callback(window, xpos, ypos);
 }
 ```
 
@@ -410,5 +409,6 @@ ______________________________________________________________________
 
 - [src/camera.h](../src/camera.h) — Défnition structure
 - [src/camera.cpp](../src/camera.cpp) — Implémentation physique
-- [src/vk_engine.cpp](../src/vk_engine.cpp) — Intégration moteur + callbacks GLFW
+- [src/vk_engine_runtime.cpp](../src/vk_engine_runtime.cpp) — Input runtime + callbacks GLFW
+- [src/vk_engine_frame.cpp](../src/vk_engine_frame.cpp) — Intégration par frame
 - [docs/runtime_controls_logging.md](runtime_controls_logging.md) — Contrôles runtime et logging
