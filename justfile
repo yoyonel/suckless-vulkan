@@ -122,7 +122,7 @@ run-asan: build-asan
     @./build/asan/vulkan_app
 
 # Utilisation : just renderdoc_bin=/chemin/vers/qrenderdoc renderdoc
-renderdoc: build-debug
+renderdoc: build-debug-renderdoc
     @{{ renderdoc_bin }} --working-dir . ./build/debug/vulkan_app
 
 # Utilisation : just renderdoc_bin=/chemin/vers/qrenderdoc renderdoc-debug-shaders

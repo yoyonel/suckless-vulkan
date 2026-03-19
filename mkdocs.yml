@@ -26,5 +26,8 @@ nav:
   - Outillage & Qualité: tooling.md
   - Tracing: tracing.md
   - Système de Validation IBL: ibl_validation_system.md
-  - Post-Mortem Portage IBL Vulkan: ibl_vulkan_porting_postmortem.md
+  - Conventions de Repères & Orientation: coordinate_systems.md
+  - Post-Mortem Portage:
+      - IBL Porting Post-Mortem: ibl_vulkan_porting_postmortem.md
+      - Billboard Raytraced Spheres: billboard_raytracing.md
   - Changelog: changelog.md

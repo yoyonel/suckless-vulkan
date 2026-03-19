@@ -97,6 +97,27 @@ typedef struct {
     float color[3];
 } Vertex;
 
+struct UBOData {
+    glm::mat4 vp;
+    glm::mat4 modelRotation;
+    glm::mat4 invViewProj;
+    glm::vec4 cameraPosEnvLod;
+    glm::vec4 debugParams; // x: mode, y: scale, z: billboardMode
+    glm::vec4 postParams1; // x: exposure, y: saturation, z: contrast, w: gamma
+    glm::vec4 postParams2; // x: gain, y: offset, z: wbTemp, w: wbTint
+    glm::mat4 view;        // New for billboards
+    glm::mat4 proj;        // New for billboards
+    glm::vec2 windowSize;
+};
+
+struct DebugPushConstant {
+    glm::mat4 model;
+    glm::vec4 color;
+    float radius;
+    int mode;
+    int stippled;
+};
+
 typedef struct {
     GLFWwindow* window;
     VkInstance instance;
@@ -129,7 +150,12 @@ typedef struct {
     VkDescriptorSetLayout descriptorSetLayout;
 
     VkPipelineLayout pipelineLayout;
+    VkPipelineLayout debugPipelineLayout;
     VkPipeline graphicsPipeline;
+    VkPipeline billboardPipeline;
+    VkPipeline wireframePipeline;
+    VkPipeline debugLinePipeline;
+    VkPipeline debugTrianglePipeline;
     VkPipeline skyboxPipeline;
 
     VkBuffer vertexBuffer;
@@ -216,6 +242,11 @@ typedef struct {
     int windowedWidth;
     int windowedHeight;
     float lastFrameDeltaSeconds;
+
+    bool billboardMode;
+    bool billboardKeyWasDown;
+    bool wireframeMode;
+    bool wireframeKeyWasDown;
 
     Camera camera;
     std::chrono::steady_clock::time_point lastFrameTimestamp;

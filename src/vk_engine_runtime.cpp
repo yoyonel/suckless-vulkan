@@ -53,6 +53,22 @@ void handle_camera_and_envmap_toggles(VulkanEngine* engine) {
         LOG_INFO("runtime", "Skybox: %s", engine->showEnvmap ? "ON" : "OFF");
     }
     engine->showEnvmapToggleKeyWasDown = kDown;
+
+    // Toggle Billboard Mode
+    bool billboardDown = glfwGetKey(engine->window, GLFW_KEY_B) == GLFW_PRESS;
+    if (billboardDown && !engine->billboardKeyWasDown) {
+        engine->billboardMode = !engine->billboardMode;
+        LOG_INFO("input", "Billboard mode: %s", engine->billboardMode ? "ON" : "OFF");
+    }
+    engine->billboardKeyWasDown = billboardDown;
+
+    // Toggle Wireframe Mode (Legacy OGL uses 'Z')
+    bool wireframeDown = glfwGetKey(engine->window, GLFW_KEY_Z) == GLFW_PRESS;
+    if (wireframeDown && !engine->wireframeKeyWasDown) {
+        engine->wireframeMode = !engine->wireframeMode;
+        LOG_INFO("input", "Wireframe mode: %s", engine->wireframeMode ? "ON" : "OFF");
+    }
+    engine->wireframeKeyWasDown = wireframeDown;
 }
 
 void handle_env_navigation(VulkanEngine* engine, bool shiftDown) {
@@ -144,6 +160,11 @@ void vk_handle_runtime_input(VulkanEngine* engine) {
     handle_env_navigation(engine, shiftDown);
     handle_ibl_debug_inputs(engine);
     handle_postprocess_inputs(engine);
+
+    if (is_key_pressed_once(engine->window, GLFW_KEY_B, &engine->billboardKeyWasDown)) {
+        engine->billboardMode = !engine->billboardMode;
+        LOG_INFO("runtime", "Sphere Rendering Mode: %s", engine->billboardMode ? "BILLBOARD (Raytraced)" : "ICOSPHERE (Triangulated)");
+    }
 }
 
 void vk_mouse_callback(GLFWwindow* window, double xpos, double ypos) {

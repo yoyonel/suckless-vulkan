@@ -201,7 +201,6 @@ bool init_environment_texture_from_pixels(VulkanEngine* engine, const float* pix
         return false;
     }
 
-    const VkDeviceSize imageSize = static_cast<VkDeviceSize>(width) * static_cast<VkDeviceSize>(height) * 4 * sizeof(float);
     engine->envHdrMipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(width, height)))) + 1;
 
     VkFormatProperties hdrFormatProps{};

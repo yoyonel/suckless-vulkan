@@ -150,15 +150,56 @@ static bool test_integration_rendering() {
         return false;
     }
 
+    // Capture 1: Billboard (Default)
     if (!draw_frame(&engine)) {
         cleanup_vulkan_engine(&engine);
         return false;
     }
+    bool b1 = verify_and_capture_frame(&engine, "test_billboard.png");
 
-    const bool success = verify_and_capture_frame(&engine, "test_output.png");
+    // Capture 2: Icosphere
+    engine.billboardMode = false;
+    if (!draw_frame(&engine)) {
+        cleanup_vulkan_engine(&engine);
+        return false;
+    }
+    bool b2 = verify_and_capture_frame(&engine, "test_icosphere.png");
+
+    // Capture 3: Billboard Wireframe (New)
+    engine.billboardMode = true;
+    engine.wireframeMode = true;
+    if (!draw_frame(&engine)) {
+        cleanup_vulkan_engine(&engine);
+        return false;
+    }
+    bool b3 = verify_and_capture_frame(&engine, "test_wireframe_billboard.png");
+
+    // Capture 4: Icosphere Wireframe
+    engine.billboardMode = false;
+    engine.wireframeMode = true;
+    if (!draw_frame(&engine)) {
+        cleanup_vulkan_engine(&engine);
+        return false;
+    }
+    bool b4 = verify_and_capture_frame(&engine, "test_wireframe_icosphere.png");
+
+    // Capture 5: Close-up Billboard Singularity (Extreme Proximity)
+    // Sphere at (1.25, 1.25, 0.0), Radius 1.0.
+    // Camera at distance 1.5 -> 0.5 from surface
+    engine.camera.position = glm::vec3(1.25f, 1.25f, 1.5f);
+    engine.camera.yaw = -90.0f;
+    engine.camera.pitch = 0.0f;
+    camera_update_vectors(&engine.camera);
+    engine.billboardMode = true;
+    engine.wireframeMode = true;
+    if (!draw_frame(&engine)) {
+        cleanup_vulkan_engine(&engine);
+        return false;
+    }
+    bool b5 = verify_and_capture_frame(&engine, "test_close_billboard.png");
 
     cleanup_vulkan_engine(&engine);
-    return success;
+    return b1 && b2 && b3 && b4 && b5;
 }
 
 int main() {

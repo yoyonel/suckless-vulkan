@@ -408,12 +408,16 @@ bool init_core(VulkanEngine* engine) {
     }
 
     const char* deviceExt[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+    VkPhysicalDeviceFeatures deviceFeatures{};
+    deviceFeatures.samplerAnisotropy = VK_TRUE;
+    deviceFeatures.fillModeNonSolid = VK_TRUE;
     VkDeviceCreateInfo deviceInfo{};
     deviceInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
     deviceInfo.queueCreateInfoCount = queueInfoCount;
     deviceInfo.pQueueCreateInfos = queueInfos;
     deviceInfo.enabledExtensionCount = 1;
     deviceInfo.ppEnabledExtensionNames = deviceExt;
+    deviceInfo.pEnabledFeatures = &deviceFeatures;
 
     if (vkCreateDevice(engine->physicalDevice, &deviceInfo, NULL, &engine->device) != VK_SUCCESS)
         return false;
@@ -850,6 +854,159 @@ bool init_pipeline(VulkanEngine* engine) {
     }
     vk_set_object_name(engine->device, (uint64_t)engine->skyboxPipeline, VK_OBJECT_TYPE_PIPELINE, "Skybox_Graphics_Pipeline");
 
+    // --- BILLBOARD PIPELINE ---
+    VkShaderModule bvm = load_shader(engine->device, "shaders/billboard_vert.spv");
+    VkShaderModule bfm = load_shader(engine->device, "shaders/billboard_frag.spv");
+    VkVertexInputBindingDescription bBindings[1] = {};
+    bBindings[0].binding = 1;
+    bBindings[0].stride = sizeof(glm::vec3);
+    bBindings[0].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+
+    VkVertexInputAttributeDescription bAttrs[1] = {};
+    bAttrs[0].location = 2;
+    bAttrs[0].binding = 1;
+    bAttrs[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+    bAttrs[0].offset = 0;
+
+    VkPipelineVertexInputStateCreateInfo bVi{};
+    bVi.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    bVi.vertexBindingDescriptionCount = 1;
+    bVi.pVertexBindingDescriptions = bBindings;
+    bVi.vertexAttributeDescriptionCount = 1;
+    bVi.pVertexAttributeDescriptions = bAttrs;
+
+    if (bvm != VK_NULL_HANDLE && bfm != VK_NULL_HANDLE) {
+        VkPipelineShaderStageCreateInfo bStages[2] = {};
+        bStages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        bStages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+        bStages[0].module = bvm;
+        bStages[0].pName = "main";
+        bStages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        bStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+        bStages[1].module = bfm;
+        bStages[1].pName = "main";
+
+        VkPipelineRasterizationStateCreateInfo bRs = rs;
+        bRs.cullMode = VK_CULL_MODE_NONE; // ISO: Billboard should not cull
+
+        VkGraphicsPipelineCreateInfo bPipeInfo = pipeInfo;
+        bPipeInfo.pStages = bStages;
+        bPipeInfo.pVertexInputState = &bVi;
+        bPipeInfo.pRasterizationState = &bRs;
+
+        if (vkCreateGraphicsPipelines(engine->device, VK_NULL_HANDLE, 1, &bPipeInfo, nullptr, &engine->billboardPipeline) != VK_SUCCESS) {
+            LOG_ERROR("render", "Failed to create billboard pipeline");
+        } else {
+            vk_set_object_name(engine->device, (uint64_t)engine->billboardPipeline, VK_OBJECT_TYPE_PIPELINE, "Billboard_Graphics_Pipeline");
+        }
+    }
+
+    // --- WIREFRAME PIPELINE ---
+    VkGraphicsPipelineCreateInfo wPipeInfo = pipeInfo;
+    VkPipelineRasterizationStateCreateInfo wRs = rs;
+    wRs.polygonMode = VK_POLYGON_MODE_LINE;
+    wRs.lineWidth = 1.0f;
+    wPipeInfo.pRasterizationState = &wRs;
+
+    if (vkCreateGraphicsPipelines(engine->device, VK_NULL_HANDLE, 1, &wPipeInfo, nullptr, &engine->wireframePipeline) != VK_SUCCESS) {
+        LOG_ERROR("render", "Failed to create wireframe pipeline");
+    } else {
+        vk_set_object_name(engine->device, (uint64_t)engine->wireframePipeline, VK_OBJECT_TYPE_PIPELINE, "Wireframe_Graphics_Pipeline");
+    }
+
+    // --- DEBUG OVERLAY PIPELINES ---
+    VkShaderModule dvm = load_shader(engine->device, "shaders/debug_vert.spv");
+    VkShaderModule dfm = load_shader(engine->device, "shaders/debug_frag.spv");
+    if (dvm != VK_NULL_HANDLE && dfm != VK_NULL_HANDLE) {
+        VkPipelineShaderStageCreateInfo dStages[2] = {};
+        dStages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        dStages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+        dStages[0].module = dvm;
+        dStages[0].pName = "main";
+        dStages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        dStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+        dStages[1].module = dfm;
+        dStages[1].pName = "main";
+
+        VkPushConstantRange dPushRange{};
+        dPushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+        dPushRange.offset = 0;
+        dPushRange.size = sizeof(DebugPushConstant);
+
+        VkPipelineLayoutCreateInfo dplInfo{};
+        dplInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        dplInfo.setLayoutCount = 1;
+        dplInfo.pSetLayouts = &engine->descriptorSetLayout;
+        dplInfo.pushConstantRangeCount = 1;
+        dplInfo.pPushConstantRanges = &dPushRange;
+        if (vkCreatePipelineLayout(engine->device, &dplInfo, nullptr, &engine->debugPipelineLayout) != VK_SUCCESS) {
+            LOG_ERROR("render", "Failed to create debug pipeline layout");
+        }
+
+        // --- Debug Line Pipeline ---
+        VkGraphicsPipelineCreateInfo dLineInfo = pipeInfo;
+        dLineInfo.layout = engine->debugPipelineLayout;
+        dLineInfo.pStages = dStages;
+        // Vertex input: reuse same instance layout (for instancePos)
+        dLineInfo.pVertexInputState = &bVi;
+
+        VkPipelineInputAssemblyStateCreateInfo dIaLines = ia;
+        dIaLines.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+        dLineInfo.pInputAssemblyState = &dIaLines;
+
+        VkPipelineDepthStencilStateCreateInfo dsDebug = ds;
+        dsDebug.depthWriteEnable = VK_FALSE; // STRICT PORT: Overlay correctly
+        dLineInfo.pDepthStencilState = &dsDebug;
+
+        VkPipelineRasterizationStateCreateInfo dRsLines = rs;
+        dRsLines.polygonMode = VK_POLYGON_MODE_LINE;
+        dRsLines.lineWidth = 1.0f;
+        dLineInfo.pRasterizationState = &dRsLines;
+
+        if (vkCreateGraphicsPipelines(engine->device, VK_NULL_HANDLE, 1, &dLineInfo, nullptr, &engine->debugLinePipeline) != VK_SUCCESS) {
+            LOG_ERROR("render", "Failed to create debug line pipeline");
+        } else {
+            vk_set_object_name(engine->device, (uint64_t)engine->debugLinePipeline, VK_OBJECT_TYPE_PIPELINE, "Debug_Line_Pipeline");
+        }
+
+        // --- Debug Triangle Pipeline (with Blend) ---
+        VkGraphicsPipelineCreateInfo dTriInfo = dLineInfo;
+        VkPipelineInputAssemblyStateCreateInfo dIaTris = ia;
+        dIaTris.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        dTriInfo.pInputAssemblyState = &dIaTris;
+
+        VkPipelineRasterizationStateCreateInfo dRsTris = rs;
+        dRsTris.polygonMode = VK_POLYGON_MODE_FILL;
+        dTriInfo.pRasterizationState = &dRsTris;
+        dTriInfo.pDepthStencilState = &dsDebug; // Reuse dsDebug (Depth Write OFF)
+
+        VkPipelineColorBlendAttachmentState dCbaBlend = cba;
+        dCbaBlend.blendEnable = VK_TRUE;
+        dCbaBlend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+        dCbaBlend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        dCbaBlend.colorBlendOp = VK_BLEND_OP_ADD;
+        dCbaBlend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        dCbaBlend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+        dCbaBlend.alphaBlendOp = VK_BLEND_OP_ADD;
+        dCbaBlend.colorWriteMask = 0xf;
+
+        VkPipelineColorBlendStateCreateInfo dCbBlend = cb;
+        dCbBlend.pAttachments = &dCbaBlend;
+        dTriInfo.pColorBlendState = &dCbBlend;
+
+        if (vkCreateGraphicsPipelines(engine->device, VK_NULL_HANDLE, 1, &dTriInfo, nullptr, &engine->debugTrianglePipeline) != VK_SUCCESS) {
+            LOG_ERROR("render", "Failed to create debug triangle pipeline");
+        }
+    }
+    if (bvm != VK_NULL_HANDLE)
+        vkDestroyShaderModule(engine->device, bvm, nullptr);
+    if (bfm != VK_NULL_HANDLE)
+        vkDestroyShaderModule(engine->device, bfm, nullptr);
+    if (dvm != VK_NULL_HANDLE)
+        vkDestroyShaderModule(engine->device, dvm, nullptr);
+    if (dfm != VK_NULL_HANDLE)
+        vkDestroyShaderModule(engine->device, dfm, nullptr);
+
     vkDestroyShaderModule(engine->device, vsm, nullptr);
     vkDestroyShaderModule(engine->device, fsm, nullptr);
     vkDestroyShaderModule(engine->device, skyboxVsm, nullptr);
@@ -1011,7 +1168,7 @@ bool init_buffers(VulkanEngine* engine) {
     // UBO: vp + modelRotation + invViewProj + cameraPosEnvLod
     VkBufferCreateInfo uboIn{};
     uboIn.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    uboIn.size = (3 * sizeof(glm::mat4)) + sizeof(glm::vec4);
+    uboIn.size = sizeof(UBOData);
     uboIn.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
     VmaAllocationCreateInfo uboAl{};
     uboAl.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
@@ -1055,7 +1212,7 @@ bool init_descriptor_pool_and_sets(VulkanEngine* engine) {
     VkDescriptorBufferInfo bi{};
     bi.buffer = engine->uniformBuffer;
     bi.offset = 0;
-    bi.range = (3 * sizeof(glm::mat4)) + (2 * sizeof(glm::vec4));
+    bi.range = sizeof(UBOData);
 
     VkDescriptorBufferInfo materialBufferInfo{};
     materialBufferInfo.buffer = engine->materialBuffer;
@@ -1274,6 +1431,11 @@ bool vk_init_vulkan_engine(VulkanEngine* engine) {
     engine->postResetKeyWasDown = false;
     engine->postExposureAddKeyWasDown = false;
     engine->postExposureSubKeyWasDown = false;
+
+    engine->billboardMode = true;
+    engine->billboardKeyWasDown = false;
+    engine->wireframeMode = false;
+    engine->wireframeKeyWasDown = false;
 
     engine->exposure = 1.0f;
     engine->saturation = 1.0f;

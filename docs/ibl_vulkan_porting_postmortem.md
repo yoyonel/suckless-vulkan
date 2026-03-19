@@ -38,7 +38,7 @@ This ensured type safety and prevented GPU memory access violations.
 
 - Synchronized the multiplier to `3.0x`.
 - Implemented `soft_clamp_smoothstep` in Vulkan compute shaders.
-- Aligned orientation (Y-flip) to match the the equirectangular projection of the source assets.
+- Aligned orientation (Y-flip) and face winding (frontFace) to match OGL world-space conventions. See [Coordinate Systems & Orientation](coordinate_systems.md) for full details and diagrams.
 
 ## 🧬 Infrastructure & Alignment
 

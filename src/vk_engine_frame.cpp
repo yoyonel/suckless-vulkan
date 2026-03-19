@@ -58,15 +58,6 @@ bool vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recreateSw
     }
     engine->lastRenderedImageIndex = idx;
 
-    struct UBOData {
-        glm::mat4 vp;
-        glm::mat4 modelRotation;
-        glm::mat4 invViewProj;
-        glm::vec4 cameraPosEnvLod;
-        glm::vec4 debugParams;
-        glm::vec4 postParams1;
-        glm::vec4 postParams2;
-    };
     UBOData uboData;
     uboData.modelRotation = glm::mat4(1.0f);
     glm::mat4 view = glm::lookAt(engine->camera.position, engine->camera.position + engine->camera.front, engine->camera.up);
@@ -84,9 +75,16 @@ bool vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recreateSw
     uboData.invViewProj = glm::inverse(skyboxProj * skyboxView);
 
     uboData.cameraPosEnvLod = glm::vec4(engine->camera.position, engine->envLod);
-    uboData.debugParams = glm::vec4(static_cast<float>(engine->iblDebugMode), engine->iblDebugScale, 0.0f, 0.0f);
+    uboData.debugParams = glm::vec4(static_cast<float>(engine->iblDebugMode), engine->iblDebugScale, engine->billboardMode ? 1.0f : 0.0f, 0.0f);
     uboData.postParams1 = glm::vec4(engine->exposure, engine->saturation, engine->contrast, engine->gamma);
     uboData.postParams2 = glm::vec4(engine->gain, engine->offset, engine->wbTemp, engine->wbTint);
+    uboData.view = view;
+    uboData.proj = proj;
+
+    int width, height;
+    glfwGetFramebufferSize(engine->window, &width, &height);
+    uboData.windowSize = glm::vec4(static_cast<float>(width), static_cast<float>(height), 0.0f, 0.0f);
+
     memcpy(engine->uniformBufferMapped, &uboData, sizeof(uboData));
 
     if (vkResetCommandBuffer(engine->commandBuffer, 0) != VK_SUCCESS) {
@@ -124,13 +122,55 @@ bool vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recreateSw
     }
     vk_end_label(engine->device, engine->commandBuffer);
 
-    vk_begin_label(engine->device, engine->commandBuffer, "Render_Icosphere_Instanced", 0.0f, 1.0f, 0.4f);
-    vkCmdBindPipeline(engine->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, engine->graphicsPipeline);
-    VkBuffer vertexBuffers[] = {engine->vertexBuffer, engine->instanceBuffer};
-    VkDeviceSize offsets[] = {0, 0};
-    vkCmdBindVertexBuffers(engine->commandBuffer, 0, 2, vertexBuffers, offsets);
-    vkCmdBindIndexBuffer(engine->commandBuffer, engine->indexBuffer, 0, VK_INDEX_TYPE_UINT32);
-    vkCmdDrawIndexed(engine->commandBuffer, engine->indexCount, kGridSize * kGridSize, 0, 0, 0);
+    vk_begin_label(engine->device, engine->commandBuffer, "Render_Spheres_Instanced", 0.0f, 1.0f, 0.4f);
+    if (engine->billboardMode) {
+        vkCmdBindPipeline(engine->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, engine->billboardPipeline);
+        VkBuffer instanceBuffers[] = {engine->instanceBuffer};
+        VkDeviceSize instanceOffsets[] = {0};
+        vkCmdBindVertexBuffers(engine->commandBuffer, 1, 1, instanceBuffers, instanceOffsets);
+        vkCmdDraw(engine->commandBuffer, 6, kGridSize * kGridSize, 0, 0);
+    } else {
+        VkPipeline pipe = engine->wireframeMode ? engine->wireframePipeline : engine->graphicsPipeline;
+        vkCmdBindPipeline(engine->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
+        VkBuffer vertexBuffers[] = {engine->vertexBuffer, engine->instanceBuffer};
+        VkDeviceSize offsets[] = {0, 0};
+        vkCmdBindVertexBuffers(engine->commandBuffer, 0, 2, vertexBuffers, offsets);
+        vkCmdBindIndexBuffer(engine->commandBuffer, engine->indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+        vkCmdDrawIndexed(engine->commandBuffer, engine->indexCount, kGridSize * kGridSize, 0, 0, 0);
+    }
+
+    if (engine->wireframeMode && engine->billboardMode) {
+        // Billboard Wireframe Overlays (Legacy parity)
+        DebugPushConstant dp = {};
+        dp.model = glm::mat4(1.0f);
+        dp.radius = 1.0f; // Standard radius for spheres in this app
+
+        // 1. Transparent Fill
+        vkCmdBindPipeline(engine->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, engine->debugTrianglePipeline);
+        dp.color = glm::vec4(1.0f, 1.0f, 1.0f, 0.1f);
+        dp.mode = 1;
+        dp.stippled = 2; // Triangle mode flag
+        vkCmdPushConstants(engine->commandBuffer, engine->debugPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                           sizeof(DebugPushConstant), &dp);
+        vkCmdDraw(engine->commandBuffer, 6, kGridSize * kGridSize, 0, 0);
+
+        // 2. Green Quad Outlines
+        vkCmdBindPipeline(engine->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, engine->debugLinePipeline);
+        dp.color = glm::vec4(0.0f, 1.0f, 0.0f, 1.0f);
+        dp.mode = 1;
+        dp.stippled = 0;
+        vkCmdPushConstants(engine->commandBuffer, engine->debugPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                           sizeof(DebugPushConstant), &dp);
+        vkCmdDraw(engine->commandBuffer, 8, kGridSize * kGridSize, 0, 0);
+
+        // 3. Yellow Stippled Boxes
+        dp.color = glm::vec4(1.0f, 1.0f, 0.0f, 0.5f);
+        dp.mode = 0;
+        dp.stippled = 1;
+        vkCmdPushConstants(engine->commandBuffer, engine->debugPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                           sizeof(DebugPushConstant), &dp);
+        vkCmdDraw(engine->commandBuffer, 24, kGridSize * kGridSize, 0, 0);
+    }
     vk_end_label(engine->device, engine->commandBuffer);
 
     vkCmdEndRenderPass(engine->commandBuffer);
