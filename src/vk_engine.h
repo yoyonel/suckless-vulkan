@@ -97,6 +97,11 @@ typedef struct {
     float color[3];
 } Vertex;
 
+struct BillboardInstance {
+    glm::vec3 pos;
+    int materialIdx;
+};
+
 struct UBOData {
     glm::mat4 vp;
     glm::mat4 modelRotation;
@@ -107,7 +112,7 @@ struct UBOData {
     glm::vec4 postParams2; // x: gain, y: offset, z: wbTemp, w: wbTint
     glm::mat4 view;        // New for billboards
     glm::mat4 proj;        // New for billboards
-    glm::vec2 windowSize;
+    glm::vec4 windowSize;
 };
 
 struct DebugPushConstant {
@@ -251,6 +256,11 @@ typedef struct {
     Camera camera;
     std::chrono::steady_clock::time_point lastFrameTimestamp;
 
+    std::vector<BillboardInstance> billboardInstances;
+    VkBuffer billboardBuffer;
+    VmaAllocation billboardAllocation;
+    void* billboardMapped;
+
     IblResources ibl;
     bool pbrEnabled;
     bool iblEnabled;
@@ -265,6 +275,9 @@ typedef struct {
     float offset;
     float wbTemp;
     float wbTint;
+
+    bool vsync;
+    bool vsyncKeyWasDown;
 
 } VulkanEngine;
 

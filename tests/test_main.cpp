@@ -15,20 +15,31 @@
 #pragma GCC diagnostic pop
 #endif
 
-static bool verify_and_capture_frame(VulkanEngine* engine, const char* debugFilename) {
-    if (vkDeviceWaitIdle(engine->device) != VK_SUCCESS) {
-        return false;
+#include <cmath>
+#include <cstring>
+#include <stb/stb_image.h>
+#include <vector>
+
+static bool compare_images(const unsigned char* a, const unsigned char* b, int width, int height, int threshold, const char* name) {
+    size_t diff_count = 0;
+    for (int px = 0; px < width * height; ++px) {
+        const int base = px * 4;
+        for (int c = 0; c < 3; ++c) {
+            if (std::abs((int)a[base + c] - (int)b[base + c]) > threshold) {
+                diff_count++;
+            }
+        }
     }
-
-    if (engine->lastRenderedImageIndex >= engine->imageCount) {
-        return false;
+    if (diff_count > 0) {
+        float percent = (float)diff_count / (float)(width * height * 3) * 100.0f;
+        LOG_WARNING("test", "Image mismatch for %s: %zu pixels differ (> %d tolerance) - %.2f%%", name, diff_count / 3, threshold, percent);
+        // Allow up to 2.5% of pixels to differ (needed for cross-driver wireframe/AA parity)
+        return diff_count < static_cast<size_t>(static_cast<double>(width) * height * 3 * 0.025);
     }
+    return true;
+}
 
-    const VkImage srcImage = engine->swapchainImages[engine->lastRenderedImageIndex];
-    const int width = static_cast<int>(engine->swapchainExtent.width);
-    const int height = static_cast<int>(engine->swapchainExtent.height);
-    const VkDeviceSize imageSize = static_cast<VkDeviceSize>(width) * static_cast<VkDeviceSize>(height) * 4;
-
+static bool readback_frame(VulkanEngine* engine, int width, int height, VkDeviceSize imageSize, unsigned char* out_pixels) {
     VkBuffer readbackBuffer = VK_NULL_HANDLE;
     VmaAllocation readbackAllocation = VK_NULL_HANDLE;
     VkBufferCreateInfo bufferInfo = {};
@@ -58,11 +69,7 @@ static bool verify_and_capture_frame(VulkanEngine* engine, const char* debugFile
     VkCommandBufferBeginInfo beginInfo = {};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    if (vkBeginCommandBuffer(cb, &beginInfo) != VK_SUCCESS) {
-        vkFreeCommandBuffers(engine->device, engine->commandPool, 1, &cb);
-        vmaDestroyBuffer(engine->allocator, readbackBuffer, readbackAllocation);
-        return false;
-    }
+    vkBeginCommandBuffer(cb, &beginInfo);
 
     VkImageMemoryBarrier barrier = {};
     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -70,7 +77,7 @@ static bool verify_and_capture_frame(VulkanEngine* engine, const char* debugFile
     barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
     barrier.srcAccessMask = 0;
     barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-    barrier.image = srcImage;
+    barrier.image = engine->swapchainImages[engine->lastRenderedImageIndex];
     barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
     vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
@@ -80,68 +87,92 @@ static bool verify_and_capture_frame(VulkanEngine* engine, const char* debugFile
     region.imageSubresource.layerCount = 1;
     region.imageExtent = {(uint32_t)width, (uint32_t)height, 1};
 
-    vkCmdCopyImageToBuffer(cb, srcImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readbackBuffer, 1, &region);
+    vkCmdCopyImageToBuffer(cb, engine->swapchainImages[engine->lastRenderedImageIndex], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readbackBuffer, 1, &region);
 
-    if (vkEndCommandBuffer(cb) != VK_SUCCESS) {
-        vkFreeCommandBuffers(engine->device, engine->commandPool, 1, &cb);
-        vmaDestroyBuffer(engine->allocator, readbackBuffer, readbackAllocation);
-        return false;
-    }
+    vkEndCommandBuffer(cb);
 
     VkSubmitInfo submitInfo = {};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &cb;
-    if (vkQueueSubmit(engine->graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE) != VK_SUCCESS || vkQueueWaitIdle(engine->graphicsQueue) != VK_SUCCESS) {
-        vkFreeCommandBuffers(engine->device, engine->commandPool, 1, &cb);
-        vmaDestroyBuffer(engine->allocator, readbackBuffer, readbackAllocation);
-        return false;
-    }
+    vkQueueSubmit(engine->graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
+    vkQueueWaitIdle(engine->graphicsQueue);
 
-    void* data = nullptr;
-    if (vmaMapMemory(engine->allocator, readbackAllocation, &data) != VK_SUCCESS) {
-        vkFreeCommandBuffers(engine->device, engine->commandPool, 1, &cb);
-        vmaDestroyBuffer(engine->allocator, readbackBuffer, readbackAllocation);
-        return false;
-    }
-    if (vmaInvalidateAllocation(engine->allocator, readbackAllocation, 0, VK_WHOLE_SIZE) != VK_SUCCESS) {
-        vmaUnmapMemory(engine->allocator, readbackAllocation);
-        vkFreeCommandBuffers(engine->device, engine->commandPool, 1, &cb);
-        vmaDestroyBuffer(engine->allocator, readbackBuffer, readbackAllocation);
-        return false;
-    }
+    void* mapped_data = nullptr;
+    vmaMapMemory(engine->allocator, readbackAllocation, &mapped_data);
+    vmaInvalidateAllocation(engine->allocator, readbackAllocation, 0, VK_WHOLE_SIZE);
+    memcpy(out_pixels, mapped_data, imageSize);
+    vmaUnmapMemory(engine->allocator, readbackAllocation);
 
-    unsigned char* pixels = static_cast<unsigned char*>(data);
+    vmaDestroyBuffer(engine->allocator, readbackBuffer, readbackAllocation);
+    vkFreeCommandBuffers(engine->device, engine->commandPool, 1, &cb);
 
     for (size_t i = 0; i < imageSize; i += 4) {
-        unsigned char tmp = pixels[i];
-        pixels[i] = pixels[i + 2];
-        pixels[i + 2] = tmp;
+        std::swap(out_pixels[i], out_pixels[i + 2]);
     }
+    return true;
+}
 
-    bool has_content = false;
-    for (size_t i = 0; i < imageSize; i++) {
-        if (pixels[i] > 0) {
-            has_content = true;
-            break;
+static bool validate_frame(const unsigned char* pixels, int width, int height, const char* filename) {
+    bool success = true;
+    const char* updateRefs = std::getenv("SVK_UPDATE_REFERENCES");
+    char refPath[512];
+    snprintf(refPath, sizeof(refPath), "tests/references/%s", filename);
+
+    if (updateRefs && updateRefs[0] != '0') {
+        if (stbi_write_png(refPath, width, height, 4, pixels, width * 4)) {
+            LOG_INFO("test", "REFERENCE MISE A JOUR : %s", refPath);
+        } else {
+            LOG_ERROR("test", "Echec mise a jour reference : %s", refPath);
+            success = false;
+        }
+    } else {
+        int refW = 0;
+        int refH = 0;
+        int refC = 0;
+        unsigned char* refPixels = stbi_load(refPath, &refW, &refH, &refC, 4);
+        if (refPixels) {
+            if (refW != width || refH != height) {
+                LOG_ERROR("test", "Reference dimension mismatch: %s (%dx%d vs %dx%d)", refPath, refW, refH, width, height);
+                success = false;
+            } else {
+                success = compare_images(pixels, refPixels, width, height, 8, filename);
+            }
+            stbi_image_free(refPixels);
+        } else {
+            LOG_WARNING("test", "Reference absente, generation automatique : %s", refPath);
+            stbi_write_png(refPath, width, height, 4, pixels, width * 4);
         }
     }
 
     const char* saveFrame = std::getenv("VULKAN_TEST_SAVE_FRAME");
     if (saveFrame != nullptr && saveFrame[0] != '\0') {
-        // NOLINTNEXTLINE(clang-analyzer-optin.portability.UnixAPI)
-        if (stbi_write_png(debugFilename, width, height, 4, data, width * 4)) {
-            LOG_INFO("test", "Frame sauvegardee sous : %s", debugFilename);
-        } else {
-            LOG_WARNING("test", "Impossible de sauvegarder la frame de debug (%s).", debugFilename);
-        }
+        stbi_write_png(filename, width, height, 4, pixels, width * 4);
+    }
+    return success;
+}
+
+static bool verify_and_capture_frame(VulkanEngine* engine, const char* filename) {
+    if (vkDeviceWaitIdle(engine->device) != VK_SUCCESS || engine->lastRenderedImageIndex >= engine->imageCount) {
+        return false;
     }
 
-    vmaUnmapMemory(engine->allocator, readbackAllocation);
-    vmaDestroyBuffer(engine->allocator, readbackBuffer, readbackAllocation);
-    vkFreeCommandBuffers(engine->device, engine->commandPool, 1, &cb);
+    const int width = static_cast<int>(engine->swapchainExtent.width);
+    const int height = static_cast<int>(engine->swapchainExtent.height);
+    const VkDeviceSize imageSize = static_cast<VkDeviceSize>(width) * static_cast<VkDeviceSize>(height) * 4;
 
-    return has_content;
+    std::vector<unsigned char> pixels(imageSize);
+    if (!readback_frame(engine, width, height, imageSize, pixels.data())) {
+        return false;
+    }
+
+    // Swapchain alpha is not a stable visual signal across platforms/drivers.
+    // Force opaque alpha so saved PNGs match runtime appearance in image viewers.
+    for (size_t i = 3; i < imageSize; i += 4) {
+        pixels[i] = 255;
+    }
+
+    return validate_frame(pixels.data(), width, height, filename);
 }
 
 static bool test_integration_rendering() {

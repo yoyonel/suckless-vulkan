@@ -60,6 +60,7 @@ add_executable(
   src/camera.cpp
   src/app_log.cpp
   src/runtime_controls.cpp
+  src/stb_image_impl.cpp
   src/stb_image_write_impl.cpp
   src/material_loader.cpp
   ext/vma/vma_impl.cpp
@@ -82,6 +83,7 @@ add_executable(
   src/camera.cpp
   src/app_log.cpp
   src/runtime_controls.cpp
+  src/stb_image_impl.cpp
   src/stb_image_write_impl.cpp
   src/material_loader.cpp
   ext/vma/vma_impl.cpp

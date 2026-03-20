@@ -30,4 +30,5 @@ nav:
   - Post-Mortem Portage:
       - IBL Porting Post-Mortem: ibl_vulkan_porting_postmortem.md
       - Billboard Raytraced Spheres: billboard_raytracing.md
+      - Analyse Pipeline Couleur: color_pipeline_analysis.md
   - Changelog: changelog.md

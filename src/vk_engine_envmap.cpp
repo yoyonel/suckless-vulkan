@@ -14,7 +14,6 @@
 #pragma GCC diagnostic ignored "-Wunused-function"
 #endif
 
-#define STB_IMAGE_IMPLEMENTATION
 #include <stb/stb_image.h>
 
 #if defined(__GNUC__) || defined(__clang__)

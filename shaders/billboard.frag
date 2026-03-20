@@ -190,9 +190,6 @@ void main() {
     float edgeFactor = clamp(h / max(analyticFwidthH, 1e-4), 0.0, 1.0);
     edgeFactor = smoothstep(0.0, 1.0, edgeFactor);
 
-    if (!isInside) {
-        color *= edgeFactor;
-    }
-
-    outColor = vec4(color, 1.0);
+    // outColor = vec4(color, 1.0);
+    outColor = vec4(color, isInside ? 1.0 : edgeFactor);
 }

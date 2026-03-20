@@ -1,5 +1,35 @@
 # Résumé des Changements Récents
 
+## Phase 4 : Non-Régression Visuelle & IBL Repair (Mars 2026)
+
+### ✨ Nouvelles Fonctionnalités
+
+**Intégration d'une suite de tests de non-régression visuelle** automatisée :
+
+- **Capture et Comparaison** : Le `EngineIntegrationTest` capture désormais 6 vues de rendu (Billboard, Icosphere, Wireframe, Proximité) et les compare pixel-à-pixel aux références.
+- **Driver Parity** : Algorithme de comparaison tolérant aux variations mineures de rasterization (8/255 d'intensité, 2.5% de couverture) pour passer sur NVIDIA et Lavapipe (CI).
+- **Update Mode** : Support de `SVK_UPDATE_REFERENCES=1` pour regénérer les baselines.
+- **CI Artifacts** : Upload systématique des captures `test_*.png` sur GitHub Actions pour diagnostic.
+- **Git Hooks** : Nouveau hook `pre-push` lançant `just test` (logique + intégration visuelle).
+
+### 🐛 Correctifs Majeurs (IBL)
+
+- **Fix Segfault Docker** : Initialisation explicite de tous les descripteurs dans le module IBL (résout les crashs Lavapipe).
+- **Restauration Specular IBL** : Correction d'un mismatch de `PushConstants` entre C++ et GLSL qui empêchait la génération des reflets spéculaires.
+- **Correction Lifetimes** : Réorganisation des barrières mémoire et des lifetimes de buffers dans `vk_engine_ibl.cpp`.
+
+### 📝 Fichiers Modifiés (Phase 4)
+
+- `tests/test_main.cpp` : Implémentation `compare_images` et suite de tests.
+- `src/vk_engine_ibl.cpp` : Fixes compute pass et descriptors.
+- `src/stb_image_impl.cpp` : Nouvelle implémentation STB pour le chargement.
+- `.github/workflows/ci.yml` : Upload d'artefacts et échec bloquant sur régression.
+- `.pre-commit-config.yaml` : Ajout de la gate de test sur `pre-push`.
+- `docs/ibl_validation_system.md` : Documentation des tests LDR.
+- `docs/ci_cd.md` : Documentation du workflow visuel.
+
+______________________________________________________________________
+
 ## Implémentations Effectuées (Mars 2026)
 
 ### ✨ Nouvelle Fonctionnalité
@@ -12,7 +42,7 @@ Une **caméra cinétique complète avec momentum et friction** remplace le syst�
 - **Interpolation WASD** : convergence progressive de la vélocité initiale vers la cible
 - **Alignement complet** avec le legacy `suckless-ogl`
 
-### 📝 Fichiers Modifiés
+### 📝 Fichiers Modifiés (Phase 3)
 
 #### `src/camera.h`
 

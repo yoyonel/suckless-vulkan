@@ -7,6 +7,11 @@ layout(binding = 0) uniform UniformBufferObject {
     mat4 invViewProj;
     vec4 cameraPosEnvLod;
     vec4 debugParams;
+    vec4 postParams1;
+    vec4 postParams2;
+    mat4 view;
+    mat4 proj;
+    vec4 windowSize;
 }
 ubo;
 

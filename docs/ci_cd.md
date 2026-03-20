@@ -19,7 +19,7 @@ Le workflow `ci.yml` execute les etapes suivantes :
    `actionlint` sur les workflows. Bloque les jobs suivants en cas d'echec.
 1. **`lint`** : resolution de l'image CI puis lint complet dans le conteneur.
 1. **`build-and-test`** (matrice `Release`/`Debug`) : build+tests dans le conteneur CI.
-1. Upload optionnel de `test_output.png` en artefact de job.
+1. **Upload systématique** des captures de tests (`test_*.png`) en artefact de job en cas d'échec ou de succès.
 
 Notes:
 
@@ -137,10 +137,26 @@ TOTAL                       631          151    76.07%        63    85.71%     1
 #### `coverage-report`
 
 - **Objectif:** Couverture alternative avec GCovr (compatible GCC)
+
 - **Technologie:** GCovr avec flags coverage GCC/Clang (`--coverage`)
+
 - **Sortie:** Rapports texte/XML/HTML dans `build/coverage/reports/`
+
 - **Artefacts publiés:** coverage.txt, coverage.xml, coverage.html
+
 - **Note:** Tests LogicTests uniquement (couverture partielle)
+
+- `id: lint-owner-files-fast` : `just lint-fast` (format + lint rapide) sur `pre-commit`.
+
+- `id: test-before-push` : `just test` (tests de non-régression logique et visuelle) sur `pre-push`.
+
+### Intégration Visuelle (Regression Testing)
+
+Le projet utilise un système de **Visual Regression Testing** intégré à la CI :
+
+- **Échec bloquant** : Si un changement de code modifie le rendu au-delà de la tolérance (driver parity), le job `build-and-test` échoue.
+- **Artifacts de diagnostic** : En cas d'échec, les images `test_*.png` sont disponibles dans les artefacts GitHub Actions pour comparer visuellement l'erreur.
+- **Mise à jour des références** : Si le changement est légitime, mettre à jour les références locales avec `SVK_UPDATE_REFERENCES=1 just test-integration` et committer les nouveaux fichiers dans `tests/references/`.
 
 ### Exécution en local
 

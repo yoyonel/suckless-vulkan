@@ -6,6 +6,7 @@
 #include "vk_engine_envmap.h"
 #include "vk_engine_runtime.h"
 #include <algorithm>
+#include <cstddef>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -135,26 +136,38 @@ VkSurfaceFormatKHR choose_surface_format(const std::vector<VkSurfaceFormatKHR>& 
     return availableFormats[0];
 }
 
-VkPresentModeKHR choose_present_mode(const std::vector<VkPresentModeKHR>& availablePresentModes) {
-    for (const auto& presentMode : availablePresentModes) {
-        if (presentMode == VK_PRESENT_MODE_IMMEDIATE_KHR) {
-            return presentMode;
+VkPresentModeKHR choose_present_mode(const std::vector<VkPresentModeKHR>& availablePresentModes, bool vsync) {
+    VkPresentModeKHR selected = VK_PRESENT_MODE_FIFO_KHR;
+
+    auto find_mode = [&](VkPresentModeKHR mode) {
+        return std::any_of(availablePresentModes.begin(), availablePresentModes.end(), [mode](VkPresentModeKHR m) { return m == mode; });
+    };
+
+    if (vsync) {
+        // Prefer Mailbox (Triple Buffering) for best vsync experience if available
+        if (find_mode(VK_PRESENT_MODE_MAILBOX_KHR)) {
+            selected = VK_PRESENT_MODE_MAILBOX_KHR;
+        } else if (find_mode(VK_PRESENT_MODE_FIFO_KHR)) {
+            selected = VK_PRESENT_MODE_FIFO_KHR;
+        }
+    } else {
+        // Preferred Un-capped/Tearing mode
+        if (find_mode(VK_PRESENT_MODE_IMMEDIATE_KHR)) {
+            selected = VK_PRESENT_MODE_IMMEDIATE_KHR;
         }
     }
 
-    for (const auto& presentMode : availablePresentModes) {
-        if (presentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
-            return presentMode;
-        }
+    const char* selectedName = "UNKNOWN";
+    if (selected == VK_PRESENT_MODE_IMMEDIATE_KHR) {
+        selectedName = "IMMEDIATE";
+    } else if (selected == VK_PRESENT_MODE_MAILBOX_KHR) {
+        selectedName = "MAILBOX";
+    } else if (selected == VK_PRESENT_MODE_FIFO_KHR) {
+        selectedName = "FIFO";
     }
+    LOG_INFO("engine", "Selected present mode: %s", selectedName);
 
-    for (const auto& presentMode : availablePresentModes) {
-        if (presentMode == VK_PRESENT_MODE_FIFO_KHR) {
-            return presentMode;
-        }
-    }
-
-    return availablePresentModes[0];
+    return selected;
 }
 
 VkCompositeAlphaFlagBitsKHR choose_composite_alpha(VkCompositeAlphaFlagsKHR supportedCompositeAlpha) {
@@ -259,7 +272,12 @@ void cleanup_swapchain_targets(VulkanEngine* engine) {
 void cleanup_swapchain_dependent_resources(VulkanEngine* engine) {
     destroy_device_handle(engine->device, engine->graphicsPipeline, vkDestroyPipeline);
     destroy_device_handle(engine->device, engine->skyboxPipeline, vkDestroyPipeline);
+    destroy_device_handle(engine->device, engine->billboardPipeline, vkDestroyPipeline);
+    destroy_device_handle(engine->device, engine->wireframePipeline, vkDestroyPipeline);
+    destroy_device_handle(engine->device, engine->debugLinePipeline, vkDestroyPipeline);
+    destroy_device_handle(engine->device, engine->debugTrianglePipeline, vkDestroyPipeline);
     destroy_device_handle(engine->device, engine->pipelineLayout, vkDestroyPipelineLayout);
+    destroy_device_handle(engine->device, engine->debugPipelineLayout, vkDestroyPipelineLayout);
     destroy_device_handle(engine->device, engine->depthImageView, vkDestroyImageView);
     destroy_image_allocation(engine->allocator, engine->depthImage, engine->depthImageAllocation);
     cleanup_swapchain_targets(engine);
@@ -282,6 +300,8 @@ void cleanup_descriptor_resources(VulkanEngine* engine) {
 void cleanup_buffer_resources(VulkanEngine* engine) {
     unmap_allocation(engine->allocator, engine->uniformBufferAllocation, engine->uniformBufferMapped);
     destroy_buffer_allocation(engine->allocator, engine->uniformBuffer, engine->uniformBufferAllocation);
+    unmap_allocation(engine->allocator, engine->billboardAllocation, engine->billboardMapped);
+    destroy_buffer_allocation(engine->allocator, engine->billboardBuffer, engine->billboardAllocation);
     destroy_buffer_allocation(engine->allocator, engine->materialBuffer, engine->materialBufferAllocation);
     destroy_buffer_allocation(engine->allocator, engine->instanceBuffer, engine->instanceBufferAllocation);
     destroy_buffer_allocation(engine->allocator, engine->vertexBuffer, engine->vertexBufferAllocation);
@@ -423,6 +443,13 @@ bool init_core(VulkanEngine* engine) {
         return false;
     vk_set_object_name(engine->device, (uint64_t)engine->device, VK_OBJECT_TYPE_DEVICE, "Logical_Device");
 
+    VkPhysicalDeviceProperties props;
+    vkGetPhysicalDeviceProperties(engine->physicalDevice, &props);
+    const uint32_t v = props.driverVersion;
+    LOG_INFO("suckless-vulkan.window", "Context Version: %u.%u", VK_API_VERSION_MAJOR(props.apiVersion), VK_API_VERSION_MINOR(props.apiVersion));
+    LOG_INFO("suckless-vulkan.window", "Renderer: %s", props.deviceName);
+    LOG_INFO("suckless-vulkan.window", "Version: %u.%u.%u (Driver)", VK_API_VERSION_MAJOR(v), VK_API_VERSION_MINOR(v), VK_API_VERSION_PATCH(v));
+
     vkGetDeviceQueue(engine->device, engine->graphicsQueueFamilyIndex, 0, &engine->graphicsQueue);
     vkGetDeviceQueue(engine->device, engine->presentQueueFamilyIndex, 0, &engine->presentQueue);
     vk_set_object_name(engine->device, (uint64_t)engine->graphicsQueue, VK_OBJECT_TYPE_QUEUE, "Graphics_Queue");
@@ -463,16 +490,22 @@ bool init_swapchain(VulkanEngine* engine) {
     }
 
     const VkSurfaceFormatKHR surfaceFormat = choose_surface_format(formats);
-    const VkPresentModeKHR presentMode = choose_present_mode(presentModes);
+    const VkPresentModeKHR presentMode = choose_present_mode(presentModes, engine->vsync);
     engine->swapchainImageFormat = surfaceFormat.format;
     engine->swapchainExtent = choose_swapchain_extent(engine->window, capabilities);
 
-    uint32_t requestedImageCount = capabilities.minImageCount + 1;
-    if (capabilities.maxImageCount > 0 && requestedImageCount > capabilities.maxImageCount) {
-        requestedImageCount = capabilities.maxImageCount;
+    LOG_INFO("engine", "Swapchain Extent: %ux%u", engine->swapchainExtent.width, engine->swapchainExtent.height);
+
+    uint32_t imageCount = capabilities.minImageCount + 1;
+    if (capabilities.maxImageCount > 0 && imageCount > capabilities.maxImageCount) {
+        imageCount = capabilities.maxImageCount;
     }
-    requestedImageCount = std::min(requestedImageCount, static_cast<uint32_t>(MAX_SWAPCHAIN_IMAGES));
-    if (requestedImageCount < capabilities.minImageCount) {
+
+    LOG_INFO("engine", "Swapchain: minImageCount=%u, maxImageCount=%u, using imageCount=%u", capabilities.minImageCount, capabilities.maxImageCount,
+             imageCount);
+
+    imageCount = std::min(imageCount, static_cast<uint32_t>(MAX_SWAPCHAIN_IMAGES));
+    if (imageCount < capabilities.minImageCount) {
         return false;
     }
 
@@ -483,7 +516,7 @@ bool init_swapchain(VulkanEngine* engine) {
     VkSwapchainCreateInfoKHR swapchainInfo{};
     swapchainInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
     swapchainInfo.surface = engine->surface;
-    swapchainInfo.minImageCount = requestedImageCount;
+    swapchainInfo.minImageCount = imageCount;
     swapchainInfo.imageFormat = engine->swapchainImageFormat;
     swapchainInfo.imageColorSpace = surfaceFormat.colorSpace;
     swapchainInfo.imageExtent = engine->swapchainExtent;
@@ -675,32 +708,60 @@ VkShaderModule load_shader(VkDevice device, const char* path) {
     return mod;
 }
 
-bool init_pipeline(VulkanEngine* engine) {
-    VkShaderModule vsm = load_shader(engine->device, "shaders/vert.spv");
-    VkShaderModule fsm = load_shader(engine->device, "shaders/frag.spv");
-    VkShaderModule skyboxVsm = load_shader(engine->device, "shaders/skybox_vert.spv");
-    VkShaderModule skyboxFsm = load_shader(engine->device, "shaders/skybox_frag.spv");
-    if (vsm == VK_NULL_HANDLE || fsm == VK_NULL_HANDLE || skyboxVsm == VK_NULL_HANDLE || skyboxFsm == VK_NULL_HANDLE) {
-        if (vsm != VK_NULL_HANDLE) {
-            vkDestroyShaderModule(engine->device, vsm, nullptr);
-        }
-        if (fsm != VK_NULL_HANDLE) {
-            vkDestroyShaderModule(engine->device, fsm, nullptr);
-        }
-        if (skyboxVsm != VK_NULL_HANDLE) {
-            vkDestroyShaderModule(engine->device, skyboxVsm, nullptr);
-        }
-        if (skyboxFsm != VK_NULL_HANDLE) {
-            vkDestroyShaderModule(engine->device, skyboxFsm, nullptr);
-        }
-        return false;
-    }
+struct PipelineCommonState {
+    VkPipelineInputAssemblyStateCreateInfo ia;
+    VkViewport vp;
+    VkRect2D sc;
+    VkPipelineViewportStateCreateInfo vps;
+    VkPipelineRasterizationStateCreateInfo rs;
+    VkPipelineMultisampleStateCreateInfo ms;
+    VkPipelineColorBlendAttachmentState cba;
+    VkPipelineColorBlendStateCreateInfo cb;
+    VkPipelineDepthStencilStateCreateInfo ds;
+};
 
-    vk_set_object_name(engine->device, (uint64_t)vsm, VK_OBJECT_TYPE_SHADER_MODULE, "Icosphere_Vertex_Shader");
-    vk_set_object_name(engine->device, (uint64_t)fsm, VK_OBJECT_TYPE_SHADER_MODULE, "Icosphere_Fragment_Shader");
-    vk_set_object_name(engine->device, (uint64_t)skyboxVsm, VK_OBJECT_TYPE_SHADER_MODULE, "Skybox_Vertex_Shader");
-    vk_set_object_name(engine->device, (uint64_t)skyboxFsm, VK_OBJECT_TYPE_SHADER_MODULE, "Skybox_Fragment_Shader");
+void init_common_pipeline_state(VulkanEngine* engine, PipelineCommonState& state) {
+    state.ia = {};
+    state.ia.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    state.ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 
+    state.vp = {0.f, 0.f, (float)engine->swapchainExtent.width, (float)engine->swapchainExtent.height, 0.f, 1.f};
+    state.sc = {{0, 0}, engine->swapchainExtent};
+
+    state.vps = {};
+    state.vps.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    state.vps.viewportCount = 1;
+    state.vps.pViewports = &state.vp;
+    state.vps.scissorCount = 1;
+    state.vps.pScissors = &state.sc;
+
+    state.rs = {};
+    state.rs.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    state.rs.polygonMode = VK_POLYGON_MODE_FILL;
+    state.rs.lineWidth = 1.0f;
+    state.rs.cullMode = VK_CULL_MODE_BACK_BIT;
+    state.rs.frontFace = VK_FRONT_FACE_CLOCKWISE;
+
+    state.ms = {};
+    state.ms.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    state.ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    state.cba = {};
+    state.cba.colorWriteMask = 0xf;
+
+    state.cb = {};
+    state.cb.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    state.cb.attachmentCount = 1;
+    state.cb.pAttachments = &state.cba;
+
+    state.ds = {};
+    state.ds.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    state.ds.depthTestEnable = VK_TRUE;
+    state.ds.depthWriteEnable = VK_TRUE;
+    state.ds.depthCompareOp = VK_COMPARE_OP_LESS;
+}
+
+bool create_main_graphics_pipeline(VulkanEngine* engine, const PipelineCommonState& common, VkShaderModule vsm, VkShaderModule fsm) {
     VkPipelineShaderStageCreateInfo stages[2] = {};
     stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
@@ -711,8 +772,6 @@ bool init_pipeline(VulkanEngine* engine) {
     stages[1].module = fsm;
     stages[1].pName = "main";
 
-    // Binding 0 : données par vertex (position + color)
-    // Binding 1 : données par instance (offset monde)
     VkVertexInputBindingDescription bindings[2] = {};
     bindings[0].binding = 0;
     bindings[0].stride = sizeof(Vertex);
@@ -742,43 +801,500 @@ bool init_pipeline(VulkanEngine* engine) {
     vi.vertexAttributeDescriptionCount = 3;
     vi.pVertexAttributeDescriptions = attrs;
 
-    VkPipelineInputAssemblyStateCreateInfo ia{};
-    ia.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-    ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    VkGraphicsPipelineCreateInfo pipeInfo{};
+    pipeInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipeInfo.stageCount = 2;
+    pipeInfo.pStages = stages;
+    pipeInfo.pVertexInputState = &vi;
+    pipeInfo.pInputAssemblyState = &common.ia;
+    pipeInfo.pViewportState = &common.vps;
+    pipeInfo.pRasterizationState = &common.rs;
+    pipeInfo.pMultisampleState = &common.ms;
+    pipeInfo.pColorBlendState = &common.cb;
+    pipeInfo.pDepthStencilState = &common.ds;
+    pipeInfo.layout = engine->pipelineLayout;
+    pipeInfo.renderPass = engine->renderPass;
 
-    VkViewport vp{0.f, 0.f, (float)engine->swapchainExtent.width, (float)engine->swapchainExtent.height, 0.f, 1.f};
-    VkRect2D sc{{0, 0}, engine->swapchainExtent};
-    VkPipelineViewportStateCreateInfo vps{};
-    vps.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-    vps.viewportCount = 1;
-    vps.pViewports = &vp;
-    vps.scissorCount = 1;
-    vps.pScissors = &sc;
+    if (vkCreateGraphicsPipelines(engine->device, VK_NULL_HANDLE, 1, &pipeInfo, nullptr, &engine->graphicsPipeline) != VK_SUCCESS) {
+        return false;
+    }
+    vk_set_object_name(engine->device, (uint64_t)engine->graphicsPipeline, VK_OBJECT_TYPE_PIPELINE, "Main_Graphics_Pipeline");
+    return true;
+}
 
-    VkPipelineRasterizationStateCreateInfo rs{};
-    rs.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-    rs.polygonMode = VK_POLYGON_MODE_FILL;
-    rs.lineWidth = 1.0f;
-    rs.cullMode = VK_CULL_MODE_BACK_BIT;
-    rs.frontFace = VK_FRONT_FACE_CLOCKWISE;
+bool create_skybox_pipeline(VulkanEngine* engine, const PipelineCommonState& common, VkShaderModule vsm, VkShaderModule fsm) {
+    VkPipelineShaderStageCreateInfo stages[2] = {};
+    stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+    stages[0].module = vsm;
+    stages[0].pName = "main";
+    stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    stages[1].module = fsm;
+    stages[1].pName = "main";
 
-    VkPipelineMultisampleStateCreateInfo ms{};
-    ms.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-    ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    VkPipelineVertexInputStateCreateInfo vi{};
+    vi.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
 
-    VkPipelineColorBlendAttachmentState cba{};
-    cba.colorWriteMask = 0xf;
-    VkPipelineColorBlendStateCreateInfo cb{};
-    cb.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    cb.attachmentCount = 1;
-    cb.pAttachments = &cba;
+    VkPipelineRasterizationStateCreateInfo rs = common.rs;
+    rs.cullMode = VK_CULL_MODE_NONE;
 
-    VkPipelineDepthStencilStateCreateInfo ds{};
-    ds.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-    ds.depthTestEnable = VK_TRUE;
-    ds.depthWriteEnable = VK_TRUE;
-    ds.depthCompareOp = VK_COMPARE_OP_LESS;
+    VkPipelineDepthStencilStateCreateInfo ds = common.ds;
+    ds.depthWriteEnable = VK_FALSE;
+    ds.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
 
+    VkGraphicsPipelineCreateInfo pipeInfo{};
+    pipeInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipeInfo.stageCount = 2;
+    pipeInfo.pStages = stages;
+    pipeInfo.pVertexInputState = &vi;
+    pipeInfo.pInputAssemblyState = &common.ia;
+    pipeInfo.pViewportState = &common.vps;
+    pipeInfo.pRasterizationState = &rs;
+    pipeInfo.pMultisampleState = &common.ms;
+    pipeInfo.pColorBlendState = &common.cb;
+    pipeInfo.pDepthStencilState = &ds;
+    pipeInfo.layout = engine->pipelineLayout;
+    pipeInfo.renderPass = engine->renderPass;
+
+    if (vkCreateGraphicsPipelines(engine->device, VK_NULL_HANDLE, 1, &pipeInfo, nullptr, &engine->skyboxPipeline) != VK_SUCCESS) {
+        return false;
+    }
+    vk_set_object_name(engine->device, (uint64_t)engine->skyboxPipeline, VK_OBJECT_TYPE_PIPELINE, "Skybox_Graphics_Pipeline");
+    return true;
+}
+
+bool create_billboard_pipeline(VulkanEngine* engine, const PipelineCommonState& common, VkPipelineVertexInputStateCreateInfo* bVi) {
+    VkShaderModule bvm = load_shader(engine->device, "shaders/billboard_vert.spv");
+    VkShaderModule bfm = load_shader(engine->device, "shaders/billboard_frag.spv");
+    if (bvm == VK_NULL_HANDLE || bfm == VK_NULL_HANDLE) {
+        LOG_ERROR("render", "Failed to load billboard shaders");
+        if (bvm)
+            vkDestroyShaderModule(engine->device, bvm, nullptr);
+        if (bfm)
+            vkDestroyShaderModule(engine->device, bfm, nullptr);
+        return false;
+    }
+
+    VkPipelineShaderStageCreateInfo bStages[2] = {};
+    bStages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    bStages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+    bStages[0].module = bvm;
+    bStages[0].pName = "main";
+    bStages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    bStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    bStages[1].module = bfm;
+    bStages[1].pName = "main";
+
+    VkPipelineRasterizationStateCreateInfo bRs = common.rs;
+    bRs.cullMode = VK_CULL_MODE_NONE;
+
+    VkPipelineColorBlendAttachmentState bCba = common.cba;
+    bCba.blendEnable = VK_TRUE;
+    bCba.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+    bCba.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    bCba.colorBlendOp = VK_BLEND_OP_ADD;
+    bCba.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    bCba.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+    bCba.alphaBlendOp = VK_BLEND_OP_ADD;
+
+    VkPipelineColorBlendStateCreateInfo bCb = common.cb;
+    bCb.attachmentCount = 1;
+    bCb.pAttachments = &bCba;
+
+    VkGraphicsPipelineCreateInfo bPipeInfo{};
+    bPipeInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    bPipeInfo.stageCount = 2;
+    bPipeInfo.pStages = bStages;
+    bPipeInfo.pVertexInputState = bVi;
+    bPipeInfo.pInputAssemblyState = &common.ia;
+    bPipeInfo.pViewportState = &common.vps;
+    bPipeInfo.pRasterizationState = &bRs;
+    bPipeInfo.pMultisampleState = &common.ms;
+    bPipeInfo.pColorBlendState = &bCb;
+    bPipeInfo.pDepthStencilState = &common.ds;
+    bPipeInfo.layout = engine->pipelineLayout;
+    bPipeInfo.renderPass = engine->renderPass;
+
+    bool success = true;
+    if (vkCreateGraphicsPipelines(engine->device, VK_NULL_HANDLE, 1, &bPipeInfo, nullptr, &engine->billboardPipeline) != VK_SUCCESS) {
+        LOG_ERROR("render", "Failed to create billboard pipeline");
+        success = false;
+    } else {
+        vk_set_object_name(engine->device, (uint64_t)engine->billboardPipeline, VK_OBJECT_TYPE_PIPELINE, "Billboard_Graphics_Pipeline");
+    }
+
+    vkDestroyShaderModule(engine->device, bvm, nullptr);
+    vkDestroyShaderModule(engine->device, bfm, nullptr);
+    return success;
+}
+
+bool create_wireframe_pipeline(VulkanEngine* engine, const PipelineCommonState& common) {
+    VkShaderModule vsm = load_shader(engine->device, "shaders/vert.spv");
+    VkShaderModule fsm = load_shader(engine->device, "shaders/frag.spv");
+    if (vsm == VK_NULL_HANDLE || fsm == VK_NULL_HANDLE) {
+        if (vsm)
+            vkDestroyShaderModule(engine->device, vsm, nullptr);
+        if (fsm)
+            vkDestroyShaderModule(engine->device, fsm, nullptr);
+        return false;
+    }
+
+    VkPipelineShaderStageCreateInfo stages[2] = {};
+    stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+    stages[0].module = vsm;
+    stages[0].pName = "main";
+    stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    stages[1].module = fsm;
+    stages[1].pName = "main";
+
+    VkVertexInputBindingDescription bindings[2] = {};
+    bindings[0].binding = 0;
+    bindings[0].stride = sizeof(Vertex);
+    bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+    bindings[1].binding = 1;
+    bindings[1].stride = sizeof(glm::vec3);
+    bindings[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+    VkVertexInputAttributeDescription attrs[3] = {};
+    attrs[0].location = 0;
+    attrs[0].binding = 0;
+    attrs[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+    attrs[0].offset = offsetof(Vertex, position);
+    attrs[1].location = 1;
+    attrs[1].binding = 0;
+    attrs[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+    attrs[1].offset = offsetof(Vertex, color);
+    attrs[2].location = 2;
+    attrs[2].binding = 1;
+    attrs[2].format = VK_FORMAT_R32G32B32_SFLOAT;
+    attrs[2].offset = 0;
+
+    VkPipelineVertexInputStateCreateInfo vi{};
+    vi.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    vi.vertexBindingDescriptionCount = 2;
+    vi.pVertexBindingDescriptions = bindings;
+    vi.vertexAttributeDescriptionCount = 3;
+    vi.pVertexAttributeDescriptions = attrs;
+
+    VkPipelineRasterizationStateCreateInfo rs = common.rs;
+    rs.polygonMode = VK_POLYGON_MODE_LINE;
+
+    VkGraphicsPipelineCreateInfo pipeInfo{};
+    pipeInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipeInfo.stageCount = 2;
+    pipeInfo.pStages = stages;
+    pipeInfo.pVertexInputState = &vi;
+    pipeInfo.pInputAssemblyState = &common.ia;
+    pipeInfo.pViewportState = &common.vps;
+    pipeInfo.pRasterizationState = &rs;
+    pipeInfo.pMultisampleState = &common.ms;
+    pipeInfo.pColorBlendState = &common.cb;
+    pipeInfo.pDepthStencilState = &common.ds;
+    pipeInfo.layout = engine->pipelineLayout;
+    pipeInfo.renderPass = engine->renderPass;
+
+    bool success = true;
+    if (vkCreateGraphicsPipelines(engine->device, VK_NULL_HANDLE, 1, &pipeInfo, nullptr, &engine->wireframePipeline) != VK_SUCCESS) {
+        LOG_ERROR("render", "Failed to create wireframe pipeline");
+        success = false;
+    } else {
+        vk_set_object_name(engine->device, (uint64_t)engine->wireframePipeline, VK_OBJECT_TYPE_PIPELINE, "Wireframe_Graphics_Pipeline");
+    }
+
+    vkDestroyShaderModule(engine->device, vsm, nullptr);
+    vkDestroyShaderModule(engine->device, fsm, nullptr);
+    return success;
+}
+
+bool create_debug_pipelines(VulkanEngine* engine, const PipelineCommonState& common, VkPipelineVertexInputStateCreateInfo* bVi) {
+    VkShaderModule dvm = load_shader(engine->device, "shaders/debug_vert.spv");
+    VkShaderModule dfm = load_shader(engine->device, "shaders/debug_frag.spv");
+    if (dvm == VK_NULL_HANDLE || dfm == VK_NULL_HANDLE) {
+        if (dvm)
+            vkDestroyShaderModule(engine->device, dvm, nullptr);
+        if (dfm)
+            vkDestroyShaderModule(engine->device, dfm, nullptr);
+        return false;
+    }
+
+    VkPipelineShaderStageCreateInfo dStages[2] = {};
+    dStages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    dStages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+    dStages[0].module = dvm;
+    dStages[0].pName = "main";
+    dStages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    dStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    dStages[1].module = dfm;
+    dStages[1].pName = "main";
+
+    VkPushConstantRange dPushRange{};
+    dPushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    dPushRange.offset = 0;
+    dPushRange.size = sizeof(DebugPushConstant);
+
+    VkPipelineLayoutCreateInfo dplInfo{};
+    dplInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    dplInfo.setLayoutCount = 1;
+    dplInfo.pSetLayouts = &engine->descriptorSetLayout;
+    dplInfo.pushConstantRangeCount = 1;
+    dplInfo.pPushConstantRanges = &dPushRange;
+    if (vkCreatePipelineLayout(engine->device, &dplInfo, nullptr, &engine->debugPipelineLayout) != VK_SUCCESS) {
+        LOG_ERROR("render", "Failed to create debug pipeline layout");
+    }
+
+    VkPipelineInputAssemblyStateCreateInfo dIaLines = common.ia;
+    dIaLines.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+    VkPipelineDepthStencilStateCreateInfo dsDebug = common.ds;
+    dsDebug.depthWriteEnable = VK_FALSE;
+    VkPipelineRasterizationStateCreateInfo dRsLines = common.rs;
+    dRsLines.polygonMode = VK_POLYGON_MODE_LINE;
+
+    VkGraphicsPipelineCreateInfo dLineInfo{};
+    dLineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    dLineInfo.stageCount = 2;
+    dLineInfo.pStages = dStages;
+    dLineInfo.pVertexInputState = bVi;
+    dLineInfo.pInputAssemblyState = &dIaLines;
+    dLineInfo.pViewportState = &common.vps;
+    dLineInfo.pRasterizationState = &dRsLines;
+    dLineInfo.pMultisampleState = &common.ms;
+    dLineInfo.pColorBlendState = &common.cb;
+    dLineInfo.pDepthStencilState = &dsDebug;
+    dLineInfo.layout = engine->debugPipelineLayout;
+    dLineInfo.renderPass = engine->renderPass;
+
+    if (vkCreateGraphicsPipelines(engine->device, VK_NULL_HANDLE, 1, &dLineInfo, nullptr, &engine->debugLinePipeline) != VK_SUCCESS) {
+        LOG_ERROR("render", "Failed to create debug line pipeline");
+    } else {
+        vk_set_object_name(engine->device, (uint64_t)engine->debugLinePipeline, VK_OBJECT_TYPE_PIPELINE, "Debug_Line_Pipeline");
+    }
+
+    VkPipelineInputAssemblyStateCreateInfo dIaTris = common.ia;
+    dIaTris.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    VkPipelineRasterizationStateCreateInfo dRsTris = common.rs;
+    dRsTris.polygonMode = VK_POLYGON_MODE_FILL;
+    VkPipelineColorBlendAttachmentState dCbaBlend = common.cba;
+    dCbaBlend.blendEnable = VK_TRUE;
+    dCbaBlend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+    dCbaBlend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    dCbaBlend.colorBlendOp = VK_BLEND_OP_ADD;
+    dCbaBlend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    dCbaBlend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+    dCbaBlend.alphaBlendOp = VK_BLEND_OP_ADD;
+    VkPipelineColorBlendStateCreateInfo dCbBlend = common.cb;
+    dCbBlend.attachmentCount = 1;
+    dCbBlend.pAttachments = &dCbaBlend;
+
+    VkGraphicsPipelineCreateInfo dTriInfo = dLineInfo;
+    dTriInfo.pInputAssemblyState = &dIaTris;
+    dTriInfo.pRasterizationState = &dRsTris;
+    dTriInfo.pColorBlendState = &dCbBlend;
+
+    if (vkCreateGraphicsPipelines(engine->device, VK_NULL_HANDLE, 1, &dTriInfo, nullptr, &engine->debugTrianglePipeline) != VK_SUCCESS) {
+        LOG_ERROR("render", "Failed to create debug triangle pipeline");
+    }
+
+    vkDestroyShaderModule(engine->device, dvm, nullptr);
+    vkDestroyShaderModule(engine->device, dfm, nullptr);
+    return true;
+}
+
+bool create_gpu_buffer(VulkanEngine* engine, VkDeviceSize size, VkBufferUsageFlags usage, const void* srcData, VkBuffer& buf, VmaAllocation& alloc,
+                       const char* name) {
+    VkBuffer staging = VK_NULL_HANDLE;
+    VmaAllocation stgAlloc = VK_NULL_HANDLE;
+    VkBufferCreateInfo stgIn{};
+    stgIn.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    stgIn.size = size;
+    stgIn.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    VmaAllocationCreateInfo stgAl{};
+    stgAl.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+    if (vmaCreateBuffer(engine->allocator, &stgIn, &stgAl, &staging, &stgAlloc, nullptr) != VK_SUCCESS) {
+        return false;
+    }
+    {
+        const std::string stagingBufferName = std::string(name) + "_Staging_Buffer";
+        vk_set_object_name(engine->device, (uint64_t)staging, VK_OBJECT_TYPE_BUFFER, stagingBufferName.c_str());
+    }
+
+    void* map = nullptr;
+    if (vmaMapMemory(engine->allocator, stgAlloc, &map) != VK_SUCCESS) {
+        vmaDestroyBuffer(engine->allocator, staging, stgAlloc);
+        return false;
+    }
+    memcpy(map, srcData, size);
+    vmaUnmapMemory(engine->allocator, stgAlloc);
+
+    VkBufferCreateInfo gpuIn{};
+    gpuIn.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    gpuIn.size = size;
+    gpuIn.usage = usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    VmaAllocationCreateInfo gpuAl{};
+    gpuAl.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+    if (vmaCreateBuffer(engine->allocator, &gpuIn, &gpuAl, &buf, &alloc, nullptr) != VK_SUCCESS) {
+        vmaDestroyBuffer(engine->allocator, staging, stgAlloc);
+        return false;
+    }
+    vk_set_object_name(engine->device, (uint64_t)buf, VK_OBJECT_TYPE_BUFFER, name);
+
+    VkCommandBufferAllocateInfo ai{};
+    ai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    ai.commandPool = engine->commandPool;
+    ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    ai.commandBufferCount = 1;
+
+    VkCommandBuffer stagingCb = VK_NULL_HANDLE;
+    if (vkAllocateCommandBuffers(engine->device, &ai, &stagingCb) != VK_SUCCESS) {
+        vmaDestroyBuffer(engine->allocator, buf, alloc);
+        buf = VK_NULL_HANDLE;
+        alloc = VK_NULL_HANDLE;
+        vmaDestroyBuffer(engine->allocator, staging, stgAlloc);
+        return false;
+    }
+    {
+        const std::string stagingCbName = std::string(name) + "_Staging_CommandBuffer";
+        vk_set_object_name(engine->device, (uint64_t)stagingCb, VK_OBJECT_TYPE_COMMAND_BUFFER, stagingCbName.c_str());
+    }
+    VkCommandBufferBeginInfo bi{};
+    bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    if (vkBeginCommandBuffer(stagingCb, &bi) != VK_SUCCESS) {
+        vkFreeCommandBuffers(engine->device, engine->commandPool, 1, &stagingCb);
+        vmaDestroyBuffer(engine->allocator, buf, alloc);
+        buf = VK_NULL_HANDLE;
+        alloc = VK_NULL_HANDLE;
+        vmaDestroyBuffer(engine->allocator, staging, stgAlloc);
+        return false;
+    }
+
+    vk_begin_label(engine->device, stagingCb, "GPU_Staging_Copy", 0.0f, 1.0f, 0.0f);
+    VkBufferCopy cp{};
+    cp.size = size;
+    vkCmdCopyBuffer(stagingCb, staging, buf, 1, &cp);
+    vk_end_label(engine->device, stagingCb);
+
+    if (vkEndCommandBuffer(stagingCb) != VK_SUCCESS) {
+        vkFreeCommandBuffers(engine->device, engine->commandPool, 1, &stagingCb);
+        vmaDestroyBuffer(engine->allocator, buf, alloc);
+        buf = VK_NULL_HANDLE;
+        alloc = VK_NULL_HANDLE;
+        vmaDestroyBuffer(engine->allocator, staging, stgAlloc);
+        return false;
+    }
+
+    VkSubmitInfo si{};
+    si.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    si.commandBufferCount = 1;
+    si.pCommandBuffers = &stagingCb;
+
+    if (vkQueueSubmit(engine->graphicsQueue, 1, &si, nullptr) != VK_SUCCESS || vkQueueWaitIdle(engine->graphicsQueue) != VK_SUCCESS) {
+        vkFreeCommandBuffers(engine->device, engine->commandPool, 1, &stagingCb);
+        vmaDestroyBuffer(engine->allocator, buf, alloc);
+        buf = VK_NULL_HANDLE;
+        alloc = VK_NULL_HANDLE;
+        vmaDestroyBuffer(engine->allocator, staging, stgAlloc);
+        return false;
+    }
+
+    vkFreeCommandBuffers(engine->device, engine->commandPool, 1, &stagingCb);
+    vmaDestroyBuffer(engine->allocator, staging, stgAlloc);
+    return true;
+}
+
+bool create_icosphere_buffers(VulkanEngine* engine, const Icosphere& sphere) {
+    if (!create_gpu_buffer(engine, sphere.vertices.size() * sizeof(Vertex), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, sphere.vertices.data(), engine->vertexBuffer,
+                           engine->vertexBufferAllocation, "Icosphere_Vertex_Buffer")) {
+        return false;
+    }
+    return create_gpu_buffer(engine, sphere.indices.size() * sizeof(uint32_t), VK_BUFFER_USAGE_INDEX_BUFFER_BIT, sphere.indices.data(), engine->indexBuffer,
+                             engine->indexBufferAllocation, "Icosphere_Index_Buffer");
+}
+
+bool create_instance_grid_buffers(VulkanEngine* engine, std::vector<glm::vec3>& instancePositions) {
+    const size_t instanceCount = kMaterialInstanceCount;
+    instancePositions.resize(instanceCount);
+    for (uint32_t row = 0; row < kGridSize; ++row) {
+        for (uint32_t col = 0; col < kGridSize; ++col) {
+            const size_t instanceIndex = (static_cast<size_t>(row) * static_cast<size_t>(kGridSize)) + static_cast<size_t>(col);
+            const float x = (static_cast<float>(col) * kGridSpacing) - kGridOffset;
+            const float y = -((static_cast<float>(row) * kGridSpacing) - kGridOffset);
+            instancePositions[instanceIndex] = {x, y, 0.0f};
+        }
+    }
+    return create_gpu_buffer(engine, instancePositions.size() * sizeof(glm::vec3), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, instancePositions.data(),
+                             engine->instanceBuffer, engine->instanceBufferAllocation, "Instance_Offsets_Buffer");
+}
+
+bool create_billboard_instance_buffer(VulkanEngine* engine, const std::vector<glm::vec3>& instancePositions) {
+    const size_t instanceCount = instancePositions.size();
+    engine->billboardInstances.resize(instanceCount);
+    for (size_t i = 0; i < instanceCount; ++i) {
+        engine->billboardInstances[i] = {instancePositions[i], static_cast<int>(i)};
+    }
+
+    VkBufferCreateInfo billboardIn{};
+    billboardIn.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    billboardIn.size = instanceCount * sizeof(BillboardInstance);
+    billboardIn.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    VmaAllocationCreateInfo billboardAl{};
+    billboardAl.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
+    if (vmaCreateBuffer(engine->allocator, &billboardIn, &billboardAl, &engine->billboardBuffer, &engine->billboardAllocation, nullptr) != VK_SUCCESS) {
+        return false;
+    }
+    vk_set_object_name(engine->device, (uint64_t)engine->billboardBuffer, VK_OBJECT_TYPE_BUFFER, "Billboard_Instance_Buffer");
+    return vmaMapMemory(engine->allocator, engine->billboardAllocation, &engine->billboardMapped) == VK_SUCCESS;
+}
+
+bool create_material_ssbo(VulkanEngine* engine) {
+    std::vector<MaterialGpu> materials;
+    if (!load_legacy_materials_for_grid(materials, kMaterialInstanceCount)) {
+        return false;
+    }
+    return create_gpu_buffer(engine, materials.size() * sizeof(MaterialGpu), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, materials.data(), engine->materialBuffer,
+                             engine->materialBufferAllocation, "PBR_Materials_SSBO");
+}
+
+bool create_global_uniform_buffer(VulkanEngine* engine) {
+    VkBufferCreateInfo uboIn{};
+    uboIn.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    uboIn.size = sizeof(UBOData);
+    uboIn.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+    VmaAllocationCreateInfo uboAl{};
+    uboAl.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
+    if (vmaCreateBuffer(engine->allocator, &uboIn, &uboAl, &engine->uniformBuffer, &engine->uniformBufferAllocation, nullptr) != VK_SUCCESS) {
+        return false;
+    }
+    vk_set_object_name(engine->device, (uint64_t)engine->uniformBuffer, VK_OBJECT_TYPE_BUFFER, "Global_MVP_UBO");
+    return vmaMapMemory(engine->allocator, engine->uniformBufferAllocation, &engine->uniformBufferMapped) == VK_SUCCESS;
+}
+
+bool init_pipeline(VulkanEngine* engine) {
+    // 1. Load Main and Skybox Shaders
+    VkShaderModule vsm = load_shader(engine->device, "shaders/vert.spv");
+    VkShaderModule fsm = load_shader(engine->device, "shaders/frag.spv");
+    VkShaderModule skyboxVsm = load_shader(engine->device, "shaders/skybox_vert.spv");
+    VkShaderModule skyboxFsm = load_shader(engine->device, "shaders/skybox_frag.spv");
+
+    if (vsm == VK_NULL_HANDLE || fsm == VK_NULL_HANDLE || skyboxVsm == VK_NULL_HANDLE || skyboxFsm == VK_NULL_HANDLE) {
+        if (vsm)
+            vkDestroyShaderModule(engine->device, vsm, nullptr);
+        if (fsm)
+            vkDestroyShaderModule(engine->device, fsm, nullptr);
+        if (skyboxVsm)
+            vkDestroyShaderModule(engine->device, skyboxVsm, nullptr);
+        if (skyboxFsm)
+            vkDestroyShaderModule(engine->device, skyboxFsm, nullptr);
+        return false;
+    }
+
+    vk_set_object_name(engine->device, (uint64_t)vsm, VK_OBJECT_TYPE_SHADER_MODULE, "Icosphere_Vertex_Shader");
+    vk_set_object_name(engine->device, (uint64_t)fsm, VK_OBJECT_TYPE_SHADER_MODULE, "Icosphere_Fragment_Shader");
+    vk_set_object_name(engine->device, (uint64_t)skyboxVsm, VK_OBJECT_TYPE_SHADER_MODULE, "Skybox_Vertex_Shader");
+    vk_set_object_name(engine->device, (uint64_t)skyboxFsm, VK_OBJECT_TYPE_SHADER_MODULE, "Skybox_Fragment_Shader");
+
+    // 2. Setup Pipeline Layout
     VkPipelineLayoutCreateInfo plInfo{};
     plInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     plInfo.setLayoutCount = 1;
@@ -792,226 +1308,49 @@ bool init_pipeline(VulkanEngine* engine) {
     }
     vk_set_object_name(engine->device, (uint64_t)engine->pipelineLayout, VK_OBJECT_TYPE_PIPELINE_LAYOUT, "Main_Pipeline_Layout");
 
-    VkGraphicsPipelineCreateInfo pipeInfo{};
-    pipeInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    pipeInfo.stageCount = 2;
-    pipeInfo.pStages = stages;
-    pipeInfo.pVertexInputState = &vi;
-    pipeInfo.pInputAssemblyState = &ia;
-    pipeInfo.pViewportState = &vps;
-    pipeInfo.pRasterizationState = &rs;
-    pipeInfo.pMultisampleState = &ms;
-    pipeInfo.pColorBlendState = &cb;
-    pipeInfo.pDepthStencilState = &ds;
-    pipeInfo.layout = engine->pipelineLayout;
-    pipeInfo.renderPass = engine->renderPass;
+    // 3. Initialize Common Pipeline State
+    PipelineCommonState common;
+    init_common_pipeline_state(engine, common);
 
-    if (vkCreateGraphicsPipelines(engine->device, VK_NULL_HANDLE, 1, &pipeInfo, nullptr, &engine->graphicsPipeline) != VK_SUCCESS) {
-        vkDestroyShaderModule(engine->device, vsm, nullptr);
-        vkDestroyShaderModule(engine->device, fsm, nullptr);
-        vkDestroyShaderModule(engine->device, skyboxVsm, nullptr);
-        vkDestroyShaderModule(engine->device, skyboxFsm, nullptr);
-        return false;
-    }
-    vk_set_object_name(engine->device, (uint64_t)engine->graphicsPipeline, VK_OBJECT_TYPE_PIPELINE, "Main_Graphics_Pipeline");
+    // 4. Create specialized pipelines
+    bool success = true;
+    success &= create_main_graphics_pipeline(engine, common, vsm, fsm);
+    success &= create_skybox_pipeline(engine, common, skyboxVsm, skyboxFsm);
 
-    VkPipelineShaderStageCreateInfo skyStages[2] = {};
-    skyStages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    skyStages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-    skyStages[0].module = skyboxVsm;
-    skyStages[0].pName = "main";
-    skyStages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    skyStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-    skyStages[1].module = skyboxFsm;
-    skyStages[1].pName = "main";
-
-    VkPipelineVertexInputStateCreateInfo skyVi{};
-    skyVi.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    skyVi.vertexBindingDescriptionCount = 0;
-    skyVi.pVertexBindingDescriptions = nullptr;
-    skyVi.vertexAttributeDescriptionCount = 0;
-    skyVi.pVertexAttributeDescriptions = nullptr;
-
-    VkPipelineRasterizationStateCreateInfo skyRs = rs;
-    skyRs.cullMode = VK_CULL_MODE_NONE;
-
-    VkPipelineDepthStencilStateCreateInfo skyDs = ds;
-    skyDs.depthWriteEnable = VK_FALSE;
-    skyDs.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
-
-    VkGraphicsPipelineCreateInfo skyPipeInfo = pipeInfo;
-    skyPipeInfo.pStages = skyStages;
-    skyPipeInfo.pVertexInputState = &skyVi;
-    skyPipeInfo.pRasterizationState = &skyRs;
-    skyPipeInfo.pDepthStencilState = &skyDs;
-
-    if (vkCreateGraphicsPipelines(engine->device, VK_NULL_HANDLE, 1, &skyPipeInfo, nullptr, &engine->skyboxPipeline) != VK_SUCCESS) {
-        vkDestroyShaderModule(engine->device, vsm, nullptr);
-        vkDestroyShaderModule(engine->device, fsm, nullptr);
-        vkDestroyShaderModule(engine->device, skyboxVsm, nullptr);
-        vkDestroyShaderModule(engine->device, skyboxFsm, nullptr);
-        return false;
-    }
-    vk_set_object_name(engine->device, (uint64_t)engine->skyboxPipeline, VK_OBJECT_TYPE_PIPELINE, "Skybox_Graphics_Pipeline");
-
-    // --- BILLBOARD PIPELINE ---
-    VkShaderModule bvm = load_shader(engine->device, "shaders/billboard_vert.spv");
-    VkShaderModule bfm = load_shader(engine->device, "shaders/billboard_frag.spv");
+    // Setup Billboard Vertex Input (reused by debug pipelines)
     VkVertexInputBindingDescription bBindings[1] = {};
     bBindings[0].binding = 1;
-    bBindings[0].stride = sizeof(glm::vec3);
+    bBindings[0].stride = sizeof(BillboardInstance);
     bBindings[0].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
 
-    VkVertexInputAttributeDescription bAttrs[1] = {};
+    VkVertexInputAttributeDescription bAttrs[2] = {};
     bAttrs[0].location = 2;
     bAttrs[0].binding = 1;
     bAttrs[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-    bAttrs[0].offset = 0;
+    bAttrs[0].offset = offsetof(BillboardInstance, pos);
+    bAttrs[1].location = 3;
+    bAttrs[1].binding = 1;
+    bAttrs[1].format = VK_FORMAT_R32_SINT;
+    bAttrs[1].offset = offsetof(BillboardInstance, materialIdx);
 
     VkPipelineVertexInputStateCreateInfo bVi{};
     bVi.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
     bVi.vertexBindingDescriptionCount = 1;
     bVi.pVertexBindingDescriptions = bBindings;
-    bVi.vertexAttributeDescriptionCount = 1;
+    bVi.vertexAttributeDescriptionCount = 2;
     bVi.pVertexAttributeDescriptions = bAttrs;
 
-    if (bvm != VK_NULL_HANDLE && bfm != VK_NULL_HANDLE) {
-        VkPipelineShaderStageCreateInfo bStages[2] = {};
-        bStages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        bStages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-        bStages[0].module = bvm;
-        bStages[0].pName = "main";
-        bStages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        bStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-        bStages[1].module = bfm;
-        bStages[1].pName = "main";
+    success &= create_billboard_pipeline(engine, common, &bVi);
+    success &= create_wireframe_pipeline(engine, common);
+    success &= create_debug_pipelines(engine, common, &bVi);
 
-        VkPipelineRasterizationStateCreateInfo bRs = rs;
-        bRs.cullMode = VK_CULL_MODE_NONE; // ISO: Billboard should not cull
-
-        VkGraphicsPipelineCreateInfo bPipeInfo = pipeInfo;
-        bPipeInfo.pStages = bStages;
-        bPipeInfo.pVertexInputState = &bVi;
-        bPipeInfo.pRasterizationState = &bRs;
-
-        if (vkCreateGraphicsPipelines(engine->device, VK_NULL_HANDLE, 1, &bPipeInfo, nullptr, &engine->billboardPipeline) != VK_SUCCESS) {
-            LOG_ERROR("render", "Failed to create billboard pipeline");
-        } else {
-            vk_set_object_name(engine->device, (uint64_t)engine->billboardPipeline, VK_OBJECT_TYPE_PIPELINE, "Billboard_Graphics_Pipeline");
-        }
-    }
-
-    // --- WIREFRAME PIPELINE ---
-    VkGraphicsPipelineCreateInfo wPipeInfo = pipeInfo;
-    VkPipelineRasterizationStateCreateInfo wRs = rs;
-    wRs.polygonMode = VK_POLYGON_MODE_LINE;
-    wRs.lineWidth = 1.0f;
-    wPipeInfo.pRasterizationState = &wRs;
-
-    if (vkCreateGraphicsPipelines(engine->device, VK_NULL_HANDLE, 1, &wPipeInfo, nullptr, &engine->wireframePipeline) != VK_SUCCESS) {
-        LOG_ERROR("render", "Failed to create wireframe pipeline");
-    } else {
-        vk_set_object_name(engine->device, (uint64_t)engine->wireframePipeline, VK_OBJECT_TYPE_PIPELINE, "Wireframe_Graphics_Pipeline");
-    }
-
-    // --- DEBUG OVERLAY PIPELINES ---
-    VkShaderModule dvm = load_shader(engine->device, "shaders/debug_vert.spv");
-    VkShaderModule dfm = load_shader(engine->device, "shaders/debug_frag.spv");
-    if (dvm != VK_NULL_HANDLE && dfm != VK_NULL_HANDLE) {
-        VkPipelineShaderStageCreateInfo dStages[2] = {};
-        dStages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        dStages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-        dStages[0].module = dvm;
-        dStages[0].pName = "main";
-        dStages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        dStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-        dStages[1].module = dfm;
-        dStages[1].pName = "main";
-
-        VkPushConstantRange dPushRange{};
-        dPushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-        dPushRange.offset = 0;
-        dPushRange.size = sizeof(DebugPushConstant);
-
-        VkPipelineLayoutCreateInfo dplInfo{};
-        dplInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        dplInfo.setLayoutCount = 1;
-        dplInfo.pSetLayouts = &engine->descriptorSetLayout;
-        dplInfo.pushConstantRangeCount = 1;
-        dplInfo.pPushConstantRanges = &dPushRange;
-        if (vkCreatePipelineLayout(engine->device, &dplInfo, nullptr, &engine->debugPipelineLayout) != VK_SUCCESS) {
-            LOG_ERROR("render", "Failed to create debug pipeline layout");
-        }
-
-        // --- Debug Line Pipeline ---
-        VkGraphicsPipelineCreateInfo dLineInfo = pipeInfo;
-        dLineInfo.layout = engine->debugPipelineLayout;
-        dLineInfo.pStages = dStages;
-        // Vertex input: reuse same instance layout (for instancePos)
-        dLineInfo.pVertexInputState = &bVi;
-
-        VkPipelineInputAssemblyStateCreateInfo dIaLines = ia;
-        dIaLines.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
-        dLineInfo.pInputAssemblyState = &dIaLines;
-
-        VkPipelineDepthStencilStateCreateInfo dsDebug = ds;
-        dsDebug.depthWriteEnable = VK_FALSE; // STRICT PORT: Overlay correctly
-        dLineInfo.pDepthStencilState = &dsDebug;
-
-        VkPipelineRasterizationStateCreateInfo dRsLines = rs;
-        dRsLines.polygonMode = VK_POLYGON_MODE_LINE;
-        dRsLines.lineWidth = 1.0f;
-        dLineInfo.pRasterizationState = &dRsLines;
-
-        if (vkCreateGraphicsPipelines(engine->device, VK_NULL_HANDLE, 1, &dLineInfo, nullptr, &engine->debugLinePipeline) != VK_SUCCESS) {
-            LOG_ERROR("render", "Failed to create debug line pipeline");
-        } else {
-            vk_set_object_name(engine->device, (uint64_t)engine->debugLinePipeline, VK_OBJECT_TYPE_PIPELINE, "Debug_Line_Pipeline");
-        }
-
-        // --- Debug Triangle Pipeline (with Blend) ---
-        VkGraphicsPipelineCreateInfo dTriInfo = dLineInfo;
-        VkPipelineInputAssemblyStateCreateInfo dIaTris = ia;
-        dIaTris.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-        dTriInfo.pInputAssemblyState = &dIaTris;
-
-        VkPipelineRasterizationStateCreateInfo dRsTris = rs;
-        dRsTris.polygonMode = VK_POLYGON_MODE_FILL;
-        dTriInfo.pRasterizationState = &dRsTris;
-        dTriInfo.pDepthStencilState = &dsDebug; // Reuse dsDebug (Depth Write OFF)
-
-        VkPipelineColorBlendAttachmentState dCbaBlend = cba;
-        dCbaBlend.blendEnable = VK_TRUE;
-        dCbaBlend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-        dCbaBlend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-        dCbaBlend.colorBlendOp = VK_BLEND_OP_ADD;
-        dCbaBlend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-        dCbaBlend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-        dCbaBlend.alphaBlendOp = VK_BLEND_OP_ADD;
-        dCbaBlend.colorWriteMask = 0xf;
-
-        VkPipelineColorBlendStateCreateInfo dCbBlend = cb;
-        dCbBlend.pAttachments = &dCbaBlend;
-        dTriInfo.pColorBlendState = &dCbBlend;
-
-        if (vkCreateGraphicsPipelines(engine->device, VK_NULL_HANDLE, 1, &dTriInfo, nullptr, &engine->debugTrianglePipeline) != VK_SUCCESS) {
-            LOG_ERROR("render", "Failed to create debug triangle pipeline");
-        }
-    }
-    if (bvm != VK_NULL_HANDLE)
-        vkDestroyShaderModule(engine->device, bvm, nullptr);
-    if (bfm != VK_NULL_HANDLE)
-        vkDestroyShaderModule(engine->device, bfm, nullptr);
-    if (dvm != VK_NULL_HANDLE)
-        vkDestroyShaderModule(engine->device, dvm, nullptr);
-    if (dfm != VK_NULL_HANDLE)
-        vkDestroyShaderModule(engine->device, dfm, nullptr);
-
+    // Cleanup
     vkDestroyShaderModule(engine->device, vsm, nullptr);
     vkDestroyShaderModule(engine->device, fsm, nullptr);
     vkDestroyShaderModule(engine->device, skyboxVsm, nullptr);
     vkDestroyShaderModule(engine->device, skyboxFsm, nullptr);
-    return true;
+
+    return success;
 }
 
 bool init_buffers(VulkanEngine* engine) {
@@ -1028,156 +1367,15 @@ bool init_buffers(VulkanEngine* engine) {
     }
     vk_set_object_name(engine->device, (uint64_t)engine->commandPool, VK_OBJECT_TYPE_COMMAND_POOL, "Main_Command_Pool");
 
-    auto create_gpu_buffer = [&](VkDeviceSize size, VkBufferUsageFlags usage, const void* srcData, VkBuffer& buf, VmaAllocation& alloc,
-                                 const char* name) -> bool {
-        VkBuffer staging = VK_NULL_HANDLE;
-        VmaAllocation stgAlloc = VK_NULL_HANDLE;
-        VkBufferCreateInfo stgIn{};
-        stgIn.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-        stgIn.size = size;
-        stgIn.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-        VmaAllocationCreateInfo stgAl{};
-        stgAl.usage = VMA_MEMORY_USAGE_CPU_ONLY;
-        if (vmaCreateBuffer(engine->allocator, &stgIn, &stgAl, &staging, &stgAlloc, nullptr) != VK_SUCCESS) {
-            return false;
-        }
-        {
-            const std::string stagingBufferName = std::string(name) + "_Staging_Buffer";
-            vk_set_object_name(engine->device, (uint64_t)staging, VK_OBJECT_TYPE_BUFFER, stagingBufferName.c_str());
-        }
+    std::vector<glm::vec3> instancePositions;
+    bool success = true;
+    success &= create_icosphere_buffers(engine, sphere);
+    success &= create_instance_grid_buffers(engine, instancePositions);
+    success &= create_billboard_instance_buffer(engine, instancePositions);
+    success &= create_material_ssbo(engine);
+    success &= create_global_uniform_buffer(engine);
 
-        void* map = nullptr;
-        if (vmaMapMemory(engine->allocator, stgAlloc, &map) != VK_SUCCESS) {
-            vmaDestroyBuffer(engine->allocator, staging, stgAlloc);
-            return false;
-        }
-        memcpy(map, srcData, size);
-        vmaUnmapMemory(engine->allocator, stgAlloc);
-
-        VkBufferCreateInfo gpuIn{};
-        gpuIn.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-        gpuIn.size = size;
-        gpuIn.usage = usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-        VmaAllocationCreateInfo gpuAl{};
-        gpuAl.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-        if (vmaCreateBuffer(engine->allocator, &gpuIn, &gpuAl, &buf, &alloc, nullptr) != VK_SUCCESS) {
-            vmaDestroyBuffer(engine->allocator, staging, stgAlloc);
-            return false;
-        }
-        vk_set_object_name(engine->device, (uint64_t)buf, VK_OBJECT_TYPE_BUFFER, name);
-
-        VkCommandBufferAllocateInfo ai{};
-        ai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        ai.commandPool = engine->commandPool;
-        ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        ai.commandBufferCount = 1;
-
-        VkCommandBuffer stagingCb = VK_NULL_HANDLE;
-        if (vkAllocateCommandBuffers(engine->device, &ai, &stagingCb) != VK_SUCCESS) {
-            vmaDestroyBuffer(engine->allocator, buf, alloc);
-            buf = VK_NULL_HANDLE;
-            alloc = VK_NULL_HANDLE;
-            vmaDestroyBuffer(engine->allocator, staging, stgAlloc);
-            return false;
-        }
-        {
-            const std::string stagingCbName = std::string(name) + "_Staging_CommandBuffer";
-            vk_set_object_name(engine->device, (uint64_t)stagingCb, VK_OBJECT_TYPE_COMMAND_BUFFER, stagingCbName.c_str());
-        }
-        VkCommandBufferBeginInfo bi{};
-        bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-        if (vkBeginCommandBuffer(stagingCb, &bi) != VK_SUCCESS) {
-            vkFreeCommandBuffers(engine->device, engine->commandPool, 1, &stagingCb);
-            vmaDestroyBuffer(engine->allocator, buf, alloc);
-            buf = VK_NULL_HANDLE;
-            alloc = VK_NULL_HANDLE;
-            vmaDestroyBuffer(engine->allocator, staging, stgAlloc);
-            return false;
-        }
-
-        vk_begin_label(engine->device, stagingCb, "GPU_Staging_Copy", 0.0f, 1.0f, 0.0f);
-        VkBufferCopy cp{};
-        cp.size = size;
-        vkCmdCopyBuffer(stagingCb, staging, buf, 1, &cp);
-        vk_end_label(engine->device, stagingCb);
-
-        if (vkEndCommandBuffer(stagingCb) != VK_SUCCESS) {
-            vkFreeCommandBuffers(engine->device, engine->commandPool, 1, &stagingCb);
-            vmaDestroyBuffer(engine->allocator, buf, alloc);
-            buf = VK_NULL_HANDLE;
-            alloc = VK_NULL_HANDLE;
-            vmaDestroyBuffer(engine->allocator, staging, stgAlloc);
-            return false;
-        }
-
-        VkSubmitInfo si{};
-        si.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        si.commandBufferCount = 1;
-        si.pCommandBuffers = &stagingCb;
-
-        if (vkQueueSubmit(engine->graphicsQueue, 1, &si, nullptr) != VK_SUCCESS || vkQueueWaitIdle(engine->graphicsQueue) != VK_SUCCESS) {
-            vkFreeCommandBuffers(engine->device, engine->commandPool, 1, &stagingCb);
-            vmaDestroyBuffer(engine->allocator, buf, alloc);
-            buf = VK_NULL_HANDLE;
-            alloc = VK_NULL_HANDLE;
-            vmaDestroyBuffer(engine->allocator, staging, stgAlloc);
-            return false;
-        }
-
-        vkFreeCommandBuffers(engine->device, engine->commandPool, 1, &stagingCb);
-        vmaDestroyBuffer(engine->allocator, staging, stgAlloc);
-        return true;
-    };
-
-    if (!create_gpu_buffer(sphere.vertices.size() * sizeof(Vertex), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, sphere.vertices.data(), engine->vertexBuffer,
-                           engine->vertexBufferAllocation, "Icosphere_Vertex_Buffer")) {
-        return false;
-    }
-    if (!create_gpu_buffer(sphere.indices.size() * sizeof(uint32_t), VK_BUFFER_USAGE_INDEX_BUFFER_BIT, sphere.indices.data(), engine->indexBuffer,
-                           engine->indexBufferAllocation, "Icosphere_Index_Buffer")) {
-        return false;
-    }
-
-    // Generation de la grille d'instances
-    const size_t instanceCount = kMaterialInstanceCount;
-    std::vector<glm::vec3> instancePositions(instanceCount);
-    for (uint32_t row = 0; row < kGridSize; ++row) {
-        for (uint32_t col = 0; col < kGridSize; ++col) {
-            const size_t instanceIndex = (static_cast<size_t>(row) * static_cast<size_t>(kGridSize)) + static_cast<size_t>(col);
-            const float x = (static_cast<float>(col) * kGridSpacing) - kGridOffset;
-            const float y = -((static_cast<float>(row) * kGridSpacing) - kGridOffset);
-            instancePositions[instanceIndex] = {x, y, 0.0f};
-        }
-    }
-    if (!create_gpu_buffer(instancePositions.size() * sizeof(glm::vec3), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, instancePositions.data(), engine->instanceBuffer,
-                           engine->instanceBufferAllocation, "Instance_Offsets_Buffer")) {
-        return false;
-    }
-
-    std::vector<MaterialGpu> materials;
-    if (!load_legacy_materials_for_grid(materials, instanceCount)) {
-        return false;
-    }
-
-    if (!create_gpu_buffer(materials.size() * sizeof(MaterialGpu), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, materials.data(), engine->materialBuffer,
-                           engine->materialBufferAllocation, "PBR_Materials_SSBO")) {
-        return false;
-    }
-
-    // UBO: vp + modelRotation + invViewProj + cameraPosEnvLod
-    VkBufferCreateInfo uboIn{};
-    uboIn.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    uboIn.size = sizeof(UBOData);
-    uboIn.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-    VmaAllocationCreateInfo uboAl{};
-    uboAl.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
-    if (vmaCreateBuffer(engine->allocator, &uboIn, &uboAl, &engine->uniformBuffer, &engine->uniformBufferAllocation, nullptr) != VK_SUCCESS) {
-        return false;
-    }
-    vk_set_object_name(engine->device, (uint64_t)engine->uniformBuffer, VK_OBJECT_TYPE_BUFFER, "Global_MVP_UBO");
-    const VkResult uniformBufferMapResult = vmaMapMemory(engine->allocator, engine->uniformBufferAllocation, &engine->uniformBufferMapped);
-    return uniformBufferMapResult == VK_SUCCESS;
+    return success;
 }
 
 bool init_descriptor_pool_and_sets(VulkanEngine* engine) {
@@ -1219,10 +1417,14 @@ bool init_descriptor_pool_and_sets(VulkanEngine* engine) {
     materialBufferInfo.offset = 0;
     materialBufferInfo.range = VK_WHOLE_SIZE;
 
+    if (engine->envHdrImageView == VK_NULL_HANDLE || engine->envHdrSampler == VK_NULL_HANDLE) {
+        LOG_WARNING("engine", "init_descriptor_pool_and_sets: environment HDR resources not ready, initial descriptor update will use fallbacks.");
+    }
+
     VkDescriptorImageInfo envInfo{};
     envInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    envInfo.imageView = engine->envHdrImageView;
-    envInfo.sampler = engine->envHdrSampler;
+    envInfo.imageView = engine->envHdrImageView ? engine->envHdrImageView : engine->ibl.irradianceMapView; // Fallback to IR if Env NULL
+    envInfo.sampler = engine->envHdrSampler ? engine->envHdrSampler : engine->ibl.irradianceSampler;
 
     // Provide dummy or real image info for IBL maps (initially they might be empty, but they are created in init_ibl)
     // We assume init_ibl has been called before this function.
@@ -1240,6 +1442,13 @@ bool init_descriptor_pool_and_sets(VulkanEngine* engine) {
     lutInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     lutInfo.imageView = engine->ibl.brdfLutView ? engine->ibl.brdfLutView : engine->envHdrImageView;
     lutInfo.sampler = engine->ibl.brdfLutSampler ? engine->ibl.brdfLutSampler : engine->envHdrSampler;
+
+    // Safety: ensure no NULL handles are passed to vkUpdateDescriptorSets for required bindings
+    if (envInfo.imageView == VK_NULL_HANDLE || irrInfo.imageView == VK_NULL_HANDLE || prefInfo.imageView == VK_NULL_HANDLE ||
+        lutInfo.imageView == VK_NULL_HANDLE) {
+        LOG_ERROR("engine", "init_descriptor_pool_and_sets: one or more required images are NULL (spec violation). Skipping initial update.");
+        return true; // We'll update later in vk_init_environment_texture
+    }
 
     VkWriteDescriptorSet writes[6] = {};
     writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -1344,34 +1553,43 @@ bool vk_recreate_swapchain(VulkanEngine* engine) {
 
 bool vk_init_vulkan_engine(VulkanEngine* engine) {
     LOG_INFO("app", "Starting engine initialization...");
+    LOG_INFO("vulkan", "Vulkan Debug Callback initialized (High Sensitivity)");
+    LOG_INFO("app", "init_core...");
     if (!init_core(engine)) {
         LOG_ERROR("app", "init_core failed");
         return false;
     }
+    LOG_INFO("app", "init_allocator...");
     if (!init_allocator(engine)) {
         LOG_ERROR("app", "init_allocator failed");
         return false;
     }
+    LOG_INFO("app", "init_swapchain...");
     if (!init_swapchain(engine)) {
         LOG_ERROR("app", "init_swapchain failed");
         return false;
     }
+    LOG_INFO("app", "init_render_pass...");
     if (!init_render_pass(engine)) {
         LOG_ERROR("app", "init_render_pass failed");
         return false;
     }
+    LOG_INFO("app", "init_descriptor_layout...");
     if (!init_descriptor_layout(engine)) {
         LOG_ERROR("app", "init_descriptor_layout failed");
         return false;
     }
+    LOG_INFO("app", "init_pipeline...");
     if (!init_pipeline(engine)) {
         LOG_ERROR("app", "init_pipeline failed");
         return false;
     }
+    LOG_INFO("app", "init_buffers...");
     if (!init_buffers(engine)) {
         LOG_ERROR("app", "init_buffers failed");
         return false;
     }
+    LOG_INFO("app", "vk_init_environment_catalog...");
     if (!vk_init_environment_catalog(engine)) {
         LOG_ERROR("app", "vk_init_environment_catalog failed");
         return false;
@@ -1387,15 +1605,15 @@ bool vk_init_vulkan_engine(VulkanEngine* engine) {
         return false;
     }
 
-    LOG_INFO("app", "Initializing descriptor pool and sets (commandPool=%p)...", (void*)engine->commandPool);
-    if (!init_descriptor_pool_and_sets(engine)) {
-        LOG_ERROR("app", "init_descriptor_pool_and_sets failed");
-        return false;
-    }
-
     LOG_INFO("app", "Initializing environment texture (triggers bake)...");
     if (!vk_init_environment_texture(engine)) {
         LOG_ERROR("app", "vk_init_environment_texture failed");
+        return false;
+    }
+
+    LOG_INFO("app", "Initializing descriptor pool and sets (commandPool=%p)...", (void*)engine->commandPool);
+    if (!init_descriptor_pool_and_sets(engine)) {
+        LOG_ERROR("app", "init_descriptor_pool_and_sets failed");
         return false;
     }
 
@@ -1414,7 +1632,7 @@ bool vk_init_vulkan_engine(VulkanEngine* engine) {
     engine->showEnvmapToggleKeyWasDown = false;
     engine->envPageUpKeyWasDown = false;
     engine->envPageDownKeyWasDown = false;
-    engine->cameraEnabled = false;
+    engine->cameraEnabled = true;
     engine->showEnvmap = true;
     engine->envLod = 0.0f;
     engine->iblDebugMode = 0;
@@ -1450,6 +1668,7 @@ bool vk_init_vulkan_engine(VulkanEngine* engine) {
     engine->hdrIoThreadRunning = false;
     engine->hdrLoadInFlight = false;
     engine->pendingHdrIndex = -1;
+
     camera_init(&engine->camera);
     glfwSetInputMode(engine->window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
     glfwGetWindowPos(engine->window, &engine->windowedPosX, &engine->windowedPosY);
@@ -1471,6 +1690,7 @@ bool vk_init_vulkan_engine(VulkanEngine* engine) {
 
 void vk_cleanup_vulkan_engine(VulkanEngine* engine) {
     vk_stop_hdr_io_thread(engine);
+    LOG_INFO("async", "Async loader destroyed");
 
     if (engine->device != VK_NULL_HANDLE) {
         vkDeviceWaitIdle(engine->device);
@@ -1480,7 +1700,10 @@ void vk_cleanup_vulkan_engine(VulkanEngine* engine) {
     cleanup_descriptor_resources(engine);
     cleanup_ibl(engine);
     cleanup_buffer_resources(engine);
+    LOG_INFO("material", "Material library memory freed successfully");
     cleanup_render_resources(engine);
     cleanup_core_resources(engine);
+    LOG_INFO("postprocess", "Post-processing cleaned up");
+    LOG_INFO("perf", "Performance mode cleaned up");
     glfwTerminate();
 }

@@ -30,6 +30,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ccache=4.8+really4.7.5-1 \
     python3=3.11.2-1+b1 \
     python3-pip=23.0.1+dfsg-1 \
+    gdb=13.1-3 \
     && rm -rf /var/lib/apt/lists/*
 
 # Use pipefail so pipe errors propagate correctly in subsequent RUN steps

@@ -14,7 +14,10 @@ layout(set = 0, binding = 0) uniform UniformBufferObject {
     vec4 cameraPosEnvLod;
     vec4 debugParams; // x: mode, y: scale
     vec4 postParams1; // x: exposure, y: saturation, z: contrast, w: gamma
-    vec4 postParams2; // x: gain, y: offset, z: wbTemp, w: wbTint
+    vec4 postParams2;
+    mat4 view;
+    mat4 proj;
+    vec4 windowSize;
 }
 ubo;
 

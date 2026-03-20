@@ -81,7 +81,8 @@ bool vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recreateSw
     uboData.view = view;
     uboData.proj = proj;
 
-    int width, height;
+    int width;
+    int height;
     glfwGetFramebufferSize(engine->window, &width, &height);
     uboData.windowSize = glm::vec4(static_cast<float>(width), static_cast<float>(height), 0.0f, 0.0f);
 
@@ -124,11 +125,24 @@ bool vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recreateSw
 
     vk_begin_label(engine->device, engine->commandBuffer, "Render_Spheres_Instanced", 0.0f, 1.0f, 0.4f);
     if (engine->billboardMode) {
+        // --- Sort Billboards Back-to-Front (Painter's Algorithm) ---
+        const glm::vec3 camPos = engine->camera.position;
+        std::sort(engine->billboardInstances.begin(), engine->billboardInstances.end(), [&camPos](const BillboardInstance& a, const BillboardInstance& b) {
+            glm::vec3 da = a.pos - camPos;
+            glm::vec3 db = b.pos - camPos;
+            return glm::dot(da, da) > glm::dot(db, db); // Back-to-front
+        });
+
+        // --- Update Persistently Mapped Billboard Buffer ---
+        if (engine->billboardMapped) {
+            memcpy(engine->billboardMapped, engine->billboardInstances.data(), engine->billboardInstances.size() * sizeof(BillboardInstance));
+        }
+
         vkCmdBindPipeline(engine->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, engine->billboardPipeline);
-        VkBuffer instanceBuffers[] = {engine->instanceBuffer};
-        VkDeviceSize instanceOffsets[] = {0};
-        vkCmdBindVertexBuffers(engine->commandBuffer, 1, 1, instanceBuffers, instanceOffsets);
-        vkCmdDraw(engine->commandBuffer, 6, kGridSize * kGridSize, 0, 0);
+        VkBuffer billboardBuffers[] = {engine->billboardBuffer};
+        VkDeviceSize billboardOffsets[] = {0};
+        vkCmdBindVertexBuffers(engine->commandBuffer, 1, 1, billboardBuffers, billboardOffsets);
+        vkCmdDraw(engine->commandBuffer, 6, static_cast<uint32_t>(engine->billboardInstances.size()), 0, 0);
     } else {
         VkPipeline pipe = engine->wireframeMode ? engine->wireframePipeline : engine->graphicsPipeline;
         vkCmdBindPipeline(engine->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);

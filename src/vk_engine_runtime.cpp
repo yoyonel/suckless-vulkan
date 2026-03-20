@@ -3,6 +3,7 @@
 #include "app_log.h"
 #include "vk_engine_envmap.h"
 #include "vk_engine_ibl.h"
+#include "vk_engine_init.h"
 
 #include <GLFW/glfw3.h>
 
@@ -164,6 +165,12 @@ void vk_handle_runtime_input(VulkanEngine* engine) {
     if (is_key_pressed_once(engine->window, GLFW_KEY_B, &engine->billboardKeyWasDown)) {
         engine->billboardMode = !engine->billboardMode;
         LOG_INFO("runtime", "Sphere Rendering Mode: %s", engine->billboardMode ? "BILLBOARD (Raytraced)" : "ICOSPHERE (Triangulated)");
+    }
+
+    if (is_key_pressed_once(engine->window, GLFW_KEY_V, &engine->vsyncKeyWasDown)) {
+        engine->vsync = !engine->vsync;
+        LOG_INFO("runtime", "VSync toggle: %s (recreating swapchain...)", engine->vsync ? "ON" : "OFF");
+        vk_recreate_swapchain(engine);
     }
 }
 

@@ -17,6 +17,7 @@ layout(binding = 0) uniform UniformBufferObject {
 ubo;
 
 layout(location = 2) in vec3 instanceOffset;
+layout(location = 3) in int instanceMaterialIdx;
 
 layout(location = 0) out vec3 outWorldPos;
 layout(location = 1) out vec3 outSphereCenter;
@@ -31,7 +32,7 @@ void main() {
 
     outSphereCenter = instanceOffset;
     outSphereRadius = 1.0;
-    outMaterialIdx = gl_InstanceIndex;
+    outMaterialIdx = instanceMaterialIdx;
 
     vec4 clipPos;
     computeBillboardSphere(pos, outSphereCenter, outSphereRadius, ubo.view, ubo.proj, clipPos, outWorldPos);

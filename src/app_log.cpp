@@ -176,6 +176,7 @@ void log_message_v(LogLevel level, const char* tag, const char* format, va_list 
     (void)std::fputs(prefix, out);
     (void)std::fputs(message.data(), out);
     (void)std::fputc('\n', out);
+    (void)std::fflush(out);
 
     if (callback != nullptr) {
         callback(level, tag, message.data());

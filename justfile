@@ -113,8 +113,8 @@ build-coverage: configure-coverage shaders
 # --- EXECUTION & DEBUG ---
 
 # Exécute l'application release.
-run: build
-    @./build/release/vulkan_app
+run args="": build
+    @./build/release/vulkan_app {{ args }}
 
 # Exécute l'application compilée avec ASan/UBSan.
 run-asan: build-asan
@@ -410,7 +410,7 @@ verify-ibl: build
     @rm -rf /tmp/ibl_tests
     @mkdir -p /tmp/ibl_tests/ogl /tmp/ibl_tests/vk
     @echo "--- 🎨 Generating OGL Reference ---"
-    @cd ../suckless-ogl && cmake -B build && cmake --build build --target test_ibl_extract -j$(nproc) && ./build/tests/test_ibl_extract abandoned_garage_4k.hdr /tmp/ibl_tests/ogl
+    @cd ../suckless-ogl && cmake -B build && cmake --build build --target test_ibl_extract -j$(nproc) && ./build/tests/test_ibl_extract assets/textures/hdr/abandoned_garage_4k.hdr /tmp/ibl_tests/ogl
     @echo "--- 🌋 Generating Vulkan Results ---"
     @SVK_IBL_DUMP=1 SVK_IBL_HDR=abandoned_garage_4k.hdr just test-all || true
     @echo "--- 📊 Comparing Results ---"

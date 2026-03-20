@@ -34,7 +34,23 @@ Le SSIM est une métrique avancée qui simule la perception humaine en comparant
 - **Pourquoi ?** Pour s'assurer que les mips de la map de préfiltrage GGX conservent exactement la même distribution de lumière.
 - **Seuil de succès :** `> 0.99`. Un score proche de 1.0 garantit une identité structurelle quasi-parfaite.
 
-## 4. Tooling Python avec `uv`
+## 4. Tests de Non-Régression Visuelle (Automatisés)
+
+En complément de la validation mathématique HDR, le moteur intègre une suite de **Tests de Non-Régression Visuelle** via `EngineIntegrationTest`.
+
+### Fonctionnement
+
+Contrairement à `verify-ibl` qui compare les maps intermédiaires au format HDR, ces tests vérifient le **rendu final final** (LDR) à travers plusieurs points de vue et modes (Billboard, Icosphere, Wireframe).
+
+### Caractéristiques
+
+- **Références Stables** : Situées dans `tests/references/`.
+- **Comparaison de Pixels** : Utilise `compare_images` (basé sur `stb_image`) avec une tolérance d'intensité (8/255) et de couverture (2.5% de pixels divergents autorisés pour la parité multi-drivers), en comparant les canaux RGB.
+- **Alpha Normalisé** : Le canal alpha des captures de référence est forcé à `255` (opaque) pour éviter les faux écarts visuels liés au composite alpha swapchain selon les drivers/viewers.
+- **Échec bloquant** : Si le rendu diverge trop de la référence, le test échoue et bloque la CI.
+- **Mise à jour facile** : Utiliser `SVK_UPDATE_REFERENCES=1` pour regénérer les références si un changement visuel est intentionnel.
+
+## 5. Tooling Python avec `uv`
 
 Le script `scripts/verify_ibl.py` utilise les **Inline Script Metadata** (PEP 723).
 

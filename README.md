@@ -87,14 +87,18 @@ Runtime controls:
 - `Shift+PageUp` / `Shift+PageDown`: adjust envmap LOD
 - `F11`: toggle fullscreen/windowed mode
 - `Esc`: cleanly exit the application
+- `V`: toggle VSync (Vertical Synchronization)
 
-The renderer now prefers an uncapped present mode when the Vulkan driver/compositor exposes one, and falls back automatically to a synchronized mode otherwise.
+### Environment Variables
 
-Logging:
+- `SVK_VSYNC`: Set to `1` to enable VSync at startup.
+- `VULKAN_LOG_LEVEL`: Configures logging verbosity (INFO, DEBUG, ERROR, etc.).
+- `SVK_UPDATE_REFERENCES`: Set to `1` to update visual regression reference images during tests.
 
-- Structured logger enabled for app and tests (timestamp, pid/tid, tag, level).
-- Log level can be configured with `VULKAN_LOG_LEVEL` (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`).
-- Backward compatibility: `OGL_LOG_LEVEL` is also accepted.
+### Command-Line Arguments
+
+- `--vsync`: Enable VSync at startup.
+- `--no-vsync`: Disable VSync at startup (default).
 
 ### Run integration tests
 
@@ -104,7 +108,7 @@ just test
 
 Targeted test flow:
 
-- `just test-integration`: run only `EngineIntegrationTest`
+- `just test-integration`: run only `EngineIntegrationTest` (includes visual comparison)
 - `just test-logic`: run only `LogicTests`
 - `just test-all`: run `EngineIntegrationTest` then `LogicTests`
 
@@ -119,7 +123,13 @@ To force saving a rendered frame:
 VULKAN_TEST_SAVE_FRAME=1 just test
 ```
 
-Output file is generated at repository root: `test_output.png`.
+To update visual references (fail the test intentionally to capture new truth):
+
+```bash
+SVK_UPDATE_REFERENCES=1 just test-integration
+```
+
+Output file is generated at repository root: `test_*.png`.
 
 ## Quality Gates
 
@@ -138,7 +148,7 @@ just pre-commit-install
 This installs:
 
 - `pre-commit` hook: `just format` + `just lint-fast`
-- `pre-push` hook: `just test`
+- `pre-push` hook: `just test` (Logic + Visual Regression)
 
 Full local gate (equivalent to CI quality checks):
 
