@@ -73,6 +73,27 @@ just build
 just run
 ```
 
+### Tracy profiler
+
+Build the application with Tracy client support:
+
+```bash
+just build-tracy
+just tracy-profiler
+just run-tracy
+```
+
+Build the upstream Tracy profiler UI in Linux legacy X11 mode:
+
+```bash
+just build-tracy-profiler
+just tracy-profiler
+```
+
+Current pinned Tracy release: `v0.13.1`.
+
+The Tracy-enabled application follows the legacy `suckless-ogl` strategy: the client auto-initializes, registers the program name, emits frame marks, and lets Tracy handle the final cleanup automatically at process exit.
+
 Runtime controls:
 
 - `Space`: pause/resume animation

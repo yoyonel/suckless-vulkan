@@ -158,6 +158,21 @@ Le projet utilise un système de **Visual Regression Testing** intégré à la C
 - **Artifacts de diagnostic** : En cas d'échec, les images `test_*.png` sont disponibles dans les artefacts GitHub Actions pour comparer visuellement l'erreur.
 - **Mise à jour des références** : Si le changement est légitime, mettre à jour les références locales avec `SVK_UPDATE_REFERENCES=1 just test-integration` et committer les nouveaux fichiers dans `tests/references/`.
 
+### Synchronisation automatique des références avec Docker CI
+
+Pour éviter les écarts entre rendu local et rendu CI (lavapipe/xvfb), le projet fournit une synchronisation dédiée en conteneur:
+
+- `just sync-test-references` :
+  1. exécute les tests dans Docker avec `SVK_UPDATE_REFERENCES=1` pour régénérer les PNG de `tests/references/`,
+  1. relance immédiatement les tests en mode strict (sans update) pour valider que la nouvelle baseline passe,
+  1. met à jour `tests/references/manifest.sha256` avec les checksums des références.
+- `just sync-test-references-all` : exécute la synchronisation puis `just ci-docker-all` (lint + Release + Debug).
+
+Important:
+
+- Les références ne sont pas stockées "dans l'image Docker"; elles restent dans le repository et sont partagées au conteneur via le volume `-v $PWD:/work`.
+- Toute mise à jour des PNG et du manifest doit être commitée pour garder la CI GitHub cohérente.
+
 ### Exécution en local
 
 Pour reproduire la couverture de code sur la machine hôte:

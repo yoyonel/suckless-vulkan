@@ -3,6 +3,7 @@
 #include "billboard_utils.glsl"
 
 layout(location = 2) in vec3 instancePos;
+layout(location = 3) in int instanceMaterialIdx;
 
 layout(set = 0, binding = 0) uniform UBO {
     mat4 vp;
@@ -28,7 +29,7 @@ layout(push_constant) uniform Push {
 push;
 
 layout(location = 0) out vec3 vWorldPos;
-layout(location = 1) flat out int vInstanceIdx;
+layout(location = 1) flat out int vMaterialIdx;
 
 const vec3 box_verts[8] =
     vec3[8](vec3(-1, -1, -1), vec3(1, -1, -1), vec3(1, 1, -1), vec3(-1, 1, -1), vec3(-1, -1, 1), vec3(1, -1, 1), vec3(1, 1, 1), vec3(-1, 1, 1));
@@ -39,7 +40,7 @@ const int box_indices[24] = int[24](0, 1, 1, 2, 2, 3, 3, 0, // Bottom
 );
 
 void main() {
-    vInstanceIdx = gl_InstanceIndex;
+    vMaterialIdx = instanceMaterialIdx;
     if (push.mode == 0) {
         // AABB box
         vec3 pos = instancePos + box_verts[box_indices[gl_VertexIndex % 24]] * push.radius;

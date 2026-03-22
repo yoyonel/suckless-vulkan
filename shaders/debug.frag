@@ -1,7 +1,7 @@
 #version 450
 
 layout(location = 0) in vec3 vWorldPos;
-layout(location = 1) flat in int vInstanceIdx;
+layout(location = 1) flat in int vMaterialIdx;
 
 layout(push_constant) uniform Push {
     mat4 model;
@@ -32,8 +32,8 @@ void main() {
     }
 
     vec4 finalColor = push.color;
-    if (push.stippled == 2) { // Fill Mode (Strict Port: use instance albedo)
-        finalColor = vec4(materials[vInstanceIdx].albedoMetallic.rgb, push.color.a);
+    if (push.stippled == 2) { // Fill mode: use instance albedo with requested alpha
+        finalColor = vec4(materials[vMaterialIdx].albedoMetallic.rgb, push.color.a);
     }
 
     FragColor = finalColor;

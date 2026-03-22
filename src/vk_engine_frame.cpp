@@ -1,5 +1,7 @@
 #include "vk_engine_frame.h"
 
+#include "tracy_client.h"
+#include "tracy_vulkan.h"
 #include "vk_engine_envmap.h"
 #include "vk_engine_runtime.h"
 
@@ -35,6 +37,7 @@ void vk_update_animation_clock(VulkanEngine* engine, float maxFrameDeltaSeconds)
 }
 
 bool vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recreateSwapchain) {
+    SVK_TRACY_ZONE_SCOPED("vk_draw_frame_internal");
     if (vkWaitForFences(engine->device, 1, &engine->inFlightFence, VK_TRUE, UINT64_MAX) != VK_SUCCESS) {
         return false;
     }
@@ -42,14 +45,21 @@ bool vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recreateSw
         return false;
     }
 
-    vk_update_animation_clock(engine, 0.25f);
-    vk_process_ready_environment_texture(engine);
-    vk_handle_runtime_input(engine);
-    vk_update_camera_key_state(engine);
-    camera_fixed_update(&engine->camera, engine->lastFrameDeltaSeconds);
+    {
+        SVK_TRACY_ZONE_SCOPED("Frame CPU Update");
+        vk_update_animation_clock(engine, 0.25f);
+        vk_process_ready_environment_texture(engine);
+        vk_handle_runtime_input(engine);
+        vk_update_camera_key_state(engine);
+        camera_fixed_update(&engine->camera, engine->lastFrameDeltaSeconds);
+    }
 
     uint32_t idx;
-    const VkResult acquireResult = vkAcquireNextImageKHR(engine->device, engine->swapchain, UINT64_MAX, engine->imageAvailableSemaphore, nullptr, &idx);
+    VkResult acquireResult;
+    {
+        SVK_TRACY_ZONE_SCOPED("Frame CPU Acquire");
+        acquireResult = vkAcquireNextImageKHR(engine->device, engine->swapchain, UINT64_MAX, engine->imageAvailableSemaphore, nullptr, &idx);
+    }
     if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR) {
         return recreateSwapchain(engine);
     }
@@ -88,109 +98,120 @@ bool vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recreateSw
 
     memcpy(engine->uniformBufferMapped, &uboData, sizeof(uboData));
 
-    if (vkResetCommandBuffer(engine->commandBuffer, 0) != VK_SUCCESS) {
-        return false;
-    }
-    VkCommandBufferBeginInfo bi{};
-    bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    if (vkBeginCommandBuffer(engine->commandBuffer, &bi) != VK_SUCCESS) {
-        return false;
-    }
-
-    vk_begin_label(engine->device, engine->commandBuffer, "Render_Frame_Graphics", 1.0f, 0.5f, 0.0f);
-
-    VkClearValue cl[2] = {};
-    cl[0].color = {{0.05f, 0.05f, 0.2f, 1.0f}};
-    cl[1].depthStencil = {1.0f, 0};
-
-    VkRenderPassBeginInfo rp{};
-    rp.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    rp.renderPass = engine->renderPass;
-    rp.framebuffer = engine->swapchainFramebuffers[idx];
-    rp.renderArea.extent = engine->swapchainExtent;
-    rp.clearValueCount = 2;
-    rp.pClearValues = cl;
-
-    vk_begin_label(engine->device, engine->commandBuffer, "RenderPass_Begin_And_Bindings", 1.0f, 0.8f, 0.2f);
-    vkCmdBeginRenderPass(engine->commandBuffer, &rp, VK_SUBPASS_CONTENTS_INLINE);
-    vkCmdBindDescriptorSets(engine->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, engine->pipelineLayout, 0, 1, &engine->descriptorSet, 0, nullptr);
-    vk_end_label(engine->device, engine->commandBuffer);
-
-    vk_begin_label(engine->device, engine->commandBuffer, "Render_Skybox_EnvMap", 0.2f, 0.5f, 1.0f);
-    if (engine->showEnvmap) {
-        vkCmdBindPipeline(engine->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, engine->skyboxPipeline);
-        vkCmdDraw(engine->commandBuffer, 3, 1, 0, 0);
-    }
-    vk_end_label(engine->device, engine->commandBuffer);
-
-    vk_begin_label(engine->device, engine->commandBuffer, "Render_Spheres_Instanced", 0.0f, 1.0f, 0.4f);
-    if (engine->billboardMode) {
-        // --- Sort Billboards Back-to-Front (Painter's Algorithm) ---
-        const glm::vec3 camPos = engine->camera.position;
-        std::sort(engine->billboardInstances.begin(), engine->billboardInstances.end(), [&camPos](const BillboardInstance& a, const BillboardInstance& b) {
-            glm::vec3 da = a.pos - camPos;
-            glm::vec3 db = b.pos - camPos;
-            return glm::dot(da, da) > glm::dot(db, db); // Back-to-front
-        });
-
-        // --- Update Persistently Mapped Billboard Buffer ---
-        if (engine->billboardMapped) {
-            memcpy(engine->billboardMapped, engine->billboardInstances.data(), engine->billboardInstances.size() * sizeof(BillboardInstance));
+    {
+        SVK_TRACY_ZONE_SCOPED("Frame CPU Record");
+        if (vkResetCommandBuffer(engine->commandBuffer, 0) != VK_SUCCESS) {
+            return false;
+        }
+        VkCommandBufferBeginInfo bi{};
+        bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        if (vkBeginCommandBuffer(engine->commandBuffer, &bi) != VK_SUCCESS) {
+            return false;
         }
 
-        vkCmdBindPipeline(engine->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, engine->billboardPipeline);
-        VkBuffer billboardBuffers[] = {engine->billboardBuffer};
-        VkDeviceSize billboardOffsets[] = {0};
-        vkCmdBindVertexBuffers(engine->commandBuffer, 1, 1, billboardBuffers, billboardOffsets);
-        vkCmdDraw(engine->commandBuffer, 6, static_cast<uint32_t>(engine->billboardInstances.size()), 0, 0);
-    } else {
-        VkPipeline pipe = engine->wireframeMode ? engine->wireframePipeline : engine->graphicsPipeline;
-        vkCmdBindPipeline(engine->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
-        VkBuffer vertexBuffers[] = {engine->vertexBuffer, engine->instanceBuffer};
-        VkDeviceSize offsets[] = {0, 0};
-        vkCmdBindVertexBuffers(engine->commandBuffer, 0, 2, vertexBuffers, offsets);
-        vkCmdBindIndexBuffer(engine->commandBuffer, engine->indexBuffer, 0, VK_INDEX_TYPE_UINT32);
-        vkCmdDrawIndexed(engine->commandBuffer, engine->indexCount, kGridSize * kGridSize, 0, 0, 0);
-    }
+        tracy_vk_collect(engine, engine->commandBuffer);
 
-    if (engine->wireframeMode && engine->billboardMode) {
-        // Billboard Wireframe Overlays (Legacy parity)
-        DebugPushConstant dp = {};
-        dp.model = glm::mat4(1.0f);
-        dp.radius = 1.0f; // Standard radius for spheres in this app
+        {
+            SVK_TRACY_VK_NAMED_ZONE(gpuFrameZone, engine, engine->commandBuffer, "GPU Frame");
 
-        // 1. Transparent Fill
-        vkCmdBindPipeline(engine->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, engine->debugTrianglePipeline);
-        dp.color = glm::vec4(1.0f, 1.0f, 1.0f, 0.1f);
-        dp.mode = 1;
-        dp.stippled = 2; // Triangle mode flag
-        vkCmdPushConstants(engine->commandBuffer, engine->debugPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
-                           sizeof(DebugPushConstant), &dp);
-        vkCmdDraw(engine->commandBuffer, 6, kGridSize * kGridSize, 0, 0);
+            vk_begin_label(engine->device, engine->commandBuffer, "Render_Frame_Graphics", 1.0f, 0.5f, 0.0f);
 
-        // 2. Green Quad Outlines
-        vkCmdBindPipeline(engine->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, engine->debugLinePipeline);
-        dp.color = glm::vec4(0.0f, 1.0f, 0.0f, 1.0f);
-        dp.mode = 1;
-        dp.stippled = 0;
-        vkCmdPushConstants(engine->commandBuffer, engine->debugPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
-                           sizeof(DebugPushConstant), &dp);
-        vkCmdDraw(engine->commandBuffer, 8, kGridSize * kGridSize, 0, 0);
+            VkClearValue cl[2] = {};
+            cl[0].color = {{0.05f, 0.05f, 0.2f, 1.0f}};
+            cl[1].depthStencil = {1.0f, 0};
 
-        // 3. Yellow Stippled Boxes
-        dp.color = glm::vec4(1.0f, 1.0f, 0.0f, 0.5f);
-        dp.mode = 0;
-        dp.stippled = 1;
-        vkCmdPushConstants(engine->commandBuffer, engine->debugPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
-                           sizeof(DebugPushConstant), &dp);
-        vkCmdDraw(engine->commandBuffer, 24, kGridSize * kGridSize, 0, 0);
-    }
-    vk_end_label(engine->device, engine->commandBuffer);
+            VkRenderPassBeginInfo rp{};
+            rp.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+            rp.renderPass = engine->renderPass;
+            rp.framebuffer = engine->swapchainFramebuffers[idx];
+            rp.renderArea.extent = engine->swapchainExtent;
+            rp.clearValueCount = 2;
+            rp.pClearValues = cl;
 
-    vkCmdEndRenderPass(engine->commandBuffer);
-    vk_end_label(engine->device, engine->commandBuffer);
-    if (vkEndCommandBuffer(engine->commandBuffer) != VK_SUCCESS) {
-        return false;
+            vk_begin_label(engine->device, engine->commandBuffer, "RenderPass_Begin_And_Bindings", 1.0f, 0.8f, 0.2f);
+            vkCmdBeginRenderPass(engine->commandBuffer, &rp, VK_SUBPASS_CONTENTS_INLINE);
+            vkCmdBindDescriptorSets(engine->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, engine->pipelineLayout, 0, 1, &engine->descriptorSet, 0, nullptr);
+            vk_end_label(engine->device, engine->commandBuffer);
+
+            {
+                SVK_TRACY_VK_NAMED_ZONE(gpuSkyboxZone, engine, engine->commandBuffer, "GPU Skybox");
+                vk_begin_label(engine->device, engine->commandBuffer, "Render_Skybox_EnvMap", 0.2f, 0.5f, 1.0f);
+                if (engine->showEnvmap) {
+                    vkCmdBindPipeline(engine->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, engine->skyboxPipeline);
+                    vkCmdDraw(engine->commandBuffer, 3, 1, 0, 0);
+                }
+                vk_end_label(engine->device, engine->commandBuffer);
+            }
+
+            {
+                SVK_TRACY_VK_NAMED_ZONE(gpuSphereZone, engine, engine->commandBuffer, "GPU Spheres");
+                vk_begin_label(engine->device, engine->commandBuffer, "Render_Spheres_Instanced", 0.0f, 1.0f, 0.4f);
+                if (engine->billboardMode) {
+                    const glm::vec3 camPos = engine->camera.position;
+                    std::sort(engine->billboardInstances.begin(), engine->billboardInstances.end(),
+                              [&camPos](const BillboardInstance& a, const BillboardInstance& b) {
+                                  glm::vec3 da = a.pos - camPos;
+                                  glm::vec3 db = b.pos - camPos;
+                                  return glm::dot(da, da) > glm::dot(db, db);
+                              });
+
+                    if (engine->billboardMapped) {
+                        memcpy(engine->billboardMapped, engine->billboardInstances.data(), engine->billboardInstances.size() * sizeof(BillboardInstance));
+                    }
+
+                    vkCmdBindPipeline(engine->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, engine->billboardPipeline);
+                    VkBuffer billboardBuffers[] = {engine->billboardBuffer};
+                    VkDeviceSize billboardOffsets[] = {0};
+                    vkCmdBindVertexBuffers(engine->commandBuffer, 1, 1, billboardBuffers, billboardOffsets);
+                    vkCmdDraw(engine->commandBuffer, 6, static_cast<uint32_t>(engine->billboardInstances.size()), 0, 0);
+                } else {
+                    VkPipeline pipe = engine->wireframeMode ? engine->wireframePipeline : engine->graphicsPipeline;
+                    vkCmdBindPipeline(engine->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
+                    VkBuffer vertexBuffers[] = {engine->vertexBuffer, engine->instanceBuffer};
+                    VkDeviceSize offsets[] = {0, 0};
+                    vkCmdBindVertexBuffers(engine->commandBuffer, 0, 2, vertexBuffers, offsets);
+                    vkCmdBindIndexBuffer(engine->commandBuffer, engine->indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+                    vkCmdDrawIndexed(engine->commandBuffer, engine->indexCount, kGridSize * kGridSize, 0, 0, 0);
+                }
+
+                if (engine->wireframeMode && engine->billboardMode) {
+                    DebugPushConstant dp = {};
+                    dp.model = glm::mat4(1.0f);
+                    dp.radius = 1.0f;
+
+                    vkCmdBindPipeline(engine->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, engine->debugTrianglePipeline);
+                    dp.color = glm::vec4(1.0f, 1.0f, 1.0f, 0.1f);
+                    dp.mode = 1;
+                    dp.stippled = 2;
+                    vkCmdPushConstants(engine->commandBuffer, engine->debugPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                                       sizeof(DebugPushConstant), &dp);
+                    vkCmdDraw(engine->commandBuffer, 6, kGridSize * kGridSize, 0, 0);
+
+                    vkCmdBindPipeline(engine->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, engine->debugLinePipeline);
+                    dp.color = glm::vec4(0.0f, 1.0f, 0.0f, 1.0f);
+                    dp.mode = 1;
+                    dp.stippled = 0;
+                    vkCmdPushConstants(engine->commandBuffer, engine->debugPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                                       sizeof(DebugPushConstant), &dp);
+                    vkCmdDraw(engine->commandBuffer, 8, kGridSize * kGridSize, 0, 0);
+
+                    dp.color = glm::vec4(1.0f, 1.0f, 0.0f, 0.5f);
+                    dp.mode = 0;
+                    dp.stippled = 1;
+                    vkCmdPushConstants(engine->commandBuffer, engine->debugPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                                       sizeof(DebugPushConstant), &dp);
+                    vkCmdDraw(engine->commandBuffer, 24, kGridSize * kGridSize, 0, 0);
+                }
+                vk_end_label(engine->device, engine->commandBuffer);
+            }
+
+            vkCmdEndRenderPass(engine->commandBuffer);
+            vk_end_label(engine->device, engine->commandBuffer);
+        }
+
+        if (vkEndCommandBuffer(engine->commandBuffer) != VK_SUCCESS) {
+            return false;
+        }
     }
 
     VkPipelineStageFlags wait = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
@@ -204,8 +225,11 @@ bool vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recreateSw
     si.signalSemaphoreCount = 1;
     si.pSignalSemaphores = &engine->renderFinishedSemaphore;
 
-    if (vkQueueSubmit(engine->graphicsQueue, 1, &si, engine->inFlightFence) != VK_SUCCESS) {
-        return false;
+    {
+        SVK_TRACY_ZONE_SCOPED("Frame CPU Submit");
+        if (vkQueueSubmit(engine->graphicsQueue, 1, &si, engine->inFlightFence) != VK_SUCCESS) {
+            return false;
+        }
     }
 
     VkPresentInfoKHR pri{};
@@ -215,7 +239,11 @@ bool vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recreateSw
     pri.swapchainCount = 1;
     pri.pSwapchains = &engine->swapchain;
     pri.pImageIndices = &idx;
-    const VkResult presentResult = vkQueuePresentKHR(engine->presentQueue, &pri);
+    VkResult presentResult;
+    {
+        SVK_TRACY_ZONE_SCOPED("Frame CPU Present");
+        presentResult = vkQueuePresentKHR(engine->presentQueue, &pri);
+    }
     if (presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_SUBOPTIMAL_KHR) {
         return recreateSwapchain(engine);
     }

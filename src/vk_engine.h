@@ -213,6 +213,7 @@ typedef struct {
     VkSemaphore renderFinishedSemaphore;
     VkFence inFlightFence;
     uint32_t lastRenderedImageIndex;
+    void* tracyVkContext;
 
     float animationTimeSeconds;
     float animationSpeed;

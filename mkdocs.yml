@@ -21,9 +21,11 @@ nav:
   - Optimisation VRAM (Staging): vram_optimization.md
   - Caméra Cinétique: kinetic_camera.md
   - Runtime Controls et Logging: runtime_controls_logging.md
+  - Reference Pipelines Vulkan: pipeline_reference.md
   - Pipeline Envmap HDR: envmap_hdr_pipeline.md
   - CI/CD GitHub Actions: ci_cd.md
   - Outillage & Qualité: tooling.md
+  - Profiling Tracy: profiling_tracy.md
   - Tracing: tracing.md
   - Système de Validation IBL: ibl_validation_system.md
   - Conventions de Repères & Orientation: coordinate_systems.md

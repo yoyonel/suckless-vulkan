@@ -3,6 +3,8 @@
 #include "camera.h"
 #include "icosphere.h"
 #include "material_loader.h"
+#include "tracy_client.h"
+#include "tracy_vulkan.h"
 #include "vk_engine_envmap.h"
 #include "vk_engine_runtime.h"
 #include <algorithm>
@@ -1552,6 +1554,7 @@ bool vk_recreate_swapchain(VulkanEngine* engine) {
 }
 
 bool vk_init_vulkan_engine(VulkanEngine* engine) {
+    SVK_TRACY_ZONE_SCOPED("vk_init_vulkan_engine");
     LOG_INFO("app", "Starting engine initialization...");
     LOG_INFO("vulkan", "Vulkan Debug Callback initialized (High Sensitivity)");
     LOG_INFO("app", "init_core...");
@@ -1602,6 +1605,11 @@ bool vk_init_vulkan_engine(VulkanEngine* engine) {
     LOG_INFO("app", "Initializing commands and sync objects...");
     if (!init_commands_and_sync(engine)) {
         LOG_ERROR("app", "init_commands_and_sync failed");
+        return false;
+    }
+
+    if (!tracy_vk_context_init(engine)) {
+        LOG_ERROR("tracy", "tracy_vk_context_init failed");
         return false;
     }
 
@@ -1689,12 +1697,15 @@ bool vk_init_vulkan_engine(VulkanEngine* engine) {
 }
 
 void vk_cleanup_vulkan_engine(VulkanEngine* engine) {
+    SVK_TRACY_ZONE_SCOPED("vk_cleanup_vulkan_engine");
     vk_stop_hdr_io_thread(engine);
     LOG_INFO("async", "Async loader destroyed");
 
     if (engine->device != VK_NULL_HANDLE) {
         vkDeviceWaitIdle(engine->device);
     }
+
+    tracy_vk_context_destroy(engine);
 
     cleanup_sync_objects(engine);
     cleanup_descriptor_resources(engine);

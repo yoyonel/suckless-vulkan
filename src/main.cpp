@@ -1,5 +1,6 @@
 #include "app_log.h"
 #include "runtime_controls.h"
+#include "tracy_client.h"
 #include "vk_engine.h"
 
 int main(int argc, char** argv) {
@@ -24,9 +25,15 @@ int main(int argc, char** argv) {
         }
     }
 
+    if (!tracy_client_startup("suckless-vulkan")) {
+        LOG_CRITICAL("tracy", "Impossible d'initialiser le client Tracy pour cette session.");
+        return -1;
+    }
+
     LOG_INFO("app", "Initialisation de Vulkan... (VSync=%s par defaut)", engine.vsync ? "ENABLED" : "DISABLED");
     if (!init_vulkan_engine(&engine)) {
         LOG_CRITICAL("app", "Echec de l'initialisation.");
+        tracy_client_shutdown();
         return -1;
     }
     LOG_INFO("app", "Vulkan initialise avec succes ! La fenetre devrait apparaitre.");
@@ -39,14 +46,18 @@ int main(int argc, char** argv) {
     while (!glfwWindowShouldClose(engine.window)) {
         glfwPollEvents();
         runtime_update_controls(&engine, runtime_default_window_ops());
+        tracy_client_poll_connection();
         if (!draw_frame(&engine)) {
             LOG_ERROR("app", "Echec du rendu d'une frame.");
             cleanup_vulkan_engine(&engine);
+            tracy_client_shutdown();
             return 1;
         }
+        tracy_client_mark_frame();
     }
 
     LOG_INFO("app", "Nettoyage et fermeture...");
     cleanup_vulkan_engine(&engine);
+    tracy_client_shutdown();
     return 0;
 }
