@@ -25,6 +25,7 @@ nav:
   - Pipeline Envmap HDR: envmap_hdr_pipeline.md
   - CI/CD GitHub Actions: ci_cd.md
   - Outillage & Qualité: tooling.md
+  - Code Difficile à Tester: hard_to_test_20260807.md
   - Refactoring Report (2026-08-07): refactoring_report_20260807.md
   - Profiling Tracy: profiling_tracy.md
   - Tracing: tracing.md
