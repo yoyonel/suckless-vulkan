@@ -18,6 +18,12 @@ Construire l'application avec le client Tracy active:
 just build-tracy
 ```
 
+Construire l'outil de capture CLI Tracy (sans GUI):
+
+```bash
+just build-tracy-capture
+```
+
 Lancer l'application instrumentee:
 
 ```bash
@@ -35,6 +41,26 @@ Lancer le profiler Tracy local:
 
 ```bash
 just tracy-profiler
+```
+
+Lancer un scenario d'integration automatise inspire du legacy `suckless-ogl` (Xvfb + xdotool):
+
+```bash
+just test-integration-tracy
+```
+
+Ce workflow:
+
+- demarre un display virtuel X11 via `Xvfb`
+- lance `tracy-capture` (CLI) pour enregistrer une trace `.tracy` sans interaction GUI
+- demarre l'application Tracy
+- pilote la fenetre avec `xdotool` (PageUp/PageDown, Shift+PageUp/PageDown, F11, Escape)
+- valide que le fichier de trace est bien genere
+
+Arguments utiles:
+
+```bash
+just test-integration-tracy capture_seconds=18 trace_file=build/tracy/hdr_ibl.tracy
 ```
 
 ## Details d'implementation
@@ -104,6 +130,22 @@ La premiere tranche fonctionnelle d'instrumentation ajoutee dans le moteur couvr
 - des sous-zones CPU sur les phases `Update`, `Acquire`, `Record`, `Submit` et `Present`
 - un contexte Tracy Vulkan lie a la queue graphique principale et au command buffer principal
 - des zones GPU minimales `GPU Frame`, `GPU Skybox` et `GPU Spheres`
+
+Une extension ciblee a ensuite ete ajoutee pour la phase IBL HDR asynchrone:
+
+- nommage explicite du thread worker `HDR I/O Thread`
+- zone CPU sur la mise en file de demande de switch HDR (`request_environment_texture_async`)
+- zone CPU par iteration worker (`hdr_io_thread_iteration`)
+- sous-zone CPU sur la phase decode STBI (`hdr_io_thread_decode_stbi`)
+- zone CPU sur l'application render-thread de la requete prete (`vk_process_ready_environment_texture`)
+
+Une tranche GPU complementaire couvre desormais les dispatch compute IBL:
+
+- zone GPU `GPU IBL Luminance` (reduction luminance pass 1 + pass 2)
+- zone GPU `GPU IBL BRDF LUT`
+- zone GPU `GPU IBL Irradiance`
+- zone GPU `GPU IBL Specular`
+- collecte Tracy Vulkan explicite sur les command buffers one-shot utilises par `vk_ibl_bake`
 
 Le but de cette tranche n'est pas encore l'analyse fine des performances, mais la validation fonctionnelle de l'integration du profiler Tracy cote CPU et cote Vulkan.
 

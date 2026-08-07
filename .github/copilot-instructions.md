@@ -301,10 +301,15 @@ When explicitly requested, follow this sequence:
 5. Monitor results:
    - Local CI: Full verbose output on-machine for debugging
    - Remote CI: Check all workflows and wait for terminal status (`SUCCESS` / `FAILURE`)
-   - Report a concise summary of each workflow result to the user
+   - **MANDATORY**: You MUST actively verify the actual status of all remote CI/CD jobs via `gh pr checks` before returning control to the user. You are STRICTLY FORBIDDEN from declaring a task complete or saying "Everything is fine / I am satisfied" without empirical, 100% GREEN (PASSED) verification from CI/CD.
+    - Report a concise summary of each workflow result to the user
 6. If any workflow fails (local or remote):
    - treat as blocked
    - investigate, fix, re-run required checks, and update PR
+
+### Mandatory Human Approval Before Commit Policy
+- **STRICT MANDATORY RULE**: You are STRICTLY FORBIDDEN from executing `git commit` or `git push` automatically without first presenting your changes and asking for explicit human validation.
+- Always wait for the user to explicitly confirm before running any commit or push command.
 
 ### Coverage Requirements
 - Minimum **70% line coverage** for commits to be acceptable
@@ -484,3 +489,16 @@ If unsure about commit message format, documentation structure, or CI/CD flow:
 - Check existing docs: `docs/` folder
 - Run `just help` for available recipes
 - Consult `mkdocs.yml` for doc structure
+
+---
+
+## 🔍 Code Review (/code-review)
+
+When executing a code review, always present findings sequentially with the following detailed fields (in Caveman style):
+- **Fichier**: File link
+- **Finding**: Detailed description
+- **Problème**: What is wrong
+- **Risques**: Potential risks
+- **Corrections**: Possible fixes
+- **Gains**: Associated benefits
+- **Testable**: Test coverage and testability

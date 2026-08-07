@@ -25,6 +25,7 @@ nav:
   - Pipeline Envmap HDR: envmap_hdr_pipeline.md
   - CI/CD GitHub Actions: ci_cd.md
   - Outillage & Qualité: tooling.md
+  - Refactoring Report (2026-08-07): refactoring_report_20260807.md
   - Profiling Tracy: profiling_tracy.md
   - Tracing: tracing.md
   - Système de Validation IBL: ibl_validation_system.md

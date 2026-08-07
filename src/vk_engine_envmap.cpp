@@ -1,6 +1,7 @@
 #include "vk_engine_envmap.h"
 
 #include "app_log.h"
+#include "tracy_client.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -18,6 +19,10 @@
 
 #if defined(__GNUC__) || defined(__clang__)
 #pragma GCC diagnostic pop
+#endif
+
+#ifdef TRACY_ENABLE
+#include <tracy/TracyC.h>
 #endif
 
 namespace {
@@ -196,6 +201,7 @@ void generate_hdr_mipmaps(VulkanEngine* engine, VkCommandBuffer commandBuffer, i
 } // namespace
 
 bool init_environment_texture_from_pixels(VulkanEngine* engine, const float* pixels, int width, int height, const std::string& sourceLabel, bool isFallback) {
+    SVK_TRACY_ZONE_SCOPED("init_environment_texture_from_pixels");
     if (pixels == nullptr || width <= 0 || height <= 0) {
         return false;
     }
@@ -400,6 +406,7 @@ bool init_environment_texture_from_path(VulkanEngine* engine, const std::string&
 }
 
 void request_environment_texture_async(VulkanEngine* engine, int newHdrIndex) {
+    SVK_TRACY_ZONE_SCOPED("request_environment_texture_async");
     if (newHdrIndex < 0 || newHdrIndex >= static_cast<int>(engine->hdrFiles.size()) || newHdrIndex == engine->currentHdrIndex) {
         return;
     }
@@ -427,7 +434,12 @@ void request_environment_texture_async(VulkanEngine* engine, int newHdrIndex) {
 }
 
 void hdr_io_thread_main(VulkanEngine* engine) {
+#ifdef TRACY_ENABLE
+    TracyCSetThreadName("HDR I/O Thread");
+#endif
+
     for (;;) {
+        SVK_TRACY_ZONE_SCOPED("hdr_io_thread_iteration");
         HdrLoadRequest request{};
 
         {
@@ -444,6 +456,7 @@ void hdr_io_thread_main(VulkanEngine* engine) {
         }
 
         if (request.hdrIndex >= 0 && request.hdrIndex < static_cast<int>(engine->hdrFiles.size())) {
+            SVK_TRACY_ZONE_SCOPED("hdr_io_thread_decode_stbi");
             const std::string hdrPath = engine->hdrFiles[static_cast<size_t>(request.hdrIndex)];
             int width = 0;
             int height = 0;
@@ -573,6 +586,7 @@ void vk_stop_hdr_io_thread(VulkanEngine* engine) {
 }
 
 void vk_process_ready_environment_texture(VulkanEngine* engine) {
+    SVK_TRACY_ZONE_SCOPED("vk_process_ready_environment_texture");
     HdrLoadRequest ready{};
     bool hasReady = false;
 

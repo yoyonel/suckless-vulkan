@@ -11,7 +11,9 @@ help:
     @echo "  just build                # build release"
     @echo "  just run                  # build + execution"
     @echo "  just build-tracy          # build RelWithDebInfo + Tracy client"
+    @echo "  just build-tracy-capture  # build CLI tracy-capture (sans GUI)"
     @echo "  just build-tracy-profiler # build Tracy Profiler v0.13.1 (X11 legacy)"
+    @echo "  just test-integration-tracy # scenario auto Xvfb+xdotool + trace .tracy"
     @echo "  just renderdoc            # launch qrenderdoc with debug build"
     @echo "  just renderdoc-debug-shaders # launch qrenderdoc with shader debug info (-g -O0/-Od)"
     @echo "  just test                 # tous les tests CTest (release)"
@@ -74,6 +76,10 @@ configure-tracy:
 configure-tracy-profiler: configure-tracy
     @cmake -B build/tracy-profiler -S build/tracy/_deps/tracy-src/profiler -DCMAKE_BUILD_TYPE=Release -DLEGACY=ON
 
+# Configure l'outil CLI tracy-capture upstream.
+configure-tracy-capture: configure-tracy
+    @cmake -B build/tracy-capture -S build/tracy/_deps/tracy-src/capture -DCMAKE_BUILD_TYPE=Release
+
 # --- COMPILATION ---
 
 # Compile les shaders GLSL en SPIR-V (+ asm si glslc disponible).
@@ -135,6 +141,11 @@ build-tracy-profiler: configure-tracy-profiler
     @echo "Compilation du Tracy Profiler (v0.13.1, X11 legacy)..."
     @cmake --build build/tracy-profiler -j$(nproc)
 
+# Compile l'outil CLI tracy-capture upstream.
+build-tracy-capture: configure-tracy-capture
+    @echo "Compilation de tracy-capture (CLI)..."
+    @cmake --build build/tracy-capture -j$(nproc)
+
 # --- EXECUTION & DEBUG ---
 
 # Exécute l'application release.
@@ -153,6 +164,10 @@ run-tracy args="": build-tracy
 # Lance le profiler Tracy compilé localement.
 tracy-profiler: build-tracy-profiler
     @./build/tracy-profiler/tracy-profiler
+
+# Lance un scenario d'integration automatise Tracy (Xvfb + xdotool + capture CLI).
+test-integration-tracy capture_seconds="45" trace_file="build/tracy/integration.tracy": build-tracy build-tracy-capture
+    @scripts/test_integration_tracy.sh "{{ capture_seconds }}" "{{ trace_file }}"
 
 # Utilisation : just renderdoc_bin=/chemin/vers/qrenderdoc renderdoc
 renderdoc: build-debug-renderdoc
