@@ -1,0 +1,133 @@
+#version 450 core
+
+layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform sampler2D envMap;
+layout(set = 0, binding = 1, rgba16f) writeonly uniform image2D prefilteredEnvMap;
+
+layout(push_constant) uniform PushConstants {
+    float roughness;
+    int mip;
+    float threshold;
+    int offsetY;
+    int maxY;
+} pc;
+
+const float PI = 3.14159265359;
+const float TWO_PI = 2.0 * PI;
+const uint SAMPLE_COUNT = 1024u;
+const float INV_SAMPLE_COUNT = 1.0 / float(SAMPLE_COUNT);
+
+// dirToUV: Vulkan UV y=0 = image TOP = north sky.
+// Y-flip (0.5 - ...) ensures north pole (v.y=+1) -> UV y=0.
+// Matches rendering shader and env map convention.
+// Legacy OGL uses no flip relying on double-inversion (OGL UV y=0 = bottom);
+// Vulkan requires explicit correction.
+vec2 dirToUV(vec3 v) {
+    float phi = (abs(v.z) < 1e-5 && abs(v.x) < 1e-5) ? 0.0 : atan(v.z, v.x);
+    vec2 uv = vec2(phi, asin(clamp(v.y, -1.0, 1.0)));
+    uv *= vec2(0.15915494, 0.31830988); // 1/(2*PI), 1/PI
+    uv.x += 0.5;
+    uv.y = 0.5 - uv.y; // flip: v.y=+1 (north) -> UV y=0 (Vulkan image top)
+    return uv;
+}
+
+// uvToDir: Vulkan imageStore y=0 = image TOP.
+// y=0 must map to north pole to match rendering shader and env map (north sky at
+// Vulkan UV y=0). Flip theta sign vs legacy OGL compute convention.
+vec3 uvToDir(vec2 uv) {
+    float phi = (uv.x - 0.5) * TWO_PI;
+    float theta = (0.5 - uv.y) * PI; // flip: uv.y=0 -> +PI/2 -> y=+1 (north)
+    return vec3(cos(theta) * cos(phi), sin(theta), cos(theta) * sin(phi));
+}
+
+vec3 soft_clamp_smoothstep(vec3 color) {
+    float lum = dot(color, vec3(0.2126, 0.7152, 0.0722));
+    float safeThreshold = max(pc.threshold, 1.0);
+    return min(color, vec3(safeThreshold));
+}
+
+float radicalInverse_VdC(uint bits) {
+    bits = (bits << 16u) | (bits >> 16u);
+    bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);
+    bits = ((bits & 0x33333333u) << 2u) | ((bits & 0xCCCCCCCCu) >> 2u);
+    bits = ((bits & 0x0F0F0F0Fu) << 4u) | ((bits & 0xF0F0F0F0u) >> 4u);
+    bits = ((bits & 0x00FF00FFu) << 8u) | ((bits & 0xFF00FF00u) >> 8u);
+    return float(bits) * 2.3283064365386963e-10;
+}
+
+vec2 sampleHammersley(uint i) {
+    return vec2(float(i) * INV_SAMPLE_COUNT, radicalInverse_VdC(i));
+}
+
+vec3 sampleGGX(float u1, float u2, float roughness) {
+    float alpha = roughness * roughness;
+    alpha = max(alpha, 0.001); // Sync with OGL spmap.glsl:50
+
+    float cosTheta = sqrt((1.0 - u2) / (1.0 + (alpha * alpha - 1.0) * u2));
+    float sinTheta = sqrt(max(0.0, 1.0 - cosTheta * cosTheta));
+    float phi = TWO_PI * u1;
+    return vec3(sinTheta * cos(phi), sinTheta * sin(phi), cosTheta);
+}
+
+float ndfGGX(float NoH, float roughness) {
+    float alpha = roughness * roughness;
+    alpha = max(alpha, 0.001); // Sync with OGL spmap.glsl:62
+    float alphaSq = alpha * alpha;
+    
+    float denom = (NoH * NoH) * (alphaSq - 1.0) + 1.0;
+    return alphaSq / (PI * denom * denom);
+}
+
+void main() {
+    ivec2 outputSize = imageSize(prefilteredEnvMap);
+    ivec2 pos = ivec2(gl_GlobalInvocationID.x, int(gl_GlobalInvocationID.y) + pc.offsetY);
+
+    if (pos.x >= outputSize.x || pos.y >= outputSize.y || pos.y >= pc.maxY)
+        return;
+
+    vec2 uv = vec2(pos) / vec2(outputSize);
+    vec3 N = normalize(uvToDir(uv));
+    vec3 V = N;
+
+    // Sync basis with OGL spmap.glsl:98
+    vec3 up = abs(N.z) < 0.999 ? vec3(0, 0, 1) : vec3(1, 0, 0);
+    vec3 T = normalize(cross(up, N));
+    vec3 B = cross(N, T);
+
+    vec3 accumulatedColor = vec3(0);
+    float totalWeight = 0;
+
+    ivec2 envSize = textureSize(envMap, 0);
+    float saTexel = 4.0 * PI / (6.0 * float(envSize.x) * float(envSize.y));
+
+    for (uint i = 0; i < SAMPLE_COUNT; ++i) {
+        vec2 u = sampleHammersley(i);
+        vec3 Ht = sampleGGX(u.x, u.y, pc.roughness);
+        vec3 H = normalize(Ht.x * T + Ht.y * B + Ht.z * N);
+        vec3 L = normalize(2.0 * dot(V, H) * H - V);
+
+        float NoL = max(dot(N, L), 0.0);
+        if (NoL > 0.0) {
+            float NoH = max(dot(N, H), 0.0);
+            float VoH = max(dot(V, H), 0.0);
+            float pdf = (ndfGGX(NoH, pc.roughness) * NoH) / (4.0 * VoH + 1e-5);
+
+            float saSample = 1.0 / (float(SAMPLE_COUNT) * pdf + 1e-5);
+            float mipLevel = pc.roughness == 0.0 ? 0.0 : 0.5 * log2(saSample / saTexel);
+
+            vec3 envColor = textureLod(envMap, dirToUV(L), mipLevel).rgb;
+            if (any(isnan(envColor)) || any(isinf(envColor))) envColor = vec3(0.0);
+
+            envColor = soft_clamp_smoothstep(envColor);
+
+            accumulatedColor += envColor * NoL;
+            totalWeight += NoL;
+        }
+    }
+
+    vec3 result = totalWeight > 0.0 ? accumulatedColor / totalWeight : accumulatedColor;
+    result = min(result, vec3(65500.0)); // FP16 safe max
+
+    imageStore(prefilteredEnvMap, pos, vec4(result, 1.0));
+}

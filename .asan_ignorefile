@@ -9,3 +9,7 @@ leak:libX11.so
 
 # VMA (Vulkan Memory Allocator) internal allocations
 # (only if these aren't from user code)
+
+# Known driver-level leaks in debug naming
+leak:vkSetDebugUtilsObjectNameEXT
+leak:vk_set_object_name

@@ -5,6 +5,7 @@ layout(binding = 0) uniform GlobalUniforms {
     mat4 modelRotation;
     mat4 invViewProj;
     vec4 cameraPosEnvLod;
+    vec4 debugParams;
 }
 ubo;
 

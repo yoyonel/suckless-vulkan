@@ -1,6 +1,7 @@
 #include "runtime_controls.h"
 
 #include "app_log.h"
+#include "camera.h"
 
 #include <chrono>
 
@@ -80,9 +81,14 @@ bool runtime_toggle_fullscreen(VulkanEngine* engine, const WindowOps* ops) {
 }
 
 void runtime_update_controls(VulkanEngine* engine, const WindowOps* ops) {
-    if (runtime_is_key_pressed_once(engine->window, GLFW_KEY_SPACE, &engine->pauseKeyWasDown, ops)) {
+    if (runtime_is_key_pressed_once(engine->window, GLFW_KEY_P, &engine->pauseKeyWasDown, ops)) {
         engine->animationPaused = !engine->animationPaused;
         LOG_INFO("runtime", "Animation %s", engine->animationPaused ? "en pause" : "reprise");
+    }
+
+    if (runtime_is_key_pressed_once(engine->window, GLFW_KEY_SPACE, &engine->cameraResetKeyWasDown, ops)) {
+        camera_init(&engine->camera);
+        LOG_INFO("runtime", "Position camera reinitialisee");
     }
 
     if (runtime_is_key_pressed_once(engine->window, GLFW_KEY_R, &engine->resetKeyWasDown, ops)) {

@@ -10,15 +10,22 @@ help:
     @echo "Recettes les plus utiles:"
     @echo "  just build                # build release"
     @echo "  just run                  # build + execution"
+    @echo "  just build-tracy          # build RelWithDebInfo + Tracy client"
+    @echo "  just build-tracy-capture  # build CLI tracy-capture (sans GUI)"
+    @echo "  just build-tracy-profiler # build Tracy Profiler v0.13.1 (X11 legacy)"
+    @echo "  just test-integration-tracy # scenario auto Xvfb+xdotool + trace .tracy"
     @echo "  just renderdoc            # launch qrenderdoc with debug build"
     @echo "  just renderdoc-debug-shaders # launch qrenderdoc with shader debug info (-g -O0/-Od)"
     @echo "  just test                 # tous les tests CTest (release)"
+    @echo "  just shaders-ibl          # compile the 5 IBL compute shaders to SPIR-V"
     @echo "  just test-all             # flow explicite: integration + logic"
     @echo "  just test-integration     # EngineIntegrationTest uniquement"
+    @echo "  just sync-test-references # regenere references via Docker CI + verifie"
     @echo "  just test-logic           # LogicTests uniquement"
     @echo "  just coverage             # rapport de couverture tests logiques"
     @echo "  just lint                 # lint complet"
     @echo "  just check                # format + lint + test"
+    @echo "  just verify-ibl           # compare OGL vs Vulkan IBL maps"
     @echo ""
     @echo "Toutes les recettes disponibles:"
     @just --list
@@ -57,54 +64,47 @@ configure-coverage:
         cmake -B build/coverage -S . -DCMAKE_BUILD_TYPE=Debug -DENABLE_COVERAGE=ON; \
     fi
 
+# Configure un build RelWithDebInfo avec Tracy active.
+configure-tracy:
+    @if command -v ccache >/dev/null 2>&1; then \
+        cmake -B build/tracy -S . -DCMAKE_BUILD_TYPE=RelWithDebInfo -DENABLE_TRACY=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache; \
+    else \
+        cmake -B build/tracy -S . -DCMAKE_BUILD_TYPE=RelWithDebInfo -DENABLE_TRACY=ON; \
+    fi
+
+# Configure le profiler Tracy upstream en backend X11 legacy.
+configure-tracy-profiler: configure-tracy
+    @cmake -B build/tracy-profiler -S build/tracy/_deps/tracy-src/profiler -DCMAKE_BUILD_TYPE=Release -DLEGACY=ON
+
+# Configure l'outil CLI tracy-capture upstream.
+configure-tracy-capture: configure-tracy
+    @cmake -B build/tracy-capture -S build/tracy/_deps/tracy-src/capture -DCMAKE_BUILD_TYPE=Release
+
 # --- COMPILATION ---
 
 # Compile les shaders GLSL en SPIR-V (+ asm si glslc disponible).
 shaders:
     @echo "Compilation des shaders..."
-    @if command -v glslc >/dev/null 2>&1; then \
-        glslc shaders/shader.vert -o shaders/vert.spv; \
-        glslc shaders/shader.frag -o shaders/frag.spv; \
-        glslc shaders/skybox.vert -o shaders/skybox_vert.spv; \
-        glslc shaders/skybox.frag -o shaders/skybox_frag.spv; \
-        echo "Génération de l'assembleur SPIR-V (.spvasm)..."; \
-        glslc -S shaders/shader.vert -o shaders/vert.spvasm; \
-        glslc -S shaders/shader.frag -o shaders/frag.spvasm; \
-        glslc -S shaders/skybox.vert -o shaders/skybox_vert.spvasm; \
-        glslc -S shaders/skybox.frag -o shaders/skybox_frag.spvasm; \
-    else \
-        echo "glslc introuvable, fallback sur glslangValidator pour les .spv"; \
-        glslangValidator -V shaders/shader.vert -o shaders/vert.spv; \
-        glslangValidator -V shaders/shader.frag -o shaders/frag.spv; \
-        glslangValidator -V shaders/skybox.vert -o shaders/skybox_vert.spv; \
-        glslangValidator -V shaders/skybox.frag -o shaders/skybox_frag.spv; \
-        echo "Génération .spvasm ignorée (glslc requis)."; \
-    fi
+    @scripts/compile_shaders.sh raster
+    @scripts/compile_shaders.sh ibl
 
 # Compile les shaders GLSL en SPIR-V orienté debug RenderDoc (source-level):
 # - glslc: -g -O0
-
 # - glslangValidator: -g -Od
+
+# Compile les 5 shaders compute IBL (luminance x2, BRDF LUT, irradiance, specular).
+shaders-ibl:
+    @echo "Compilation des shaders compute IBL..."
+    @scripts/compile_shaders.sh ibl
+
+# Compile les 5 shaders compute IBL en mode debug RenderDoc (-g -O0 / -g -Od).
+shaders-debug-ibl:
+    @echo "Compilation des shaders compute IBL en mode debug RenderDoc..."
+    @scripts/compile_shaders.sh ibl-debug
+
 shaders-debug:
     @echo "Compilation des shaders en mode debug RenderDoc (-g, sans optimisations)..."
-    @if command -v glslc >/dev/null 2>&1; then \
-        glslc -g -O0 shaders/shader.vert -o shaders/vert.spv; \
-        glslc -g -O0 shaders/shader.frag -o shaders/frag.spv; \
-        glslc -g -O0 shaders/skybox.vert -o shaders/skybox_vert.spv; \
-        glslc -g -O0 shaders/skybox.frag -o shaders/skybox_frag.spv; \
-        echo "Génération de l'assembleur SPIR-V (.spvasm) en mode debug..."; \
-        glslc -g -O0 -S shaders/shader.vert -o shaders/vert.spvasm; \
-        glslc -g -O0 -S shaders/shader.frag -o shaders/frag.spvasm; \
-        glslc -g -O0 -S shaders/skybox.vert -o shaders/skybox_vert.spvasm; \
-        glslc -g -O0 -S shaders/skybox.frag -o shaders/skybox_frag.spvasm; \
-    else \
-        echo "glslc introuvable, fallback sur glslangValidator debug (-g -Od)"; \
-        glslangValidator -g -Od -V shaders/shader.vert -o shaders/vert.spv; \
-        glslangValidator -g -Od -V shaders/shader.frag -o shaders/frag.spv; \
-        glslangValidator -g -Od -V shaders/skybox.vert -o shaders/skybox_vert.spv; \
-        glslangValidator -g -Od -V shaders/skybox.frag -o shaders/skybox_frag.spv; \
-        echo "Génération .spvasm ignorée (glslc requis)."; \
-    fi
+    @scripts/compile_shaders.sh raster-debug
 
 # Compile l'application en Release.
 build: configure shaders
@@ -131,19 +131,46 @@ build-coverage: configure-coverage shaders
     @echo "Compilation Debug avec couverture de code..."
     @cmake --build build/coverage -j$(nproc)
 
+# Compile l'application avec Tracy active.
+build-tracy: configure-tracy shaders
+    @echo "Compilation RelWithDebInfo avec Tracy..."
+    @cmake --build build/tracy -j$(nproc)
+
+# Compile le binaire tracy-profiler upstream en mode X11 legacy.
+build-tracy-profiler: configure-tracy-profiler
+    @echo "Compilation du Tracy Profiler (v0.13.1, X11 legacy)..."
+    @cmake --build build/tracy-profiler -j$(nproc)
+
+# Compile l'outil CLI tracy-capture upstream.
+build-tracy-capture: configure-tracy-capture
+    @echo "Compilation de tracy-capture (CLI)..."
+    @cmake --build build/tracy-capture -j$(nproc)
+
 # --- EXECUTION & DEBUG ---
 
 # Exécute l'application release.
-run: build
-    @./build/release/vulkan_app
+run args="": build
+    @./build/release/vulkan_app {{ args }}
 
 # Exécute l'application compilée avec ASan/UBSan.
 run-asan: build-asan
     @echo "Exécution avec AddressSanitizer + UndefinedBehaviorSanitizer..."
     @./build/asan/vulkan_app
 
+# Exécute l'application instrumentée Tracy.
+run-tracy args="": build-tracy
+    @./build/tracy/vulkan_app {{ args }}
+
+# Lance le profiler Tracy compilé localement.
+tracy-profiler: build-tracy-profiler
+    @./build/tracy-profiler/tracy-profiler
+
+# Lance un scenario d'integration automatise Tracy (Xvfb + xdotool + capture CLI).
+test-integration-tracy capture_seconds="45" trace_file="build/tracy/integration.tracy": build-tracy build-tracy-capture
+    @scripts/test_integration_tracy.sh "{{ capture_seconds }}" "{{ trace_file }}"
+
 # Utilisation : just renderdoc_bin=/chemin/vers/qrenderdoc renderdoc
-renderdoc: build-debug
+renderdoc: build-debug-renderdoc
     @{{ renderdoc_bin }} --working-dir . ./build/debug/vulkan_app
 
 # Utilisation : just renderdoc_bin=/chemin/vers/qrenderdoc renderdoc-debug-shaders
@@ -159,6 +186,22 @@ test: build
 # Exécute uniquement le test d'intégration de rendu.
 test-integration: build
     @ctest --test-dir build/release --output-on-failure -R EngineIntegrationTest
+
+# Régénère les références visuelles en environnement Docker CI puis valide en mode strict.
+sync-test-references build_type="Release": ci-image-build
+    @echo "Synchronisation des references de rendu dans Docker ({{ build_type }})..."
+    @docker run --rm \
+        --user "$(id -u):$(id -g)" \
+        -e CI=true \
+        -e HOME=/tmp \
+        -v "$PWD:/work" \
+        -w /work \
+        local/suckless-vulkan-ci:latest \
+        bash -lc "chmod +x scripts/ci/sync_test_references.sh scripts/ci/run_ci_build_and_test.sh && scripts/ci/sync_test_references.sh {{ build_type }}"
+
+# Régénère les références en Release, puis valide la CI Docker complète (Release+Debug).
+sync-test-references-all: sync-test-references
+    @just ci-docker-all
 
 # Exécute uniquement les tests logiques/unitaires purs.
 test-logic: build
@@ -380,10 +423,7 @@ lint-just:
 # Valide les shaders via glslangValidator.
 lint-shaders:
     @echo "Linting des shaders avec glslangValidator..."
-    @glslangValidator -V shaders/shader.vert -o /dev/null
-    @glslangValidator -V shaders/shader.frag -o /dev/null
-    @glslangValidator -V shaders/skybox.vert -o /dev/null
-    @glslangValidator -V shaders/skybox.frag -o /dev/null
+    @scripts/compile_shaders.sh lint
     @echo "Linting Shaders terminé."
 
 # Lint la doc Markdown.
@@ -427,6 +467,18 @@ check: format lint test
 
 # Gate d'iteration rapide pour les boucles dev locales.
 check-iter: format lint-iter test-iter
+
+# Compare IBL maps between OpenGL and Vulkan
+verify-ibl: build
+    @echo "--- 🧹 Cleaning old dumps ---"
+    @rm -rf /tmp/ibl_tests
+    @mkdir -p /tmp/ibl_tests/ogl /tmp/ibl_tests/vk
+    @echo "--- 🎨 Generating OGL Reference ---"
+    @cd ../suckless-ogl && cmake -B build && cmake --build build --target test_ibl_extract -j$(nproc) && ./build/tests/test_ibl_extract assets/textures/hdr/abandoned_garage_4k.hdr /tmp/ibl_tests/ogl
+    @echo "--- 🌋 Generating Vulkan Results ---"
+    @SVK_IBL_DUMP=1 SVK_IBL_HDR=abandoned_garage_4k.hdr just test-all || true
+    @echo "--- 📊 Comparing Results ---"
+    @uv run scripts/verify_ibl.py
 
 # Build local de l'image Docker CI.
 ci-image-build:

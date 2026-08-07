@@ -195,9 +195,19 @@ void test_runtime_controls(TestStats* stats) {
     check(stats, state.lastX == state.windowX && state.lastY == state.windowY, "Windowed restore should use saved position");
     check(stats, state.lastW == state.windowW && state.lastH == state.windowH, "Windowed restore should use saved size");
 
+    camera_init(&engine.camera);
+    engine.camera.position = glm::vec3(1.0f, 2.0f, 3.0f);
+
+    state.keyStates[GLFW_KEY_P] = GLFW_PRESS;
+    runtime_update_controls(&engine, &ops);
+    check(stats, engine.animationPaused, "P should toggle pause on");
+    state.keyStates[GLFW_KEY_P] = GLFW_RELEASE;
+    runtime_update_controls(&engine, &ops);
+
     state.keyStates[GLFW_KEY_SPACE] = GLFW_PRESS;
     runtime_update_controls(&engine, &ops);
-    check(stats, engine.animationPaused, "Space should toggle pause on");
+    check(stats, engine.camera.position.z == 20.0f, "Space should reset camera position (z=20)");
+    check(stats, engine.camera.position.x == 0.0f, "Space should reset camera position (x=0)");
     state.keyStates[GLFW_KEY_SPACE] = GLFW_RELEASE;
     runtime_update_controls(&engine, &ops);
 

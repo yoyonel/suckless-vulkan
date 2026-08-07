@@ -5,6 +5,7 @@
 // --- HELPERS DEBUG (RenderDoc) ---
 
 void vk_set_object_name(VkDevice device, uint64_t handle, VkObjectType type, const char* name) {
+#ifndef __SANITIZE_ADDRESS__
     VkDebugUtilsObjectNameInfoEXT nameInfo{};
     nameInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT;
     nameInfo.objectType = type;
@@ -13,6 +14,12 @@ void vk_set_object_name(VkDevice device, uint64_t handle, VkObjectType type, con
     auto func = (PFN_vkSetDebugUtilsObjectNameEXT)vkGetDeviceProcAddr(device, "vkSetDebugUtilsObjectNameEXT");
     if (func)
         func(device, &nameInfo);
+#else
+    (void)device;
+    (void)handle;
+    (void)type;
+    (void)name;
+#endif
 }
 
 void vk_begin_label(VkDevice device, VkCommandBuffer cb, const char* name, float r, float g, float b) {

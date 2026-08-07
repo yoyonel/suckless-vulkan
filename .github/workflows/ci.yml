@@ -97,12 +97,12 @@ jobs:
             bash -lc "chmod +x scripts/ci/run_ci_build_and_test.sh && \
               scripts/ci/run_ci_build_and_test.sh ${{ matrix.build_type }}"
 
-      - name: Upload test frame artifact
+      - name: Upload test frames artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-frame-${{ matrix.build_type }}
-          path: test_output.png
+          name: test-frames-${{ matrix.build_type }}
+          path: test_*.png
           if-no-files-found: ignore
 
   memory-checks-asan:

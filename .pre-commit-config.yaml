@@ -17,7 +17,7 @@ repos:
         stages: [pre-commit]
 
       - id: test-before-push
-        name: Run tests before push
+        name: Run all tests (including visual regression) before push
         entry: bash -lc 'just test'
         language: system
         pass_filenames: false

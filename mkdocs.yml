@@ -21,8 +21,17 @@ nav:
   - Optimisation VRAM (Staging): vram_optimization.md
   - Caméra Cinétique: kinetic_camera.md
   - Runtime Controls et Logging: runtime_controls_logging.md
+  - Reference Pipelines Vulkan: pipeline_reference.md
   - Pipeline Envmap HDR: envmap_hdr_pipeline.md
   - CI/CD GitHub Actions: ci_cd.md
   - Outillage & Qualité: tooling.md
+  - Refactoring Report (2026-08-07): refactoring_report_20260807.md
+  - Profiling Tracy: profiling_tracy.md
   - Tracing: tracing.md
+  - Système de Validation IBL: ibl_validation_system.md
+  - Conventions de Repères & Orientation: coordinate_systems.md
+  - Post-Mortem Portage:
+      - IBL Porting Post-Mortem: ibl_vulkan_porting_postmortem.md
+      - Billboard Raytraced Spheres: billboard_raytracing.md
+      - Analyse Pipeline Couleur: color_pipeline_analysis.md
   - Changelog: changelog.md
