@@ -16,17 +16,7 @@ if(ENABLE_SANITIZERS)
   )
 endif()
 
-# Optional: code coverage instrumentation for unit/logical tests (gcovr style).
-option(ENABLE_COVERAGE "Enable coverage flags for GCC/Clang (gcovr)" OFF)
-if(ENABLE_COVERAGE)
-  if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    message(STATUS "Enabling code coverage instrumentation (gcovr)")
-    add_compile_options(-O0 -g --coverage)
-    add_link_options(--coverage)
-  else()
-    message(WARNING "Coverage requested but compiler is not GCC/Clang")
-  endif()
-endif()
+
 
 # Optional: LLVM code coverage instrumentation (llvm-cov style, clang required).
 option(ENABLE_LLVM_COV "Enable LLVM coverage instrumentation (llvm-cov)" OFF)

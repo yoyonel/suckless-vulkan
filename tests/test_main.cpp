@@ -1,6 +1,12 @@
 #include "app_log.h"
+#include "runtime_controls.h"
 #include "vk_engine.h"
+#include "vk_engine_envmap.h"
+#include "vk_engine_ibl.h"
+#include "vk_engine_runtime.h"
+#include <GLFW/glfw3.h>
 #include <cstdlib>
+#include <string>
 
 // On réduit au silence les warnings de la lib tierce pour le compilateur
 #if defined(__GNUC__) || defined(__clang__)
@@ -237,6 +243,39 @@ static bool test_integration_rendering() {
         return false;
     }
     bool b5 = verify_and_capture_frame(&engine, "test_close_billboard.png");
+
+    // Test coverage for default WindowOps wrappers
+    const WindowOps* ops = runtime_default_window_ops();
+    ops->get_key(engine.window, GLFW_KEY_UNKNOWN);
+    ops->set_window_should_close(engine.window, GLFW_FALSE);
+    GLFWmonitor* primary = ops->get_primary_monitor();
+    if (primary) {
+        ops->get_video_mode(primary);
+    }
+    int winX = 0;
+    int winY = 0;
+    int winW = 0;
+    int winH = 0;
+    ops->get_window_pos(engine.window, &winX, &winY);
+    ops->get_window_size(engine.window, &winW, &winH);
+    ops->set_window_monitor(engine.window, nullptr, winX, winY, winW, winH, 0);
+
+    // Test envmap logic
+    vk_adjust_env_lod(&engine, 1.0f);
+    vk_adjust_env_lod(&engine, -1.0f);
+    vk_switch_environment_texture(&engine, 1);
+    vk_switch_environment_texture(&engine, -1);
+    vk_ibl_export_maps(&engine);
+
+    // Cover mouse and scroll callbacks
+    engine.cameraEnabled = false;
+    vk_mouse_callback(engine.window, 10.0, 10.0); // camera off
+    engine.cameraEnabled = true;
+    engine.camera.firstMouse = true;
+    vk_mouse_callback(engine.window, 10.0, 10.0); // first mouse
+    vk_mouse_callback(engine.window, 20.0, 20.0); // move mouse
+
+    vk_scroll_callback(engine.window, 0, 1.0); // scroll
 
     cleanup_vulkan_engine(&engine);
     return b1 && b2 && b3 && b4 && b5;

@@ -1,6 +1,7 @@
 #include "vk_engine_runtime.h"
 
 #include "app_log.h"
+#include "runtime_controls.h"
 #include "vk_engine_envmap.h"
 #include "vk_engine_ibl.h"
 #include "vk_engine_init.h"
@@ -11,12 +12,12 @@ namespace {
 
 constexpr float kEnvLodStep = 0.5f;
 
-bool is_shift_down(GLFWwindow* window) {
-    return glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS;
+bool is_shift_down(GLFWwindow* window, const WindowOps* ops) {
+    return ops->get_key(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS || ops->get_key(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS;
 }
 
-bool is_key_pressed_once(GLFWwindow* window, int key, bool* wasDown) {
-    const bool isDown = glfwGetKey(window, key) == GLFW_PRESS;
+bool is_key_pressed_once(GLFWwindow* window, int key, bool* wasDown, const WindowOps* ops) {
+    const bool isDown = ops->get_key(window, key) == GLFW_PRESS;
     const bool pressedOnce = isDown && !(*wasDown);
     *wasDown = isDown;
     return pressedOnce;
@@ -38,8 +39,8 @@ void set_ibl_debug_mode(VulkanEngine* engine, int mode) {
     }
 }
 
-void handle_camera_and_envmap_toggles(VulkanEngine* engine) {
-    const bool cDown = glfwGetKey(engine->window, GLFW_KEY_C) == GLFW_PRESS;
+void handle_camera_and_envmap_toggles(VulkanEngine* engine, const WindowOps* ops) {
+    const bool cDown = ops->get_key(engine->window, GLFW_KEY_C) == GLFW_PRESS;
     if (cDown && !engine->cameraToggleKeyWasDown) {
         engine->cameraEnabled = !engine->cameraEnabled;
         glfwSetInputMode(engine->window, GLFW_CURSOR, engine->cameraEnabled ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
@@ -48,7 +49,7 @@ void handle_camera_and_envmap_toggles(VulkanEngine* engine) {
     }
     engine->cameraToggleKeyWasDown = cDown;
 
-    const bool kDown = glfwGetKey(engine->window, GLFW_KEY_K) == GLFW_PRESS;
+    const bool kDown = ops->get_key(engine->window, GLFW_KEY_K) == GLFW_PRESS;
     if (kDown && !engine->showEnvmapToggleKeyWasDown) {
         engine->showEnvmap = !engine->showEnvmap;
         LOG_INFO("runtime", "Skybox: %s", engine->showEnvmap ? "ON" : "OFF");
@@ -56,7 +57,7 @@ void handle_camera_and_envmap_toggles(VulkanEngine* engine) {
     engine->showEnvmapToggleKeyWasDown = kDown;
 
     // Toggle Billboard Mode
-    bool billboardDown = glfwGetKey(engine->window, GLFW_KEY_B) == GLFW_PRESS;
+    bool billboardDown = ops->get_key(engine->window, GLFW_KEY_B) == GLFW_PRESS;
     if (billboardDown && !engine->billboardKeyWasDown) {
         engine->billboardMode = !engine->billboardMode;
         LOG_INFO("input", "Billboard mode: %s", engine->billboardMode ? "ON" : "OFF");
@@ -64,7 +65,7 @@ void handle_camera_and_envmap_toggles(VulkanEngine* engine) {
     engine->billboardKeyWasDown = billboardDown;
 
     // Toggle Wireframe Mode (Legacy OGL uses 'Z')
-    bool wireframeDown = glfwGetKey(engine->window, GLFW_KEY_Z) == GLFW_PRESS;
+    bool wireframeDown = ops->get_key(engine->window, GLFW_KEY_Z) == GLFW_PRESS;
     if (wireframeDown && !engine->wireframeKeyWasDown) {
         engine->wireframeMode = !engine->wireframeMode;
         LOG_INFO("input", "Wireframe mode: %s", engine->wireframeMode ? "ON" : "OFF");
@@ -72,8 +73,8 @@ void handle_camera_and_envmap_toggles(VulkanEngine* engine) {
     engine->wireframeKeyWasDown = wireframeDown;
 }
 
-void handle_env_navigation(VulkanEngine* engine, bool shiftDown) {
-    const bool pgUpDown = glfwGetKey(engine->window, GLFW_KEY_PAGE_UP) == GLFW_PRESS;
+void handle_env_navigation(VulkanEngine* engine, bool shiftDown, const WindowOps* ops) {
+    const bool pgUpDown = ops->get_key(engine->window, GLFW_KEY_PAGE_UP) == GLFW_PRESS;
     if (pgUpDown && !engine->envPageUpKeyWasDown) {
         if (shiftDown) {
             vk_adjust_env_lod(engine, kEnvLodStep);
@@ -83,7 +84,7 @@ void handle_env_navigation(VulkanEngine* engine, bool shiftDown) {
     }
     engine->envPageUpKeyWasDown = pgUpDown;
 
-    const bool pgDownDown = glfwGetKey(engine->window, GLFW_KEY_PAGE_DOWN) == GLFW_PRESS;
+    const bool pgDownDown = ops->get_key(engine->window, GLFW_KEY_PAGE_DOWN) == GLFW_PRESS;
     if (pgDownDown && !engine->envPageDownKeyWasDown) {
         if (shiftDown) {
             vk_adjust_env_lod(engine, -kEnvLodStep);
@@ -94,43 +95,43 @@ void handle_env_navigation(VulkanEngine* engine, bool shiftDown) {
     engine->envPageDownKeyWasDown = pgDownDown;
 }
 
-void handle_ibl_debug_inputs(VulkanEngine* engine) {
+void handle_ibl_debug_inputs(VulkanEngine* engine, const WindowOps* ops) {
     for (int digit = 0; digit <= 9; ++digit) {
         const int key = GLFW_KEY_0 + digit;
-        if (is_key_pressed_once(engine->window, key, &engine->iblDebugDigitKeyWasDown[digit])) {
+        if (is_key_pressed_once(engine->window, key, &engine->iblDebugDigitKeyWasDown[digit], ops)) {
             set_ibl_debug_mode(engine, digit);
         }
     }
 
-    if (is_key_pressed_once(engine->window, GLFW_KEY_LEFT_BRACKET, &engine->iblDebugPrevKeyWasDown)) {
+    if (is_key_pressed_once(engine->window, GLFW_KEY_LEFT_BRACKET, &engine->iblDebugPrevKeyWasDown, ops)) {
         set_ibl_debug_mode(engine, engine->iblDebugMode - 1);
     }
-    if (is_key_pressed_once(engine->window, GLFW_KEY_RIGHT_BRACKET, &engine->iblDebugNextKeyWasDown)) {
+    if (is_key_pressed_once(engine->window, GLFW_KEY_RIGHT_BRACKET, &engine->iblDebugNextKeyWasDown, ops)) {
         set_ibl_debug_mode(engine, engine->iblDebugMode + 1);
     }
 
-    if (is_key_pressed_once(engine->window, GLFW_KEY_F5, &engine->iblDebugF5KeyWasDown)) {
+    if (is_key_pressed_once(engine->window, GLFW_KEY_F5, &engine->iblDebugF5KeyWasDown, ops)) {
         set_ibl_debug_mode(engine, (engine->iblDebugMode + 1) % 10);
     }
 
-    if (is_key_pressed_once(engine->window, GLFW_KEY_O, &engine->iblExportKeyWasDown)) {
+    if (is_key_pressed_once(engine->window, GLFW_KEY_O, &engine->iblExportKeyWasDown, ops)) {
         vk_ibl_export_maps(engine);
         LOG_INFO("runtime", "IBL maps export requested (/tmp/ibl_tests/vk)");
     }
 }
 
-void handle_postprocess_inputs(VulkanEngine* engine) {
-    if (glfwGetKey(engine->window, GLFW_KEY_KP_ADD) == GLFW_PRESS) {
+void handle_postprocess_inputs(VulkanEngine* engine, const WindowOps* ops) {
+    if (ops->get_key(engine->window, GLFW_KEY_KP_ADD) == GLFW_PRESS) {
         engine->exposure += (0.1f * engine->lastFrameDeltaSeconds * 2.0f); // Smoother adjustment
         LOG_INFO("runtime", "New exposure value: %.2fx", engine->exposure);
     }
-    if (glfwGetKey(engine->window, GLFW_KEY_KP_SUBTRACT) == GLFW_PRESS) {
+    if (ops->get_key(engine->window, GLFW_KEY_KP_SUBTRACT) == GLFW_PRESS) {
         engine->exposure = std::max(0.01f, engine->exposure - (0.1f * engine->lastFrameDeltaSeconds * 2.0f));
         LOG_INFO("runtime", "New exposure value: %.2fx", engine->exposure);
     }
 
-    if (is_key_pressed_once(engine->window, GLFW_KEY_0, &engine->postResetKeyWasDown) ||
-        is_key_pressed_once(engine->window, GLFW_KEY_KP_0, &engine->postResetKeyWasDown)) {
+    if (is_key_pressed_once(engine->window, GLFW_KEY_0, &engine->postResetKeyWasDown, ops) ||
+        is_key_pressed_once(engine->window, GLFW_KEY_KP_0, &engine->postResetKeyWasDown, ops)) {
         engine->exposure = 1.0f;
         engine->saturation = 1.0f;
         engine->contrast = 1.0f;
@@ -145,29 +146,29 @@ void handle_postprocess_inputs(VulkanEngine* engine) {
 
 } // namespace
 
-void vk_update_camera_key_state(VulkanEngine* engine) {
-    engine->camera.moveForward = glfwGetKey(engine->window, GLFW_KEY_W) == GLFW_PRESS;
-    engine->camera.moveBackward = glfwGetKey(engine->window, GLFW_KEY_S) == GLFW_PRESS;
-    engine->camera.moveLeft = glfwGetKey(engine->window, GLFW_KEY_A) == GLFW_PRESS;
-    engine->camera.moveRight = glfwGetKey(engine->window, GLFW_KEY_D) == GLFW_PRESS;
-    engine->camera.moveUp = glfwGetKey(engine->window, GLFW_KEY_Q) == GLFW_PRESS;
-    engine->camera.moveDown = glfwGetKey(engine->window, GLFW_KEY_E) == GLFW_PRESS;
+void vk_update_camera_key_state(VulkanEngine* engine, const WindowOps* ops) {
+    engine->camera.moveForward = ops->get_key(engine->window, GLFW_KEY_W) == GLFW_PRESS;
+    engine->camera.moveBackward = ops->get_key(engine->window, GLFW_KEY_S) == GLFW_PRESS;
+    engine->camera.moveLeft = ops->get_key(engine->window, GLFW_KEY_A) == GLFW_PRESS;
+    engine->camera.moveRight = ops->get_key(engine->window, GLFW_KEY_D) == GLFW_PRESS;
+    engine->camera.moveUp = ops->get_key(engine->window, GLFW_KEY_Q) == GLFW_PRESS;
+    engine->camera.moveDown = ops->get_key(engine->window, GLFW_KEY_E) == GLFW_PRESS;
 }
 
-void vk_handle_runtime_input(VulkanEngine* engine) {
-    handle_camera_and_envmap_toggles(engine);
+void vk_handle_runtime_input(VulkanEngine* engine, const WindowOps* ops) {
+    handle_camera_and_envmap_toggles(engine, ops);
 
-    const bool shiftDown = is_shift_down(engine->window);
-    handle_env_navigation(engine, shiftDown);
-    handle_ibl_debug_inputs(engine);
-    handle_postprocess_inputs(engine);
+    const bool shiftDown = is_shift_down(engine->window, ops);
+    handle_env_navigation(engine, shiftDown, ops);
+    handle_ibl_debug_inputs(engine, ops);
+    handle_postprocess_inputs(engine, ops);
 
-    if (is_key_pressed_once(engine->window, GLFW_KEY_B, &engine->billboardKeyWasDown)) {
+    if (is_key_pressed_once(engine->window, GLFW_KEY_B, &engine->billboardKeyWasDown, ops)) {
         engine->billboardMode = !engine->billboardMode;
         LOG_INFO("runtime", "Sphere Rendering Mode: %s", engine->billboardMode ? "BILLBOARD (Raytraced)" : "ICOSPHERE (Triangulated)");
     }
 
-    if (is_key_pressed_once(engine->window, GLFW_KEY_V, &engine->vsyncKeyWasDown)) {
+    if (is_key_pressed_once(engine->window, GLFW_KEY_V, &engine->vsyncKeyWasDown, ops)) {
         engine->vsync = !engine->vsync;
         LOG_INFO("runtime", "VSync toggle: %s (recreating swapchain...)", engine->vsync ? "ON" : "OFF");
         vk_recreate_swapchain(engine);
