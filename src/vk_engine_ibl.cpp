@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <stb/stb_image_write.h>
 #include <sys/stat.h>
 #include <vector>
@@ -767,9 +768,10 @@ void vk_ibl_bake(VulkanEngine* engine) {
 
 void vk_ibl_export_maps(VulkanEngine* engine) {
     const char* dump_dir = "/tmp/ibl_tests/vk";
-    const mode_t mode = 0755;
-    if (mkdir(dump_dir, mode) == -1 && errno != EEXIST) {
-        LOG_ERROR("ibl", "Failed to create dump directory");
+    std::error_code ec;
+    std::filesystem::create_directories(dump_dir, ec);
+    if (ec) {
+        LOG_ERROR("ibl", "Failed to create dump directory: %s", ec.message().c_str());
     }
     LOG_INFO("ibl", "Exporting IBL maps to HDR files in %s...", dump_dir);
     char path[512];

@@ -1,6 +1,7 @@
 #include "app_log.h"
 #include "runtime_controls.h"
 #include "vk_engine.h"
+#include "vk_engine_ibl.h"
 #include "vk_engine_runtime.h"
 #include <GLFW/glfw3.h>
 #include <cstdlib>
@@ -256,6 +257,9 @@ static bool test_integration_rendering() {
     ops->get_window_pos(engine.window, &winX, &winY);
     ops->get_window_size(engine.window, &winW, &winH);
     ops->set_window_monitor(engine.window, nullptr, winX, winY, winW, winH, 0);
+
+    // Test export IBL maps (triggered by 'O' in runtime)
+    vk_ibl_export_maps(&engine);
 
     // Cover mouse and scroll callbacks
     engine.cameraEnabled = false;
