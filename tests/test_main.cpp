@@ -1,10 +1,12 @@
 #include "app_log.h"
 #include "runtime_controls.h"
 #include "vk_engine.h"
+#include "vk_engine_envmap.h"
 #include "vk_engine_ibl.h"
 #include "vk_engine_runtime.h"
 #include <GLFW/glfw3.h>
 #include <cstdlib>
+#include <string>
 
 // On réduit au silence les warnings de la lib tierce pour le compilateur
 #if defined(__GNUC__) || defined(__clang__)
@@ -258,7 +260,11 @@ static bool test_integration_rendering() {
     ops->get_window_size(engine.window, &winW, &winH);
     ops->set_window_monitor(engine.window, nullptr, winX, winY, winW, winH, 0);
 
-    // Test export IBL maps (triggered by 'O' in runtime)
+    // Test envmap logic
+    vk_adjust_env_lod(&engine, 1.0f);
+    vk_adjust_env_lod(&engine, -1.0f);
+    vk_switch_environment_texture(&engine, 1);
+    vk_switch_environment_texture(&engine, -1);
     vk_ibl_export_maps(&engine);
 
     // Cover mouse and scroll callbacks
