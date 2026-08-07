@@ -56,12 +56,12 @@ configure-asan:
         cmake -B build/asan -S . -DCMAKE_BUILD_TYPE=Debug -DENABLE_SANITIZERS=ON; \
     fi
 
-# Configure un build instrumente pour la couverture de code.
+# Configure un build instrumente pour llvm-cov (clang obligatoire).
 configure-coverage:
     @if command -v ccache >/dev/null 2>&1; then \
-        cmake -B build/coverage -S . -DCMAKE_BUILD_TYPE=Debug -DENABLE_COVERAGE=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache; \
+        cmake -B build/coverage -S . -DCMAKE_BUILD_TYPE=Debug -DENABLE_LLVM_COV=ON -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_CXX_COMPILER_LAUNCHER=ccache; \
     else \
-        cmake -B build/coverage -S . -DCMAKE_BUILD_TYPE=Debug -DENABLE_COVERAGE=ON; \
+        cmake -B build/coverage -S . -DCMAKE_BUILD_TYPE=Debug -DENABLE_LLVM_COV=ON -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++; \
     fi
 
 # Configure un build RelWithDebInfo avec Tracy active.
@@ -126,10 +126,10 @@ build-asan: configure-asan shaders
     @echo "Compilation Debug avec ASan + UBSan..."
     @cmake --build build/asan -j$(nproc)
 
-# Compile les cibles avec instrumentation de couverture.
+# Compile les cibles avec instrumentation de couverture (llvm-cov).
 build-coverage: configure-coverage shaders
-    @echo "Compilation Debug avec couverture de code..."
-    @cmake --build build/coverage -j$(nproc)
+    @echo "Compilation Debug avec couverture LLVM..."
+    @cmake --build build/coverage --parallel
 
 # Compile l'application avec Tracy active.
 build-tracy: configure-tracy shaders
@@ -237,58 +237,22 @@ test-validation-layers: build-debug
     @VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation \
         ctest --test-dir build/debug --output-on-failure
 
-# Exécute les tests logiques sur le build coverage instrumenté.
-test-coverage: build-coverage
-    @ctest --test-dir build/coverage --output-on-failure -R LogicTests
-
-# Génère des rapports de couverture texte, XML (Cobertura) et HTML.
-coverage-report: test-coverage
-    @mkdir -p build/coverage/reports
-    @uvx --from gcovr gcovr \
-        --root . \
-        --object-directory build/coverage \
-        --filter '^src/' \
-        --exclude '^ext/' \
-        --exclude '^tests/' \
-        --txt-summary \
-        --txt build/coverage/reports/coverage.txt \
-        --xml build/coverage/reports/coverage.xml \
-        --xml-pretty \
-        --html-details build/coverage/reports/coverage.html
-
-# Flow local complet de couverture des tests logiques.
-coverage: coverage-report
-
-# Configure un build instrumente pour llvm-cov (clang obligatoire).
-configure-coverage-llvm:
-    @if command -v ccache >/dev/null 2>&1; then \
-        cmake -B build/coverage-llvm -S . -DCMAKE_BUILD_TYPE=Debug -DENABLE_LLVM_COV=ON -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_CXX_COMPILER_LAUNCHER=ccache; \
-    else \
-        cmake -B build/coverage-llvm -S . -DCMAKE_BUILD_TYPE=Debug -DENABLE_LLVM_COV=ON -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++; \
-    fi
-
-# Build avec instrumentation llvm-cov.
-build-coverage-llvm: configure-coverage-llvm shaders
-    @cmake --build build/coverage-llvm --parallel
-
 # Exécute TOUS les tests sur le build llvm-cov instrumenté (LogicTests + EngineIntegrationTest).
-test-coverage-llvm: build-coverage-llvm
-    @mkdir -p build/coverage-llvm
+test-coverage: build-coverage
+    @mkdir -p build/coverage
     @echo "Running tests with LLVM profiling..."
-    @LLVM_PROFILE_FILE='{{ justfile_directory() }}/build/coverage-llvm/test_%p.profraw' ctest --test-dir build/coverage-llvm --output-on-failure
+    @LLVM_PROFILE_FILE='{{ justfile_directory() }}/build/coverage/test_%p.profraw' ctest --test-dir build/coverage --output-on-failure
     @echo "Merging profile data..."
-    @llvm-profdata merge -sparse build/coverage-llvm/*.profraw -o build/coverage-llvm/coverage.profdata
+    @llvm-profdata merge -sparse build/coverage/*.profraw -o build/coverage/coverage.profdata
 
-# Génère des rapports LLVM-cov (HTML + résumé console formaté).
-
-# Utilise directement llvm-cov, sans scripts custom (prefere standard outils).
-coverage-report-llvm: test-coverage-llvm
+# Génère des rapports LLVM-cov (HTML + résumé console formaté)
+coverage-report: test-coverage
     @echo "Generating HTML report..."
-    @mkdir -p build/coverage-llvm/coverage_report
+    @mkdir -p build/coverage/coverage_report
     @llvm-cov show -format=html \
-        -instr-profile=build/coverage-llvm/coverage.profdata \
-        build/coverage-llvm/unit_tests \
-        -output-dir=build/coverage-llvm/coverage_report \
+        -instr-profile=build/coverage/coverage.profdata \
+        build/coverage/unit_tests \
+        -output-dir=build/coverage/coverage_report \
         -ignore-filename-regex='(tests/|ext/)' > /dev/null 2>&1
     @echo ""
     @echo "════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════"
@@ -296,18 +260,18 @@ coverage-report-llvm: test-coverage-llvm
     @echo "════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════"
     @echo ""
     @llvm-cov report \
-        -instr-profile=build/coverage-llvm/coverage.profdata \
-        build/coverage-llvm/unit_tests \
-        build/coverage-llvm/logic_tests \
+        -instr-profile=build/coverage/coverage.profdata \
+        build/coverage/unit_tests \
+        build/coverage/logic_tests \
         -ignore-filename-regex='(tests/|ext/)' || true
     @echo ""
     @echo "════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════"
-    @echo "🔗 HTML Report: build/coverage-llvm/coverage_report/index.html"
+    @echo "🔗 HTML Report: build/coverage/coverage_report/index.html"
     @echo "════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════"
     @echo ""
 
-# Flow complet de couverture avec llvm-cov (meilleur formatage que gcovr).
-coverage-llvm: coverage-report-llvm
+# Flow complet de couverture avec llvm-cov.
+coverage: coverage-report
 
 # --- NOUVELLES RECETTES DE QUALITÉ DE CODE ---
 
