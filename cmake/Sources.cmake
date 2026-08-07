@@ -30,4 +30,5 @@ set(LOGIC_TEST_SOURCES
     tests/test_logic.cpp
     src/app_log.cpp
     src/runtime_controls.cpp
-    src/camera.cpp)
+    src/camera.cpp
+    src/vk_engine_runtime.cpp)

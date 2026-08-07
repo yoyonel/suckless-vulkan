@@ -1,5 +1,6 @@
 #include "vk_engine_frame.h"
 
+#include "runtime_controls.h"
 #include "tracy_client.h"
 #include "tracy_vulkan.h"
 #include "vk_engine_envmap.h"
@@ -49,8 +50,9 @@ bool vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recreateSw
         SVK_TRACY_ZONE_SCOPED("Frame CPU Update");
         vk_update_animation_clock(engine, 0.25f);
         vk_process_ready_environment_texture(engine);
-        vk_handle_runtime_input(engine);
-        vk_update_camera_key_state(engine);
+        const WindowOps* ops = runtime_default_window_ops();
+        vk_handle_runtime_input(engine, ops);
+        vk_update_camera_key_state(engine, ops);
         camera_fixed_update(&engine->camera, engine->lastFrameDeltaSeconds);
     }
 

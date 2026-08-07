@@ -1,9 +1,27 @@
 #include "app_log.h"
 #include "runtime_controls.h"
+#include "vk_engine_runtime.h"
 
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+
+// Mocks for vk_engine_runtime.cpp dependencies not linked in logic_tests
+void vk_adjust_env_lod(VulkanEngine* engine, float step) {
+    (void)engine;
+    (void)step;
+}
+void vk_switch_environment_texture(VulkanEngine* engine, int dir) {
+    (void)engine;
+    (void)dir;
+}
+void vk_ibl_export_maps(VulkanEngine* engine) {
+    (void)engine;
+}
+bool vk_recreate_swapchain(VulkanEngine* engine) {
+    (void)engine;
+    return true;
+}
 
 namespace {
 
@@ -195,6 +213,14 @@ void test_runtime_controls(TestStats* stats) {
     check(stats, state.lastX == state.windowX && state.lastY == state.windowY, "Windowed restore should use saved position");
     check(stats, state.lastW == state.windowW && state.lastH == state.windowH, "Windowed restore should use saved size");
 
+    // Edge cases for null monitor/video mode
+    state.hasMonitor = false;
+    check(stats, !runtime_toggle_fullscreen(&engine, &ops), "Toggle fullscreen should fail if no monitor");
+    state.hasMonitor = true;
+    state.hasVideoMode = false;
+    check(stats, !runtime_toggle_fullscreen(&engine, &ops), "Toggle fullscreen should fail if no video mode");
+    state.hasVideoMode = true;
+
     camera_init(&engine.camera);
     engine.camera.position = glm::vec3(1.0f, 2.0f, 3.0f);
 
@@ -234,6 +260,169 @@ void test_runtime_controls(TestStats* stats) {
     g_fake = nullptr;
 }
 
+void test_vk_engine_runtime(TestStats* stats) {
+    FakeWindowOpsState state = {};
+    g_fake = &state;
+    const WindowOps ops = make_fake_ops();
+
+    VulkanEngine engine = {};
+    engine.window = reinterpret_cast<GLFWwindow*>(0x2);
+
+    engine.cameraEnabled = false;
+    state.keyStates[GLFW_KEY_C] = GLFW_PRESS;
+    vk_handle_runtime_input(&engine, &ops);
+    check(stats, engine.cameraEnabled, "C toggles camera ON");
+    state.keyStates[GLFW_KEY_C] = GLFW_RELEASE;
+    vk_handle_runtime_input(&engine, &ops);
+
+    engine.showEnvmap = false;
+    state.keyStates[GLFW_KEY_K] = GLFW_PRESS;
+    vk_handle_runtime_input(&engine, &ops);
+    check(stats, engine.showEnvmap, "K toggles skybox ON");
+    state.keyStates[GLFW_KEY_K] = GLFW_RELEASE;
+    vk_handle_runtime_input(&engine, &ops);
+
+    engine.billboardMode = false;
+    state.keyStates[GLFW_KEY_B] = GLFW_PRESS;
+    vk_handle_runtime_input(&engine, &ops);
+    check(stats, engine.billboardMode, "B toggles billboard ON");
+    state.keyStates[GLFW_KEY_B] = GLFW_RELEASE;
+    vk_handle_runtime_input(&engine, &ops);
+
+    engine.wireframeMode = false;
+    state.keyStates[GLFW_KEY_Z] = GLFW_PRESS;
+    vk_handle_runtime_input(&engine, &ops);
+    check(stats, engine.wireframeMode, "Z toggles wireframe ON");
+    state.keyStates[GLFW_KEY_Z] = GLFW_RELEASE;
+    vk_handle_runtime_input(&engine, &ops);
+
+    engine.vsync = false;
+    state.keyStates[GLFW_KEY_V] = GLFW_PRESS;
+    vk_handle_runtime_input(&engine, &ops);
+    check(stats, engine.vsync, "V toggles vsync ON");
+    state.keyStates[GLFW_KEY_V] = GLFW_RELEASE;
+    vk_handle_runtime_input(&engine, &ops);
+
+    state.keyStates[GLFW_KEY_PAGE_UP] = GLFW_PRESS;
+    vk_handle_runtime_input(&engine, &ops);
+    state.keyStates[GLFW_KEY_PAGE_UP] = GLFW_RELEASE;
+
+    state.keyStates[GLFW_KEY_LEFT_SHIFT] = GLFW_PRESS;
+    state.keyStates[GLFW_KEY_PAGE_UP] = GLFW_PRESS;
+    vk_handle_runtime_input(&engine, &ops);
+    state.keyStates[GLFW_KEY_PAGE_UP] = GLFW_RELEASE;
+
+    state.keyStates[GLFW_KEY_PAGE_DOWN] = GLFW_PRESS;
+    vk_handle_runtime_input(&engine, &ops);
+    state.keyStates[GLFW_KEY_PAGE_DOWN] = GLFW_RELEASE;
+    state.keyStates[GLFW_KEY_LEFT_SHIFT] = GLFW_RELEASE;
+
+    state.keyStates[GLFW_KEY_PAGE_DOWN] = GLFW_PRESS;
+    vk_handle_runtime_input(&engine, &ops);
+    state.keyStates[GLFW_KEY_PAGE_DOWN] = GLFW_RELEASE;
+
+    state.keyStates[GLFW_KEY_RIGHT_SHIFT] = GLFW_PRESS;
+    vk_handle_runtime_input(&engine, &ops);
+    state.keyStates[GLFW_KEY_RIGHT_SHIFT] = GLFW_RELEASE;
+
+    for (int digit = 0; digit <= 9; ++digit) {
+        state.keyStates[GLFW_KEY_0 + digit] = GLFW_PRESS;
+        vk_handle_runtime_input(&engine, &ops);
+        check(stats, engine.iblDebugMode == digit, "Digit key sets IBL debug mode");
+        state.keyStates[GLFW_KEY_0 + digit] = GLFW_RELEASE;
+        vk_handle_runtime_input(&engine, &ops);
+    }
+
+    engine.iblDebugMode = 5;
+    state.keyStates[GLFW_KEY_LEFT_BRACKET] = GLFW_PRESS;
+    vk_handle_runtime_input(&engine, &ops);
+    check(stats, engine.iblDebugMode == 4, "[ decrements IBL debug mode");
+    state.keyStates[GLFW_KEY_LEFT_BRACKET] = GLFW_RELEASE;
+    vk_handle_runtime_input(&engine, &ops);
+
+    state.keyStates[GLFW_KEY_LEFT_BRACKET] = GLFW_PRESS;
+    engine.iblDebugMode = -100;
+    vk_handle_runtime_input(&engine, &ops);
+    check(stats, engine.iblDebugMode == 0, "[ clamps IBL mode to 0");
+    state.keyStates[GLFW_KEY_LEFT_BRACKET] = GLFW_RELEASE;
+    vk_handle_runtime_input(&engine, &ops);
+
+    state.keyStates[GLFW_KEY_RIGHT_BRACKET] = GLFW_PRESS;
+    engine.iblDebugMode = 5;
+    vk_handle_runtime_input(&engine, &ops);
+    check(stats, engine.iblDebugMode == 6, "] increments IBL debug mode");
+    state.keyStates[GLFW_KEY_RIGHT_BRACKET] = GLFW_RELEASE;
+    vk_handle_runtime_input(&engine, &ops);
+
+    state.keyStates[GLFW_KEY_RIGHT_BRACKET] = GLFW_PRESS;
+    engine.iblDebugMode = 100;
+    vk_handle_runtime_input(&engine, &ops);
+    check(stats, engine.iblDebugMode == 9, "] clamps IBL debug mode to 9");
+    state.keyStates[GLFW_KEY_RIGHT_BRACKET] = GLFW_RELEASE;
+    vk_handle_runtime_input(&engine, &ops);
+
+    engine.iblDebugMode = 5;
+    state.keyStates[GLFW_KEY_F5] = GLFW_PRESS;
+    vk_handle_runtime_input(&engine, &ops);
+    check(stats, engine.iblDebugMode == 6, "F5 cycles IBL debug mode");
+    state.keyStates[GLFW_KEY_F5] = GLFW_RELEASE;
+    vk_handle_runtime_input(&engine, &ops);
+
+    state.keyStates[GLFW_KEY_O] = GLFW_PRESS;
+    vk_handle_runtime_input(&engine, &ops);
+    state.keyStates[GLFW_KEY_O] = GLFW_RELEASE;
+    vk_handle_runtime_input(&engine, &ops);
+
+    engine.exposure = 1.0f;
+    engine.lastFrameDeltaSeconds = 1.0f;
+    state.keyStates[GLFW_KEY_KP_ADD] = GLFW_PRESS;
+    vk_handle_runtime_input(&engine, &ops);
+    check(stats, engine.exposure > 1.0f, "KP_ADD increases exposure");
+    state.keyStates[GLFW_KEY_KP_ADD] = GLFW_RELEASE;
+    vk_handle_runtime_input(&engine, &ops);
+
+    state.keyStates[GLFW_KEY_KP_SUBTRACT] = GLFW_PRESS;
+    vk_handle_runtime_input(&engine, &ops);
+    check(stats, engine.exposure < 1.3f, "KP_SUBTRACT decreases exposure");
+    state.keyStates[GLFW_KEY_KP_SUBTRACT] = GLFW_RELEASE;
+    vk_handle_runtime_input(&engine, &ops);
+
+    engine.exposure = 0.0f;
+    state.keyStates[GLFW_KEY_KP_SUBTRACT] = GLFW_PRESS;
+    vk_handle_runtime_input(&engine, &ops);
+    check(stats, engine.exposure == 0.01f, "KP_SUBTRACT clamps to 0.01f");
+    state.keyStates[GLFW_KEY_KP_SUBTRACT] = GLFW_RELEASE;
+    vk_handle_runtime_input(&engine, &ops);
+
+    engine.exposure = 0.5f;
+    state.keyStates[GLFW_KEY_0] = GLFW_PRESS;
+    vk_handle_runtime_input(&engine, &ops);
+    check(stats, engine.exposure == 1.0f, "0 resets exposure");
+    state.keyStates[GLFW_KEY_0] = GLFW_RELEASE;
+    vk_handle_runtime_input(&engine, &ops);
+
+    engine.exposure = 0.5f;
+    state.keyStates[GLFW_KEY_KP_0] = GLFW_PRESS;
+    vk_handle_runtime_input(&engine, &ops);
+    check(stats, engine.exposure == 1.0f, "KP_0 resets exposure");
+    state.keyStates[GLFW_KEY_KP_0] = GLFW_RELEASE;
+    vk_handle_runtime_input(&engine, &ops);
+
+    state.keyStates[GLFW_KEY_W] = GLFW_PRESS;
+    state.keyStates[GLFW_KEY_S] = GLFW_PRESS;
+    state.keyStates[GLFW_KEY_A] = GLFW_PRESS;
+    state.keyStates[GLFW_KEY_D] = GLFW_PRESS;
+    state.keyStates[GLFW_KEY_Q] = GLFW_PRESS;
+    state.keyStates[GLFW_KEY_E] = GLFW_PRESS;
+    vk_update_camera_key_state(&engine, &ops);
+    check(stats,
+          engine.camera.moveForward && engine.camera.moveBackward && engine.camera.moveLeft && engine.camera.moveRight && engine.camera.moveUp &&
+              engine.camera.moveDown,
+          "Camera keys set correctly");
+
+    g_fake = nullptr;
+}
+
 } // namespace
 
 int main() {
@@ -241,6 +430,7 @@ int main() {
 
     test_logging(&stats);
     test_runtime_controls(&stats);
+    test_vk_engine_runtime(&stats);
 
     if (stats.failed != 0) {
         LOG_ERROR("test", "logic tests failed: %d failed / %d passed", stats.failed, stats.passed);
