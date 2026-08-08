@@ -24,7 +24,7 @@ echo "   BENCHMARK CPU CACHE (perf stat)       "
 echo "========================================="
 set +e
 eval "$USE_XVFB ./scripts/interactive_runner.sh perf stat -e L1-dcache-load-misses,L1-dcache-loads $APP_BIN --no-vsync"
-cat "$TMP_DIR/runner_app.log" | grep -E "(L1-dcache|Performance counter stats)" -A 5 || echo "Erreur: perf stat output introuvable"
+grep -E "(L1-dcache|Performance counter stats)" -A 5 "$TMP_DIR/runner_app.log" || echo "Erreur: perf stat output introuvable"
 set -e
 
 echo ""
@@ -69,7 +69,7 @@ wait $CAPTURE_PID || true
 if [ -f "$TRACE_FILE" ]; then
 	echo "Trace générée: $TRACE_FILE"
 	echo "--- STATISTIQUES TRACY ---"
-	cat "$CAPTURE_LOG" | grep -E "(Frames:|Zones:|Memory events:)" || echo "Memory stats not explicitly in capture log."
+	grep -E "(Frames:|Zones:|Memory events:)" "$CAPTURE_LOG" || echo "Memory stats not explicitly in capture log."
 
 	echo "Extraction des statistiques principales via csvexport..."
 	"$CSVEXPORT_BIN" "$TRACE_FILE" >"$TMP_DIR/tracy_stats.csv" 2>/dev/null

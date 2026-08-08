@@ -29,3 +29,9 @@ repos:
         language: system
         pass_filenames: false
         stages: [pre-push]
+
+  - repo: https://github.com/koalaman/shellcheck-precommit
+    rev: v0.10.0
+    hooks:
+      - id: shellcheck
+        args: ["--severity=style"]

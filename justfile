@@ -396,7 +396,11 @@ lint-cmake:
 # Lint shell scripts.
 lint-shell:
     @echo "Lint shell scripts..."
-    @shellcheck scripts/*.sh
+    @if command -v shellcheck >/dev/null 2>&1; then \
+        shellcheck scripts/*.sh; \
+    else \
+        docker run --rm -v "${PWD}:/mnt" -w /mnt koalaman/shellcheck:v0.10.0 scripts/*.sh; \
+    fi
 
 # Lint YAML.
 lint-yaml:
