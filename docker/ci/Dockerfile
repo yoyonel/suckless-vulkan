@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     clang-tidy \
     cmake \
     curl \
+    git \
     libclang-rt-14-dev \
     llvm \
     ninja-build \
