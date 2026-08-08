@@ -92,6 +92,22 @@ just tracy-profiler
 
 Current pinned Tracy release: `v0.13.1`.
 
+### Tracy Automated Benchmark
+
+You can run an automated headless benchmark to extract CPU cache misses (`perf stat`) and Tracy execution zones:
+
+```bash
+just benchmark-tracy
+```
+
+This will:
+1. Compile the app and the `tracy-capture`/`tracy-csvexport` upstream CLI tools.
+2. Run the application headless for 10 seconds.
+3. Output a formatted table of CPU/GPU Zones execution times.
+4. Save the full memory & execution trace to `build/tracy/benchmark.tracy`.
+
+**Note on Memory Profiling**: The `tracy-csvexport` CLI tool does *not* export memory statistics. To analyze heap allocations, leaks, and peak memory, you must open the generated `benchmark.tracy` file in the **Tracy Profiler UI**. For CLI-based memory summaries (CI/CD), stick to `heaptrack` via the standard `just benchmark` recipe.
+
 The Tracy-enabled application follows the legacy `suckless-ogl` strategy: the client auto-initializes, registers the program name, emits frame marks, and lets Tracy handle the final cleanup automatically at process exit.
 
 Runtime controls:

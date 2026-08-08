@@ -36,3 +36,7 @@ core.*
 
 # Profiling
 heaptrack.*
+*.tracy
+
+# Logs
+*.log
