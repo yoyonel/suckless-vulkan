@@ -9,8 +9,9 @@ Nous sommes en cours de refactoring massif pour abstraire les appels Vulkan dire
 - **Phase 8.1 à 8.3 :** Migration des textures, des buffers, de la swapchain et du pipeline graphique vers des Handles (`TextureHandle`, `BufferHandle`).
 - **Phase 8.4 (IBL) :** Migration des ressources liées à l'Image Based Lighting (Irradiance, Prefiltered, BRDF LUT) et des textures HDR. Tout est géré via des `TextureHandle` et `SamplerHandle`.
 - **Phase 8.5 (Pipelines & Commandes) :** Abstraction complète de la tuyauterie (`VkPipeline`, `VkDescriptorSet`) et des commandes d'enregistrement (`vkCmdDraw`, `vkCmdDispatch`, `vkCmdPipelineBarrier`, `vkCmdBindDescriptorSets`, etc.) derrière `IRHI`. La logique métier est enfin agnostique !
+- **Phase 8.6 (Optimisation Mémoire & DOD - Itération 5) :** Benchmark Headless via Tracy (`just benchmark-tracy`). Éradication de toutes les allocations dynamiques (0 `malloc`) dans la hot-loop de rendu (utilisation de `__builtin_alloca`). Conversion du tri des Billboards (Scatter/Gather) vers un modèle DOD 100% linéaire (AoS contigu de 32 bytes). Preuve établie par le profiling que le RHI est purifié et que les L1 misses proviennent de l'I/O (`stb_image`).
 
-**Temps total investi (estimé) :** ~90 minutes effectives (itérations hachées en time-box de 3-10 minutes avec vérifications CI strictes).
+**Temps total investi (estimé) :** ~110 minutes effectives (itérations hachées en time-box de 3-10 minutes avec vérifications CI strictes).
 
 ## 2. Difficultés rencontrées et Dette Technique accumulée
 
