@@ -531,19 +531,27 @@ void VulkanRHI::DestroyImageView(ImageViewHandle handle) {
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
 void VulkanRHI::UpdateDescriptorSets(uint32_t writeCount, const WriteDescriptorSet* pDescriptorWrites) {
-    std::vector<VkWriteDescriptorSet> vkWrites(writeCount);
-    std::vector<VkDescriptorImageInfo> vkImageInfos;
-    std::vector<VkDescriptorBufferInfo> vkBufferInfos;
-
-    // Pre-allocate to avoid pointer invalidation
+    VkWriteDescriptorSet* vkWrites = static_cast<VkWriteDescriptorSet*>(__builtin_alloca(writeCount * sizeof(VkWriteDescriptorSet)));
+    
     uint32_t totalImages = 0;
     uint32_t totalBuffers = 0;
     for (uint32_t i = 0; i < writeCount; ++i) {
         if (pDescriptorWrites[i].pImageInfo) totalImages += pDescriptorWrites[i].descriptorCount;
         if (pDescriptorWrites[i].pBufferInfo) totalBuffers += pDescriptorWrites[i].descriptorCount;
     }
-    vkImageInfos.reserve(totalImages);
-    vkBufferInfos.reserve(totalBuffers);
+    
+    VkDescriptorImageInfo* vkImageInfos = nullptr;
+    if (totalImages > 0) {
+        vkImageInfos = static_cast<VkDescriptorImageInfo*>(__builtin_alloca(totalImages * sizeof(VkDescriptorImageInfo)));
+    }
+    
+    VkDescriptorBufferInfo* vkBufferInfos = nullptr;
+    if (totalBuffers > 0) {
+        vkBufferInfos = static_cast<VkDescriptorBufferInfo*>(__builtin_alloca(totalBuffers * sizeof(VkDescriptorBufferInfo)));
+    }
+
+    uint32_t currentImageIndex = 0;
+    uint32_t currentBufferIndex = 0;
 
     for (uint32_t i = 0; i < writeCount; ++i) {
         vkWrites[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -552,6 +560,9 @@ void VulkanRHI::UpdateDescriptorSets(uint32_t writeCount, const WriteDescriptorS
         vkWrites[i].dstBinding = pDescriptorWrites[i].dstBinding;
         vkWrites[i].dstArrayElement = pDescriptorWrites[i].dstArrayElement;
         vkWrites[i].descriptorCount = pDescriptorWrites[i].descriptorCount;
+        vkWrites[i].pImageInfo = nullptr;
+        vkWrites[i].pBufferInfo = nullptr;
+        vkWrites[i].pTexelBufferView = nullptr;
         
         switch (pDescriptorWrites[i].descriptorType) {
             case DescriptorType::UniformBuffer: vkWrites[i].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; break;
@@ -562,7 +573,7 @@ void VulkanRHI::UpdateDescriptorSets(uint32_t writeCount, const WriteDescriptorS
         }
 
         if (pDescriptorWrites[i].pImageInfo) {
-            uint32_t startIndex = vkImageInfos.size();
+            uint32_t startIndex = currentImageIndex;
             for (uint32_t j = 0; j < pDescriptorWrites[i].descriptorCount; ++j) {
                 VkDescriptorImageInfo info{};
                 info.sampler = GetVkSampler(pDescriptorWrites[i].pImageInfo[j].sampler);
@@ -576,24 +587,24 @@ void VulkanRHI::UpdateDescriptorSets(uint32_t writeCount, const WriteDescriptorS
                     case TextureLayout::ShaderReadOnlyOptimal: info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL; break;
                     default: info.imageLayout = VK_IMAGE_LAYOUT_UNDEFINED; break;
                 }
-                vkImageInfos.push_back(info);
+                vkImageInfos[currentImageIndex++] = info;
             }
             vkWrites[i].pImageInfo = &vkImageInfos[startIndex];
         } 
         
         if (pDescriptorWrites[i].pBufferInfo) {
-            uint32_t startIndex = vkBufferInfos.size();
+            uint32_t startIndex = currentBufferIndex;
             for (uint32_t j = 0; j < pDescriptorWrites[i].descriptorCount; ++j) {
                 VkDescriptorBufferInfo info{};
                 info.buffer = GetVkBuffer(pDescriptorWrites[i].pBufferInfo[j].buffer);
                 info.offset = pDescriptorWrites[i].pBufferInfo[j].offset;
                 info.range = pDescriptorWrites[i].pBufferInfo[j].range;
-                vkBufferInfos.push_back(info);
+                vkBufferInfos[currentBufferIndex++] = info;
             }
             vkWrites[i].pBufferInfo = &vkBufferInfos[startIndex];
         }
     }
-    vkUpdateDescriptorSets(_engine->device, writeCount, vkWrites.data(), 0, nullptr);
+    vkUpdateDescriptorSets(_engine->device, writeCount, vkWrites, 0, nullptr);
 }
 
 
@@ -754,6 +765,16 @@ void VulkanRHI::BindPipeline(PipelineType type) {
 void VulkanRHI::BindGlobalDescriptor() {
     VkDescriptorSet vkSet = GetVkDescriptorSet(_engine->descriptorSet);
     vkCmdBindDescriptorSets(_engine->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, GetVkPipelineLayout(_engine->pipelineLayout), 0, 1, &vkSet, 0, nullptr);
+}
+
+void VulkanRHI::CmdBindDescriptorSets(PipelineLayoutHandle layoutHandle, uint32_t firstSet, uint32_t count, const DescriptorSetHandle* pSets) {
+    if (layoutHandle == INVALID_HANDLE || count == 0 || pSets == nullptr) return;
+
+    VkDescriptorSet* vkSets = static_cast<VkDescriptorSet*>(__builtin_alloca(count * sizeof(VkDescriptorSet)));
+    for (uint32_t i = 0; i < count; ++i) {
+        vkSets[i] = GetVkDescriptorSet(pSets[i]);
+    }
+    vkCmdBindDescriptorSets(_engine->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelineLayouts[layoutHandle].layout, firstSet, count, vkSets, 0, nullptr);
 }
 
 void VulkanRHI::BindMeshBuffers(bool isBillboard) {
