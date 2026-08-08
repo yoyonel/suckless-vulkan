@@ -690,10 +690,6 @@ void vk_ibl_bake(VulkanEngine* engine) {
         vkDestroyImageView(engine->device, v, nullptr);
     if (poolHandle != INVALID_HANDLE)
         engine->appState->rhi->DestroyDescriptorPool(poolHandle);
-
-    const char* dumpEnv = std::getenv("SVK_IBL_DUMP");
-    if (dumpEnv && dumpEnv[0] != '\0')
-        vk_ibl_export_maps(engine);
 }
 
 void vk_ibl_export_maps(VulkanEngine* engine) {
