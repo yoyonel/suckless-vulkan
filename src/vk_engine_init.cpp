@@ -807,9 +807,16 @@ bool create_instance_grid_buffers(VulkanEngine* engine, std::vector<glm::vec3>& 
 
 bool create_billboard_instance_buffer(VulkanEngine* engine, const std::vector<glm::vec3>& instancePositions) {
     const size_t instanceCount = instancePositions.size();
-    engine->appState->core.billboardInstances.resize(instanceCount);
+
+    BillboardSoA* soa = &engine->appState->core.billboardSoA;
+    soa->count = static_cast<int>(instanceCount);
+    soa->capacity = static_cast<int>(instanceCount);
+    soa->pos = static_cast<glm::vec3*>(arena_alloc(&engine->appState->core.arena, instanceCount * sizeof(glm::vec3), 16));
+    soa->materialIdx = static_cast<int*>(arena_alloc(&engine->appState->core.arena, instanceCount * sizeof(int), 4));
+
     for (size_t i = 0; i < instanceCount; ++i) {
-        engine->appState->core.billboardInstances[i] = {instancePositions[i], static_cast<int>(i)};
+        soa->pos[i] = instancePositions[i];
+        soa->materialIdx[i] = static_cast<int>(i);
     }
 
     engine->billboardBuffer =
@@ -1042,6 +1049,7 @@ bool vk_init_vulkan_engine(VulkanEngine* engine) {
     LOG_INFO("app", "Starting engine initialization...");
     LOG_INFO("vulkan", "Vulkan Debug Callback initialized (High Sensitivity)");
     LOG_INFO("app", "init_core...");
+    core_engine_init(&engine->appState->core);
     if (!init_core(engine)) {
         LOG_ERROR("app", "init_core failed");
         return false;
@@ -1112,7 +1120,6 @@ bool vk_init_vulkan_engine(VulkanEngine* engine) {
     }
 
     LOG_INFO("app", "Initialization complete.");
-    core_engine_init(&engine->appState->core);
 
     engine->hdrIoThreadRunning = false;
     engine->hdrLoadInFlight = false;
