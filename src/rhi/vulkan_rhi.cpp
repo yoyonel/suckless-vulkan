@@ -767,16 +767,6 @@ void VulkanRHI::BindGlobalDescriptor() {
     vkCmdBindDescriptorSets(_engine->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, GetVkPipelineLayout(_engine->pipelineLayout), 0, 1, &vkSet, 0, nullptr);
 }
 
-void VulkanRHI::CmdBindDescriptorSets(PipelineLayoutHandle layoutHandle, uint32_t firstSet, uint32_t count, const DescriptorSetHandle* pSets) {
-    if (layoutHandle == INVALID_HANDLE || count == 0 || pSets == nullptr) return;
-
-    VkDescriptorSet* vkSets = static_cast<VkDescriptorSet*>(__builtin_alloca(count * sizeof(VkDescriptorSet)));
-    for (uint32_t i = 0; i < count; ++i) {
-        vkSets[i] = GetVkDescriptorSet(pSets[i]);
-    }
-    vkCmdBindDescriptorSets(_engine->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelineLayouts[layoutHandle].layout, firstSet, count, vkSets, 0, nullptr);
-}
-
 void VulkanRHI::BindMeshBuffers(bool isBillboard) {
     if (isBillboard) {
         if (_engine->billboardBuffer != INVALID_HANDLE && _engine->billboardBuffer < m_buffers.size()) {
@@ -1107,9 +1097,10 @@ void VulkanRHI::CmdBindPipeline(CommandBufferHandle cb, PipelineHandle pipeline,
     vkCmdBindPipeline((VkCommandBuffer)cb, isCompute ? VK_PIPELINE_BIND_POINT_COMPUTE : VK_PIPELINE_BIND_POINT_GRAPHICS, GetVkPipeline(pipeline));
 }
 void VulkanRHI::CmdBindDescriptorSets(CommandBufferHandle cb, PipelineLayoutHandle layout, uint32_t firstSet, uint32_t count, const DescriptorSetHandle* sets, bool isCompute) {
-    std::vector<VkDescriptorSet> vkSets(count);
+    if (count == 0 || sets == nullptr) return;
+    VkDescriptorSet* vkSets = static_cast<VkDescriptorSet*>(__builtin_alloca(count * sizeof(VkDescriptorSet)));
     for(uint32_t i=0; i<count; ++i) vkSets[i] = GetVkDescriptorSet(sets[i]);
-    vkCmdBindDescriptorSets((VkCommandBuffer)cb, isCompute ? VK_PIPELINE_BIND_POINT_COMPUTE : VK_PIPELINE_BIND_POINT_GRAPHICS, GetVkPipelineLayout(layout), firstSet, count, vkSets.data(), 0, nullptr);
+    vkCmdBindDescriptorSets((VkCommandBuffer)cb, isCompute ? VK_PIPELINE_BIND_POINT_COMPUTE : VK_PIPELINE_BIND_POINT_GRAPHICS, GetVkPipelineLayout(layout), firstSet, count, vkSets, 0, nullptr);
 }
 void VulkanRHI::CmdPushConstants(CommandBufferHandle cb, PipelineLayoutHandle layout, ShaderStage stage, uint32_t offset, uint32_t size, const void* values) {
     VkShaderStageFlags flags = 0;
