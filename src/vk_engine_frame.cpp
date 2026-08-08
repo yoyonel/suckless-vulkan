@@ -111,19 +111,37 @@ bool vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recreateSw
                 engine->appState->rhi->BeginDebugLabel("Render_Spheres_Instanced", 0.0f, 1.0f, 0.4f);
                 if (engine->appState->core.billboardMode) {
                     const glm::vec3 camPos = engine->appState->core.camera.position;
-                    std::sort(engine->appState->core.billboardInstances.begin(), engine->appState->core.billboardInstances.end(),
-                              [&camPos](const BillboardInstance& a, const BillboardInstance& b) {
-                                  glm::vec3 da = a.pos - camPos;
-                                  glm::vec3 db = b.pos - camPos;
-                                  return glm::dot(da, da) > glm::dot(db, db);
-                              });
+                    BillboardSoA* soa = &engine->appState->core.billboardSoA;
 
-                    engine->appState->rhi->UpdateBillboardInstances(engine->appState->core.billboardInstances.data(),
-                                                                    engine->appState->core.billboardInstances.size());
+                    std::size_t savedOffset = engine->appState->core.arena.offset;
+
+                    uint64_t* sortKeys = static_cast<uint64_t*>(arena_alloc(&engine->appState->core.arena, soa->count * sizeof(uint64_t), 8));
+                    for (int i = 0; i < soa->count; ++i) {
+                        glm::vec3 da = soa->pos[i] - camPos;
+                        float distSq = glm::dot(da, da);
+                        uint32_t distBits;
+                        std::memcpy(&distBits, &distSq, sizeof(uint32_t));
+                        sortKeys[i] = (static_cast<uint64_t>(distBits) << 32) | static_cast<uint32_t>(i);
+                    }
+
+                    // Sort descending (furthest first)
+                    std::sort(sortKeys, sortKeys + soa->count, std::greater<uint64_t>());
+
+                    BillboardInstance* tempInstances =
+                        static_cast<BillboardInstance*>(arena_alloc(&engine->appState->core.arena, soa->count * sizeof(BillboardInstance), 16));
+                    for (int i = 0; i < soa->count; ++i) {
+                        int srcIdx = static_cast<int>(sortKeys[i] & 0xFFFFFFFF);
+                        tempInstances[i].pos = soa->pos[srcIdx];
+                        tempInstances[i].materialIdx = soa->materialIdx[srcIdx];
+                    }
+
+                    engine->appState->rhi->UpdateBillboardInstances(tempInstances, soa->count);
+
+                    engine->appState->core.arena.offset = savedOffset;
 
                     engine->appState->rhi->BindPipeline(PipelineType::Billboard);
                     engine->appState->rhi->BindMeshBuffers(true);
-                    engine->appState->rhi->Draw(6, static_cast<uint32_t>(engine->appState->core.billboardInstances.size()));
+                    engine->appState->rhi->Draw(6, static_cast<uint32_t>(soa->count));
                 } else {
                     engine->appState->rhi->BindPipeline(engine->appState->core.wireframeMode ? PipelineType::Wireframe : PipelineType::Graphics);
                     engine->appState->rhi->BindMeshBuffers(false);
