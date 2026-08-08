@@ -94,7 +94,7 @@ struct Vertex {
     float color[3];
 };
 
-struct UBOData {
+struct alignas(16) UBOData {
     glm::mat4 vp;
     glm::mat4 modelRotation;
     glm::mat4 invViewProj;
@@ -106,14 +106,17 @@ struct UBOData {
     glm::mat4 proj;        // New for billboards
     glm::vec4 windowSize;
 };
+static_assert(sizeof(UBOData) % 16 == 0, "UBOData must be aligned to 16 bytes (std140)");
 
-struct DebugPushConstant {
+struct alignas(16) DebugPushConstant {
     glm::mat4 model;
     glm::vec4 color;
     float radius;
     int mode;
     int stippled;
+    uint32_t _padding;
 };
+static_assert(sizeof(DebugPushConstant) % 16 == 0, "DebugPushConstant must be padded to a multiple of 16 bytes");
 
 struct VulkanEngine {
 
