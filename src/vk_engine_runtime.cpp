@@ -37,6 +37,7 @@ void handle_env_navigation(VulkanEngine* engine, bool shiftDown, const WindowOps
         is_key_pressed_once(engine->appState->window, GLFW_KEY_PAGE_UP, &engine->appState->core.envPageUpKeyWasDown, ops);
     engine->appState->currentInput.envPageDownPressed =
         is_key_pressed_once(engine->appState->window, GLFW_KEY_PAGE_DOWN, &engine->appState->core.envPageDownKeyWasDown, ops);
+
     engine->appState->currentInput.envShiftDown = shiftDown;
 
     if (engine->appState->currentInput.envPageUpPressed && !shiftDown) {

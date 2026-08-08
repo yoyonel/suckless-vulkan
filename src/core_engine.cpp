@@ -1,11 +1,13 @@
 #include "core_engine.h"
 #include "app_log.h"
+#include "tracy_client.h"
 #include <algorithm>
 #include <cassert>
 #include <cstdlib>
 
 void arena_init(LinearArena* arena, std::size_t capacity) {
     arena->memory = static_cast<uint8_t*>(std::malloc(capacity));
+    SVK_TRACY_ALLOC(arena->memory, capacity);
     arena->capacity = capacity;
     arena->offset = 0;
 }
@@ -28,6 +30,7 @@ void* arena_alloc(LinearArena* arena, std::size_t size, std::size_t align) {
 }
 
 void arena_free(LinearArena* arena) {
+    SVK_TRACY_FREE(arena->memory);
     std::free(arena->memory);
     arena->memory = nullptr;
     arena->capacity = 0;
