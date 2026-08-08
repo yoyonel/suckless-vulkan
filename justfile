@@ -146,6 +146,15 @@ build-tracy-capture: configure-tracy-capture
     @echo "Compilation de tracy-capture (CLI)..."
     @cmake --build build/tracy-capture -j$(nproc)
 
+# Configure tracy-csvexport upstream.
+configure-tracy-csvexport: configure-tracy
+    @cmake -B build/tracy-csvexport -S build/tracy/_deps/tracy-src/csvexport -DCMAKE_BUILD_TYPE=Release
+
+# Compile tracy-csvexport upstream.
+build-tracy-csvexport: configure-tracy-csvexport
+    @echo "Compilation de tracy-csvexport (CLI)..."
+    @cmake --build build/tracy-csvexport -j$(nproc)
+
 # --- EXECUTION & DEBUG ---
 
 # Exécute l'application release.
@@ -189,6 +198,10 @@ test-oom: build
 benchmark: build
     @chmod +x scripts/benchmark.sh
     @scripts/benchmark.sh
+
+benchmark-tracy: build-tracy build-tracy-capture build-tracy-csvexport
+    @chmod +x scripts/benchmark_tracy.sh
+    @scripts/benchmark_tracy.sh
 
 test: build
     @ctest --test-dir build/release --output-on-failure

@@ -11,7 +11,7 @@ send_page_down() {
 	WID=$(xdotool search --name "Vulkan" 2>/dev/null | tail -1 || true)
 	if [ -n "$WID" ]; then
 		echo "[Runner] Fenêtre trouvée (WID=$WID). Focus & Envoi de Page_Down..."
-		xdotool windowfocus --sync "$WID" || true
+		xdotool windowfocus --sync "$WID" 2>/dev/null || true
 		xdotool key Page_Down
 	else
 		echo "[Runner] Attention: Fenêtre introuvable, tentative d'envoi global..."
@@ -33,11 +33,22 @@ send_page_down
 
 echo "[Runner] Changement HDR #2 (Touche Page_Down)..."
 send_page_down
-killall -SIGINT vulkan_app || true
-sleep 1
-# Force kill au cas où
-killall -SIGTERM vulkan_app 2>/dev/null || true
-kill -SIGINT $APP_PID 2>/dev/null || true
+
+# Tuer vulkan_app
+APP_COMM=$(ps -p $APP_PID -o comm= 2>/dev/null || echo "")
+if [ "$APP_COMM" = "perf" ]; then
+	CHILD=$(pgrep -P "$APP_PID" || echo "")
+	if [ -n "$CHILD" ]; then
+		kill -SIGTERM "$CHILD" 2>/dev/null || true
+		sleep 1
+		kill -SIGKILL "$CHILD" 2>/dev/null || true
+	fi
+	# perf stat finira et écrira ses stats quand l'enfant mourra
+else
+	kill -SIGTERM "$APP_PID" 2>/dev/null || true
+	sleep 1
+	kill -SIGKILL "$APP_PID" 2>/dev/null || true
+fi
 
 echo "[Runner] Attente de la fin du processus pour flush..."
 wait $APP_PID || true
