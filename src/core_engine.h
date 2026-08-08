@@ -4,12 +4,34 @@
 #include "camera.h"
 #include "rhi/rhi.h"
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
 #include <glm/glm.hpp>
-#include <vector>
+
+// --- CONSTANTES MÉMOIRE ---
+// Capacité max (32 MB). Fixe : 1M particules * 16 octets (SoA) + padding.
+constexpr std::size_t CORE_ARENA_CAPACITY_BYTES = 32ULL * 1024ULL * 1024ULL;
+
+struct LinearArena {
+    uint8_t* memory;
+    std::size_t capacity;
+    std::size_t offset;
+};
+
+void arena_init(LinearArena* arena, std::size_t capacity);
+void* arena_alloc(LinearArena* arena, std::size_t size, std::size_t align = 16);
+void arena_free(LinearArena* arena);
 
 struct BillboardInstance {
     glm::vec3 pos;
     int materialIdx;
+};
+
+struct BillboardSoA {
+    int count;
+    int capacity;
+    glm::vec3* pos;
+    int* materialIdx;
 };
 
 struct CoreInput {
@@ -95,7 +117,8 @@ struct CoreEngine {
     Camera camera;
     std::chrono::steady_clock::time_point lastFrameTimestamp;
 
-    std::vector<BillboardInstance> billboardInstances;
+    LinearArena arena;
+    BillboardSoA billboardSoA;
 
     bool pbrEnabled;
     bool iblEnabled;

@@ -1,5 +1,38 @@
 #include "core_engine.h"
+#include "app_log.h"
 #include <algorithm>
+#include <cassert>
+#include <cstdlib>
+
+void arena_init(LinearArena* arena, std::size_t capacity) {
+    arena->memory = static_cast<uint8_t*>(std::malloc(capacity));
+    arena->capacity = capacity;
+    arena->offset = 0;
+}
+
+void* arena_alloc(LinearArena* arena, std::size_t size, std::size_t align) {
+    std::size_t current = reinterpret_cast<std::size_t>(arena->memory + arena->offset);
+    std::size_t aligned = (current + align - 1) & ~(align - 1);
+    std::size_t padding = aligned - current;
+
+    if (arena->offset + padding + size > arena->capacity) {
+        LOG_ERROR("memory", "FATAL OOM: LinearArena capacity exceeded! (Capacity: %zu bytes, Requested offset: %zu)", arena->capacity,
+                  arena->offset + padding + size);
+        assert(false && "LinearArena Out Of Memory");
+        std::abort();
+        return nullptr;
+    }
+
+    arena->offset += padding + size;
+    return arena->memory + arena->offset - size;
+}
+
+void arena_free(LinearArena* arena) {
+    std::free(arena->memory);
+    arena->memory = nullptr;
+    arena->capacity = 0;
+    arena->offset = 0;
+}
 
 void core_engine_init(CoreEngine* core) {
     core->animationTimeSeconds = 0.0f;
@@ -54,6 +87,12 @@ void core_engine_init(CoreEngine* core) {
 
     camera_init(&core->camera);
     core->lastFrameTimestamp = std::chrono::steady_clock::now();
+
+    arena_init(&core->arena, CORE_ARENA_CAPACITY_BYTES);
+    core->billboardSoA.count = 0;
+    core->billboardSoA.capacity = 0;
+    core->billboardSoA.pos = nullptr;
+    core->billboardSoA.materialIdx = nullptr;
 }
 
 static void process_animation_inputs(CoreEngine* core, const CoreInput* input) {
