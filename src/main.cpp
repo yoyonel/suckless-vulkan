@@ -4,26 +4,28 @@
 #include "vk_engine.h"
 
 int main(int argc, char** argv) {
+    EngineState state = {};
     VulkanEngine engine = {};
+    engine.appState = &state;
 
     // 1. Initial Default (Disabled by default to match OGL behavior/preferences)
-    engine.core.vsync = false;
+    state.core.vsync = false;
 
     // 2. Environment Variable Override
     const char* vsyncEnv = std::getenv("SVK_VSYNC");
     if (vsyncEnv != nullptr) {
-        engine.core.vsync = (std::string(vsyncEnv) != "0");
+        state.core.vsync = (std::string(vsyncEnv) != "0");
     }
 
     // 3. CLI Argument Override (Highest priority)
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
         if (arg == "--no-vsync") {
-            engine.core.vsync = false;
+            state.core.vsync = false;
         } else if (arg == "--vsync") {
-            engine.core.vsync = true;
+            state.core.vsync = true;
         } else if (arg == "--nullrhi") {
-            engine.useNullRHI = true;
+            state.useNullRHI = true;
         }
     }
 
@@ -32,7 +34,7 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    LOG_INFO("app", "Initialisation de Vulkan... (VSync=%s par defaut)", engine.core.vsync ? "ENABLED" : "DISABLED");
+    LOG_INFO("app", "Initialisation de Vulkan... (VSync=%s par defaut)", state.core.vsync ? "ENABLED" : "DISABLED");
     if (!init_vulkan_engine(&engine)) {
         LOG_CRITICAL("app", "Echec de l'initialisation.");
         tracy_client_shutdown();
@@ -45,7 +47,7 @@ int main(int argc, char** argv) {
              "fullscreen/fenetre, ESC quitter, V toggle vsync, 0..9 modes debug IBL (F5 cycle), [/] mode precedent/suivant, O export maps IBL.");
 
     // main  loop
-    while (!glfwWindowShouldClose(engine.window)) {
+    while (!glfwWindowShouldClose(state.window)) {
         glfwPollEvents();
         runtime_update_controls(&engine, runtime_default_window_ops());
         tracy_client_poll_connection();

@@ -65,7 +65,7 @@ static void update_envmap_descriptor_set(VulkanEngine* engine) {
     writes[3].pImageInfo = &lutInfo;
     writes[3].pBufferInfo = nullptr;
 
-    engine->rhi->UpdateDescriptorSets(4, writes);
+    engine->appState->rhi->UpdateDescriptorSets(4, writes);
 }
 
 #include "tracy_client.h"
@@ -155,7 +155,7 @@ bool transition_hdr_image_layout(VulkanEngine* engine, VkCommandBuffer commandBu
     barrier.newLayout = newLayout;
     barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image = ((VulkanRHI*)engine->rhi)->GetVkImage(engine->envHdrImage);
+    barrier.image = ((VulkanRHI*)engine->appState->rhi)->GetVkImage(engine->envHdrImage);
     barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     barrier.subresourceRange.baseMipLevel = baseMipLevel;
     barrier.subresourceRange.levelCount = levelCount;
@@ -164,7 +164,7 @@ bool transition_hdr_image_layout(VulkanEngine* engine, VkCommandBuffer commandBu
     barrier.srcAccessMask = srcAccessMask;
     barrier.dstAccessMask = dstAccessMask;
 
-    ((VulkanRHI*)engine->rhi)->CmdPipelineBarrier(commandBuffer, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+    ((VulkanRHI*)engine->appState->rhi)->CmdPipelineBarrier(commandBuffer, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
     return true;
 }
 
@@ -250,8 +250,8 @@ void generate_hdr_mipmaps(VulkanEngine* engine, VkCommandBuffer commandBuffer, i
         blit.dstSubresource.baseArrayLayer = 0;
         blit.dstSubresource.layerCount = 1;
 
-        VkImage vkEnvHdrImage = ((VulkanRHI*)engine->rhi)->GetVkImage(engine->envHdrImage);
-        ((VulkanRHI*)engine->rhi)
+        VkImage vkEnvHdrImage = ((VulkanRHI*)engine->appState->rhi)->GetVkImage(engine->envHdrImage);
+        ((VulkanRHI*)engine->appState->rhi)
             ->CmdBlitImage(commandBuffer, vkEnvHdrImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, vkEnvHdrImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit,
                            VK_FILTER_LINEAR);
 
@@ -296,14 +296,14 @@ bool init_environment_texture_from_pixels(VulkanEngine* engine, const float* pix
     engine->envHdrWidth = static_cast<uint32_t>(width);
     engine->envHdrHeight = static_cast<uint32_t>(height);
 
-    engine->envHdrImage = engine->rhi->CreateTexture(engine->envHdrWidth, engine->envHdrHeight, TextureFormat::RGBA32_SFLOAT, TextureUsage::Sampled,
-                                                     engine->envHdrMipLevels, "EnvHDR_Image");
+    engine->envHdrImage = engine->appState->rhi->CreateTexture(engine->envHdrWidth, engine->envHdrHeight, TextureFormat::RGBA32_SFLOAT, TextureUsage::Sampled,
+                                                               engine->envHdrMipLevels, "EnvHDR_Image");
     if (engine->envHdrImage == INVALID_HANDLE) {
         vmaDestroyBuffer(engine->allocator, stagingBuffer, stagingAllocation);
         return false;
     }
 
-    VkImage vkEnvHdrImage = ((VulkanRHI*)engine->rhi)->GetVkImage(engine->envHdrImage);
+    VkImage vkEnvHdrImage = ((VulkanRHI*)engine->appState->rhi)->GetVkImage(engine->envHdrImage);
 
     VkCommandBuffer commandBuffer = begin_one_time_commands(engine);
     if (commandBuffer == VK_NULL_HANDLE) {
@@ -323,7 +323,7 @@ bool init_environment_texture_from_pixels(VulkanEngine* engine, const float* pix
     region.imageSubresource.baseArrayLayer = 0;
     region.imageSubresource.layerCount = 1;
     region.imageExtent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1};
-    ((VulkanRHI*)engine->rhi)->CmdCopyBufferToImage(commandBuffer, stagingBuffer, vkEnvHdrImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+    ((VulkanRHI*)engine->appState->rhi)->CmdCopyBufferToImage(commandBuffer, stagingBuffer, vkEnvHdrImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
     vk_end_label(engine->device, commandBuffer);
 
     vk_begin_label(engine->device, commandBuffer, "Generate_EnvHDR_Mipmaps", 0.0f, 0.4f, 0.8f);
@@ -338,7 +338,7 @@ bool init_environment_texture_from_pixels(VulkanEngine* engine, const float* pix
 
     vmaDestroyBuffer(engine->allocator, stagingBuffer, stagingAllocation);
 
-    engine->envHdrSampler = engine->rhi->CreateSampler(engine->envHdrMipLevels, "EnvHDR_Sampler");
+    engine->envHdrSampler = engine->appState->rhi->CreateSampler(engine->envHdrMipLevels, "EnvHDR_Sampler");
     if (engine->envHdrSampler == INVALID_HANDLE) {
         return false;
     }
@@ -475,11 +475,11 @@ void vk_cleanup_environment_resources(VulkanEngine* engine) {
     }
 
     if (engine->envHdrSampler != INVALID_HANDLE) {
-        engine->rhi->DestroySampler(engine->envHdrSampler);
+        engine->appState->rhi->DestroySampler(engine->envHdrSampler);
         engine->envHdrSampler = INVALID_HANDLE;
     }
     if (engine->envHdrImage != INVALID_HANDLE) {
-        engine->rhi->DestroyTexture(engine->envHdrImage);
+        engine->appState->rhi->DestroyTexture(engine->envHdrImage);
         engine->envHdrImage = INVALID_HANDLE;
     }
 
@@ -606,7 +606,8 @@ void vk_process_ready_environment_texture(VulkanEngine* engine) {
     // Update descriptors including IBL maps
     update_envmap_descriptor_set(engine);
 
-    engine->core.envLod = std::clamp(engine->core.envLod, kMinEnvLod, static_cast<float>(engine->envHdrMipLevels > 0 ? engine->envHdrMipLevels - 1 : 0));
+    engine->appState->core.envLod =
+        std::clamp(engine->appState->core.envLod, kMinEnvLod, static_cast<float>(engine->envHdrMipLevels > 0 ? engine->envHdrMipLevels - 1 : 0));
     LOG_INFO("runtime", "HDR actif: %s", get_filename_from_path(ready.sourcePathOrLabel).c_str());
 }
 
@@ -627,7 +628,7 @@ void vk_switch_environment_texture(VulkanEngine* engine, int direction) {
 }
 
 void vk_adjust_env_lod(VulkanEngine* engine, float delta) {
-    engine->core.envLod =
-        std::clamp(engine->core.envLod + delta, kMinEnvLod, static_cast<float>(engine->envHdrMipLevels > 0 ? engine->envHdrMipLevels - 1 : 0));
-    LOG_INFO("runtime", "Env LOD: %.1f", engine->core.envLod);
+    engine->appState->core.envLod =
+        std::clamp(engine->appState->core.envLod + delta, kMinEnvLod, static_cast<float>(engine->envHdrMipLevels > 0 ? engine->envHdrMipLevels - 1 : 0));
+    LOG_INFO("runtime", "Env LOD: %.1f", engine->appState->core.envLod);
 }

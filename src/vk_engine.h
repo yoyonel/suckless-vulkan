@@ -16,6 +16,8 @@
 
 #include "camera.h"
 #include "core_engine.h"
+#include "engine_state.h"
+#include "module_loader.h"
 #include "rhi/rhi.h"
 
 // Configuration de GLM pour Vulkan
@@ -114,8 +116,7 @@ struct DebugPushConstant {
 };
 
 struct VulkanEngine {
-    bool useNullRHI{false};
-    struct GLFWwindow* window;
+
     VkInstance instance;
     VkSurfaceKHR surface;
     VkPhysicalDevice physicalDevice;
@@ -202,9 +203,7 @@ struct VulkanEngine {
 
     IblResources ibl;
 
-    CoreInput currentInput;
-    CoreEngine core;
-    IRHI* rhi;
+    EngineState* appState;
 };
 
 bool init_vulkan_engine(VulkanEngine* engine);

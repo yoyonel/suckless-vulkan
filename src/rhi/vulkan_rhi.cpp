@@ -4,6 +4,15 @@
 #include "../tracy_vulkan.h"
 #include <cstring>
 
+extern "C" {
+    __attribute__((visibility("default"))) IRHI* CreateRHI(struct VulkanEngine* engine) {
+        return new VulkanRHI(engine);
+    }
+    __attribute__((visibility("default"))) void DestroyRHI(IRHI* rhi) {
+        delete rhi;
+    }
+}
+
 VulkanRHI::VulkanRHI(VulkanEngine* engine) : _engine(engine) {}
 
 VulkanRHI::~VulkanRHI() {

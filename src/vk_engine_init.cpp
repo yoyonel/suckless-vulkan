@@ -246,16 +246,16 @@ void cleanup_swapchain_targets(VulkanEngine* engine) {
 }
 
 void cleanup_swapchain_dependent_resources(VulkanEngine* engine) {
-    engine->rhi->DestroyPipeline(engine->graphicsPipeline);
-    engine->rhi->DestroyPipeline(engine->skyboxPipeline);
-    engine->rhi->DestroyPipeline(engine->billboardPipeline);
-    engine->rhi->DestroyPipeline(engine->wireframePipeline);
-    engine->rhi->DestroyPipeline(engine->debugLinePipeline);
-    engine->rhi->DestroyPipeline(engine->debugTrianglePipeline);
-    engine->rhi->DestroyPipelineLayout(engine->pipelineLayout);
-    engine->rhi->DestroyPipelineLayout(engine->debugPipelineLayout);
+    engine->appState->rhi->DestroyPipeline(engine->graphicsPipeline);
+    engine->appState->rhi->DestroyPipeline(engine->skyboxPipeline);
+    engine->appState->rhi->DestroyPipeline(engine->billboardPipeline);
+    engine->appState->rhi->DestroyPipeline(engine->wireframePipeline);
+    engine->appState->rhi->DestroyPipeline(engine->debugLinePipeline);
+    engine->appState->rhi->DestroyPipeline(engine->debugTrianglePipeline);
+    engine->appState->rhi->DestroyPipelineLayout(engine->pipelineLayout);
+    engine->appState->rhi->DestroyPipelineLayout(engine->debugPipelineLayout);
     if (engine->depthImage != INVALID_HANDLE) {
-        engine->rhi->DestroyTexture(engine->depthImage);
+        engine->appState->rhi->DestroyTexture(engine->depthImage);
         engine->depthImage = INVALID_HANDLE;
     }
     cleanup_swapchain_targets(engine);
@@ -271,21 +271,21 @@ void cleanup_sync_objects(VulkanEngine* engine) {
 }
 
 void cleanup_descriptor_resources(VulkanEngine* engine) {
-    engine->rhi->DestroyDescriptorPool(engine->globalDescriptorPool);
-    engine->rhi->DestroyDescriptorLayout(engine->globalDescriptorLayout);
+    engine->appState->rhi->DestroyDescriptorPool(engine->globalDescriptorPool);
+    engine->appState->rhi->DestroyDescriptorLayout(engine->globalDescriptorLayout);
 }
 
 void cleanup_buffer_resources(VulkanEngine* engine) {
-    engine->rhi->UnmapBuffer(engine->uniformBuffer);
-    engine->rhi->DestroyBuffer(engine->uniformBuffer);
+    engine->appState->rhi->UnmapBuffer(engine->uniformBuffer);
+    engine->appState->rhi->DestroyBuffer(engine->uniformBuffer);
 
-    engine->rhi->DestroyBuffer(engine->billboardBuffer);
+    engine->appState->rhi->DestroyBuffer(engine->billboardBuffer);
 
-    engine->rhi->DestroyBuffer(engine->materialBuffer);
+    engine->appState->rhi->DestroyBuffer(engine->materialBuffer);
 
-    engine->rhi->DestroyBuffer(engine->instanceBuffer);
-    engine->rhi->DestroyBuffer(engine->vertexBuffer);
-    engine->rhi->DestroyBuffer(engine->indexBuffer);
+    engine->appState->rhi->DestroyBuffer(engine->instanceBuffer);
+    engine->appState->rhi->DestroyBuffer(engine->vertexBuffer);
+    engine->appState->rhi->DestroyBuffer(engine->indexBuffer);
 
     vk_cleanup_environment_resources(engine);
 }
@@ -316,9 +316,9 @@ void cleanup_core_resources(VulkanEngine* engine) {
         engine->instance = VK_NULL_HANDLE;
     }
 
-    if (engine->window != nullptr) {
-        glfwDestroyWindow(engine->window);
-        engine->window = nullptr;
+    if (engine->appState->window != nullptr) {
+        glfwDestroyWindow(engine->appState->window);
+        engine->appState->window = nullptr;
     }
 }
 
@@ -329,14 +329,14 @@ bool init_core(VulkanEngine* engine) {
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
     // Keep startup viewport ISO with legacy OpenGL app (1024x768).
-    engine->window = glfwCreateWindow(kLegacyWindowWidth, kLegacyWindowHeight, "Vulkan - Icosphere Full GPU", NULL, NULL);
-    if (engine->window == nullptr) {
+    engine->appState->window = glfwCreateWindow(kLegacyWindowWidth, kLegacyWindowHeight, "Vulkan - Icosphere Full GPU", NULL, NULL);
+    if (engine->appState->window == nullptr) {
         return false;
     }
 
-    glfwSetWindowUserPointer(engine->window, engine);
-    glfwSetCursorPosCallback(engine->window, vk_mouse_callback);
-    glfwSetScrollCallback(engine->window, vk_scroll_callback);
+    glfwSetWindowUserPointer(engine->appState->window, engine);
+    glfwSetCursorPosCallback(engine->appState->window, vk_mouse_callback);
+    glfwSetScrollCallback(engine->appState->window, vk_scroll_callback);
 
     VkApplicationInfo appInfo{};
     appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
@@ -355,7 +355,7 @@ bool init_core(VulkanEngine* engine) {
 
     if (vkCreateInstance(&createInfo, NULL, &engine->instance) != VK_SUCCESS)
         return false;
-    if (glfwCreateWindowSurface(engine->instance, engine->window, NULL, &engine->surface) != VK_SUCCESS)
+    if (glfwCreateWindowSurface(engine->instance, engine->appState->window, NULL, &engine->surface) != VK_SUCCESS)
         return false;
 
     uint32_t deviceCount = 0;
@@ -471,9 +471,9 @@ bool init_swapchain(VulkanEngine* engine) {
     }
 
     const VkSurfaceFormatKHR surfaceFormat = choose_surface_format(formats);
-    const VkPresentModeKHR presentMode = choose_present_mode(presentModes, engine->core.vsync);
+    const VkPresentModeKHR presentMode = choose_present_mode(presentModes, engine->appState->core.vsync);
     engine->swapchainImageFormat = surfaceFormat.format;
-    engine->swapchainExtent = choose_swapchain_extent(engine->window, capabilities);
+    engine->swapchainExtent = choose_swapchain_extent(engine->appState->window, capabilities);
 
     LOG_INFO("engine", "Swapchain Extent: %ux%u", engine->swapchainExtent.width, engine->swapchainExtent.height);
 
@@ -553,8 +553,8 @@ bool init_swapchain(VulkanEngine* engine) {
         return false;
     }
 
-    engine->depthImage = engine->rhi->CreateTexture(engine->swapchainExtent.width, engine->swapchainExtent.height, TextureFormat::Depth,
-                                                    TextureUsage::DepthAttachment, 1, "Depth_Buffer_Image");
+    engine->depthImage = engine->appState->rhi->CreateTexture(engine->swapchainExtent.width, engine->swapchainExtent.height, TextureFormat::Depth,
+                                                              TextureUsage::DepthAttachment, 1, "Depth_Buffer_Image");
 
     return engine->depthImage != INVALID_HANDLE;
 }
@@ -596,7 +596,7 @@ bool init_render_pass(VulkanEngine* engine) {
     vk_set_object_name(engine->device, (uint64_t)engine->renderPass, VK_OBJECT_TYPE_RENDER_PASS, "Main_RenderPass");
 
     for (uint32_t i = 0; i < engine->imageCount; i++) {
-        VkImageView depthImageView = ((VulkanRHI*)engine->rhi)->GetVkImageView(engine->depthImage);
+        VkImageView depthImageView = ((VulkanRHI*)engine->appState->rhi)->GetVkImageView(engine->depthImage);
         VkImageView fbAtt[] = {engine->swapchainImageViews[i], depthImageView};
         VkFramebufferCreateInfo fbInfo{};
         fbInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
@@ -621,7 +621,7 @@ bool init_descriptor_layout(VulkanEngine* engine) {
         {2, DescriptorType::CombinedImageSampler, 1, ShaderStage::Fragment}, {3, DescriptorType::CombinedImageSampler, 1, ShaderStage::Fragment},
         {4, DescriptorType::CombinedImageSampler, 1, ShaderStage::Fragment}, {5, DescriptorType::StorageBuffer, 1, ShaderStage::Fragment}};
     DescriptorLayoutDesc desc{bindings.data(), static_cast<uint32_t>(bindings.size())};
-    engine->globalDescriptorLayout = engine->rhi->CreateDescriptorLayout(desc, "Global_DescriptorSetLayout");
+    engine->globalDescriptorLayout = engine->appState->rhi->CreateDescriptorLayout(desc, "Global_DescriptorSetLayout");
     return engine->globalDescriptorLayout != INVALID_HANDLE;
 }
 
@@ -657,7 +657,7 @@ bool create_main_graphics_pipeline(VulkanEngine* engine, const std::vector<uint3
     desc.vertexAttributes = attrs;
     desc.vertexAttributeCount = 3;
     desc.debugName = "Main_Graphics_Pipeline";
-    engine->graphicsPipeline = engine->rhi->CreateGraphicsPipeline(desc);
+    engine->graphicsPipeline = engine->appState->rhi->CreateGraphicsPipeline(desc);
     return engine->graphicsPipeline != INVALID_HANDLE;
 }
 
@@ -673,7 +673,7 @@ bool create_skybox_pipeline(VulkanEngine* engine, const std::vector<uint32_t>& v
     desc.depthWriteEnable = false;
     desc.depthCompareOp = CompareOp::LessOrEqual;
     desc.debugName = "Skybox_Graphics_Pipeline";
-    engine->skyboxPipeline = engine->rhi->CreateGraphicsPipeline(desc);
+    engine->skyboxPipeline = engine->appState->rhi->CreateGraphicsPipeline(desc);
     return engine->skyboxPipeline != INVALID_HANDLE;
 }
 
@@ -701,7 +701,7 @@ bool create_billboard_pipeline(VulkanEngine* engine) {
     desc.vertexAttributes = attrs;
     desc.vertexAttributeCount = 2;
     desc.debugName = "Billboard_Graphics_Pipeline";
-    engine->billboardPipeline = engine->rhi->CreateGraphicsPipeline(desc);
+    engine->billboardPipeline = engine->appState->rhi->CreateGraphicsPipeline(desc);
     return engine->billboardPipeline != INVALID_HANDLE;
 }
 
@@ -722,7 +722,7 @@ bool create_wireframe_pipeline(VulkanEngine* engine, const std::vector<uint32_t>
     desc.vertexAttributeCount = 3;
     desc.polygonMode = PolygonMode::Line;
     desc.debugName = "Wireframe_Pipeline";
-    engine->wireframePipeline = engine->rhi->CreateGraphicsPipeline(desc);
+    engine->wireframePipeline = engine->appState->rhi->CreateGraphicsPipeline(desc);
     return engine->wireframePipeline != INVALID_HANDLE;
 }
 
@@ -734,7 +734,7 @@ bool create_debug_pipelines(VulkanEngine* engine) {
 
     PushConstantRange dPushRange{ShaderStage::Vertex | ShaderStage::Fragment, 0, sizeof(DebugPushConstant)};
     PipelineLayoutDesc plDesc{&engine->globalDescriptorLayout, 1, &dPushRange, 1};
-    engine->debugPipelineLayout = engine->rhi->CreatePipelineLayout(plDesc, "Debug_PipelineLayout");
+    engine->debugPipelineLayout = engine->appState->rhi->CreatePipelineLayout(plDesc, "Debug_PipelineLayout");
 
     VertexInputBinding bindings[] = {
         {1, sizeof(BillboardInstance), true} // debug lines reuse billboard instance struct for simplicity in this engine? Wait, no. Debug has no vertex input!
@@ -759,19 +759,19 @@ bool create_debug_pipelines(VulkanEngine* engine) {
     desc.cullMode = CullMode::None;
     desc.depthWriteEnable = false;
     desc.debugName = "Debug_Line_Pipeline";
-    engine->debugLinePipeline = engine->rhi->CreateGraphicsPipeline(desc);
+    engine->debugLinePipeline = engine->appState->rhi->CreateGraphicsPipeline(desc);
 
     desc.topology = Topology::TriangleList;
     desc.polygonMode = PolygonMode::Fill;
     desc.colorBlendEnable = true;
     desc.debugName = "Debug_Triangle_Pipeline";
-    engine->debugTrianglePipeline = engine->rhi->CreateGraphicsPipeline(desc);
+    engine->debugTrianglePipeline = engine->appState->rhi->CreateGraphicsPipeline(desc);
     return engine->debugLinePipeline != INVALID_HANDLE && engine->debugTrianglePipeline != INVALID_HANDLE;
 }
 
 bool init_pipeline(VulkanEngine* engine) {
     PipelineLayoutDesc plDesc{&engine->globalDescriptorLayout, 1, nullptr, 0};
-    engine->pipelineLayout = engine->rhi->CreatePipelineLayout(plDesc, "Main_Pipeline_Layout");
+    engine->pipelineLayout = engine->appState->rhi->CreatePipelineLayout(plDesc, "Main_Pipeline_Layout");
 
     auto vsm = load_shader("shaders/vert.spv");
     auto fsm = load_shader("shaders/frag.spv");
@@ -792,12 +792,12 @@ bool init_pipeline(VulkanEngine* engine) {
 
 bool create_icosphere_buffers(VulkanEngine* engine, const Icosphere& sphere) {
     engine->vertexBuffer =
-        engine->rhi->CreateBuffer(sphere.vertices.size() * sizeof(Vertex), BufferUsage::Vertex, sphere.vertices.data(), "Icosphere_Vertex_Buffer");
+        engine->appState->rhi->CreateBuffer(sphere.vertices.size() * sizeof(Vertex), BufferUsage::Vertex, sphere.vertices.data(), "Icosphere_Vertex_Buffer");
     if (engine->vertexBuffer == INVALID_HANDLE)
         return false;
 
     engine->indexBuffer =
-        engine->rhi->CreateBuffer(sphere.indices.size() * sizeof(uint32_t), BufferUsage::Index, sphere.indices.data(), "Icosphere_Index_Buffer");
+        engine->appState->rhi->CreateBuffer(sphere.indices.size() * sizeof(uint32_t), BufferUsage::Index, sphere.indices.data(), "Icosphere_Index_Buffer");
     return engine->indexBuffer != INVALID_HANDLE;
 }
 
@@ -812,19 +812,20 @@ bool create_instance_grid_buffers(VulkanEngine* engine, std::vector<glm::vec3>& 
             instancePositions[instanceIndex] = {x, y, 0.0f};
         }
     }
-    engine->instanceBuffer =
-        engine->rhi->CreateBuffer(instancePositions.size() * sizeof(glm::vec3), BufferUsage::Vertex, instancePositions.data(), "Instance_Offsets_Buffer");
+    engine->instanceBuffer = engine->appState->rhi->CreateBuffer(instancePositions.size() * sizeof(glm::vec3), BufferUsage::Vertex, instancePositions.data(),
+                                                                 "Instance_Offsets_Buffer");
     return engine->instanceBuffer != INVALID_HANDLE;
 }
 
 bool create_billboard_instance_buffer(VulkanEngine* engine, const std::vector<glm::vec3>& instancePositions) {
     const size_t instanceCount = instancePositions.size();
-    engine->core.billboardInstances.resize(instanceCount);
+    engine->appState->core.billboardInstances.resize(instanceCount);
     for (size_t i = 0; i < instanceCount; ++i) {
-        engine->core.billboardInstances[i] = {instancePositions[i], static_cast<int>(i)};
+        engine->appState->core.billboardInstances[i] = {instancePositions[i], static_cast<int>(i)};
     }
 
-    engine->billboardBuffer = engine->rhi->CreateBuffer(instanceCount * sizeof(BillboardInstance), BufferUsage::Vertex, nullptr, "Billboard_Instance_Buffer");
+    engine->billboardBuffer =
+        engine->appState->rhi->CreateBuffer(instanceCount * sizeof(BillboardInstance), BufferUsage::Vertex, nullptr, "Billboard_Instance_Buffer");
     return engine->billboardBuffer != INVALID_HANDLE;
 }
 
@@ -836,17 +837,18 @@ bool create_material_ssbo(VulkanEngine* engine) {
     if (materials.empty()) {
         return true;
     }
-    engine->materialBuffer = engine->rhi->CreateBuffer(materials.size() * sizeof(MaterialGpu), BufferUsage::Storage, materials.data(), "PBR_Materials_SSBO");
+    engine->materialBuffer =
+        engine->appState->rhi->CreateBuffer(materials.size() * sizeof(MaterialGpu), BufferUsage::Storage, materials.data(), "PBR_Materials_SSBO");
     return engine->materialBuffer != INVALID_HANDLE;
 }
 
 bool create_global_uniform_buffer(VulkanEngine* engine) {
-    engine->uniformBuffer = engine->rhi->CreateBuffer(sizeof(UBOData), BufferUsage::Uniform,
-                                                      nullptr, // We don't have initial data, we will map it
-                                                      "Global_MVP_UBO");
+    engine->uniformBuffer = engine->appState->rhi->CreateBuffer(sizeof(UBOData), BufferUsage::Uniform,
+                                                                nullptr, // We don't have initial data, we will map it
+                                                                "Global_MVP_UBO");
     if (engine->uniformBuffer == INVALID_HANDLE)
         return false;
-    engine->uniformBufferMapped = engine->rhi->MapBuffer(engine->uniformBuffer);
+    engine->uniformBufferMapped = engine->appState->rhi->MapBuffer(engine->uniformBuffer);
     return engine->uniformBufferMapped != nullptr;
 }
 
@@ -878,7 +880,7 @@ bool init_buffers(VulkanEngine* engine) {
 bool init_descriptor_pool_and_sets(VulkanEngine* engine) {
     DescriptorPoolSize sizes[3] = {{DescriptorType::UniformBuffer, 1}, {DescriptorType::CombinedImageSampler, 4}, {DescriptorType::StorageBuffer, 1}};
     DescriptorPoolDesc desc{sizes, 3, 1};
-    engine->globalDescriptorPool = engine->rhi->CreateDescriptorPool(desc, "Global_Descriptor_Pool");
+    engine->globalDescriptorPool = engine->appState->rhi->CreateDescriptorPool(desc, "Global_Descriptor_Pool");
     if (engine->globalDescriptorPool == INVALID_HANDLE) {
         return false;
     }
@@ -887,10 +889,10 @@ bool init_descriptor_pool_and_sets(VulkanEngine* engine) {
     ai.pool = engine->globalDescriptorPool;
     ai.setCount = 1;
     ai.layouts = &engine->globalDescriptorLayout;
-    if (!engine->rhi->AllocateDescriptorSets(ai, &engine->descriptorSet)) {
+    if (!engine->appState->rhi->AllocateDescriptorSets(ai, &engine->descriptorSet)) {
         return false;
     }
-    VkDescriptorSet vkSet = ((VulkanRHI*)engine->rhi)->GetVkDescriptorSet(engine->descriptorSet);
+    VkDescriptorSet vkSet = ((VulkanRHI*)engine->appState->rhi)->GetVkDescriptorSet(engine->descriptorSet);
     vk_set_object_name(engine->device, (uint64_t)vkSet, VK_OBJECT_TYPE_DESCRIPTOR_SET, "Global_Descriptor_Set");
 
     DescriptorBufferInfo bi{};
@@ -989,7 +991,7 @@ bool init_descriptor_pool_and_sets(VulkanEngine* engine) {
     writes[5].pBufferInfo = &materialBufferInfo;
     writes[5].pImageInfo = nullptr;
 
-    engine->rhi->UpdateDescriptorSets(6, writes);
+    engine->appState->rhi->UpdateDescriptorSets(6, writes);
     return true;
 }
 
@@ -1032,10 +1034,10 @@ bool init_commands_and_sync(VulkanEngine* engine) {
 bool vk_recreate_swapchain(VulkanEngine* engine) {
     int width = 0;
     int height = 0;
-    glfwGetFramebufferSize(engine->window, &width, &height);
+    glfwGetFramebufferSize(engine->appState->window, &width, &height);
     while (width == 0 || height == 0) {
         glfwWaitEvents();
-        glfwGetFramebufferSize(engine->window, &width, &height);
+        glfwGetFramebufferSize(engine->appState->window, &width, &height);
     }
 
     if (vkDeviceWaitIdle(engine->device) != VK_SUCCESS) {
@@ -1062,12 +1064,19 @@ bool vk_init_vulkan_engine(VulkanEngine* engine) {
         return false;
     }
 
-    if (engine->useNullRHI) {
-        engine->rhi = new NullRHI();
-    } else {
-        engine->rhi = new VulkanRHI(engine);
+    std::string libName = engine->appState->useNullRHI ? "libnull_rhi.so" : "libvulkan_rhi.so";
+    if (!engine->appState->rhiModule.Load(libName)) {
+        LOG_ERROR("app", "Failed to load RHI module %s", libName.c_str());
+        return false;
     }
-    engine->rhi->Init();
+    typedef IRHI* (*CreateRHIFunc)(VulkanEngine*);
+    CreateRHIFunc createFunc = (CreateRHIFunc)engine->appState->rhiModule.GetSymbol("CreateRHI");
+    if (!createFunc) {
+        LOG_ERROR("app", "Failed to find CreateRHI symbol");
+        return false;
+    }
+    engine->appState->rhi = createFunc(engine);
+    engine->appState->rhi->Init();
 
     LOG_INFO("app", "init_swapchain...");
     if (!init_swapchain(engine)) {
@@ -1128,28 +1137,28 @@ bool vk_init_vulkan_engine(VulkanEngine* engine) {
     }
 
     LOG_INFO("app", "Initialization complete.");
-    core_engine_init(&engine->core);
+    core_engine_init(&engine->appState->core);
 
     engine->hdrIoThreadRunning = false;
     engine->hdrLoadInFlight = false;
     engine->pendingHdrIndex = -1;
 
-    glfwSetInputMode(engine->window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    glfwSetInputMode(engine->appState->window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
     // Some values still depend on window layout
-    glfwGetWindowPos(engine->window, &engine->core.windowedPosX, &engine->core.windowedPosY);
-    glfwGetWindowSize(engine->window, &engine->core.windowedWidth, &engine->core.windowedHeight);
+    glfwGetWindowPos(engine->appState->window, &engine->appState->core.windowedPosX, &engine->appState->core.windowedPosY);
+    glfwGetWindowSize(engine->appState->window, &engine->appState->core.windowedWidth, &engine->appState->core.windowedHeight);
     if (!vk_start_hdr_io_thread(engine)) {
         vk_cleanup_vulkan_engine(engine);
         return false;
     }
     LOG_INFO("engine", "Vulkan initialise avec succes !");
-    LOG_INFO("postprocess", "Default Exposure: %.2f", engine->core.exposure);
-    LOG_INFO("postprocess", "Default IBL Intensity: %.2f (Scale: %.2f)", engine->core.iblIntensity, engine->core.iblDebugScale);
+    LOG_INFO("postprocess", "Default Exposure: %.2f", engine->appState->core.exposure);
+    LOG_INFO("postprocess", "Default IBL Intensity: %.2f (Scale: %.2f)", engine->appState->core.iblIntensity, engine->appState->core.iblDebugScale);
     LOG_INFO("postprocess", "Default Tonemapper: Filmic ACES (DISABLED by default for Legacy OGL-ISO parity)");
-    LOG_INFO("postprocess", "Default Color Grading: Sat=%.2f, Contrast=%.2f, Gamma=%.2f, Gain=%.2f, Offset=%.2f", engine->core.saturation,
-             engine->core.contrast, engine->core.gamma, engine->core.gain, engine->core.offset);
-    LOG_INFO("postprocess", "Default White Balance: Temp=%.1f, Tint=%.2f", engine->core.wbTemp, engine->core.wbTint);
+    LOG_INFO("postprocess", "Default Color Grading: Sat=%.2f, Contrast=%.2f, Gamma=%.2f, Gain=%.2f, Offset=%.2f", engine->appState->core.saturation,
+             engine->appState->core.contrast, engine->appState->core.gamma, engine->appState->core.gain, engine->appState->core.offset);
+    LOG_INFO("postprocess", "Default White Balance: Temp=%.1f, Tint=%.2f", engine->appState->core.wbTemp, engine->appState->core.wbTint);
     return true;
 }
 
@@ -1173,9 +1182,14 @@ void vk_cleanup_vulkan_engine(VulkanEngine* engine) {
     cleanup_core_resources(engine);
     LOG_INFO("postprocess", "Post-processing cleaned up");
     LOG_INFO("perf", "Performance mode cleaned up");
-    if (engine->rhi) {
-        delete engine->rhi;
-        engine->rhi = nullptr;
+    if (engine->appState->rhi) {
+        typedef void (*DestroyRHIFunc)(IRHI*);
+        DestroyRHIFunc destroyFunc = (DestroyRHIFunc)engine->appState->rhiModule.GetSymbol("DestroyRHI");
+        if (destroyFunc) {
+            destroyFunc(engine->appState->rhi);
+        }
+        engine->appState->rhi = nullptr;
     }
+    engine->appState->rhiModule.Unload();
     glfwTerminate();
 }

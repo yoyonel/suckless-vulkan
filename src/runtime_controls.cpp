@@ -54,9 +54,9 @@ bool runtime_is_key_pressed_once(GLFWwindow* window, int key, bool* wasDown, con
 }
 
 bool runtime_toggle_fullscreen(VulkanEngine* engine, const WindowOps* ops) {
-    if (!engine->core.isFullscreen) {
-        ops->get_window_pos(engine->window, &engine->core.windowedPosX, &engine->core.windowedPosY);
-        ops->get_window_size(engine->window, &engine->core.windowedWidth, &engine->core.windowedHeight);
+    if (!engine->appState->core.isFullscreen) {
+        ops->get_window_pos(engine->appState->window, &engine->appState->core.windowedPosX, &engine->appState->core.windowedPosY);
+        ops->get_window_size(engine->appState->window, &engine->appState->core.windowedWidth, &engine->appState->core.windowedHeight);
 
         GLFWmonitor* monitor = ops->get_primary_monitor();
         if (monitor == nullptr) {
@@ -68,33 +68,38 @@ bool runtime_toggle_fullscreen(VulkanEngine* engine, const WindowOps* ops) {
             return false;
         }
 
-        ops->set_window_monitor(engine->window, monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
-        engine->core.isFullscreen = true;
+        ops->set_window_monitor(engine->appState->window, monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
+        engine->appState->core.isFullscreen = true;
         LOG_INFO("runtime", "Mode fullscreen active");
         return true;
     }
 
-    ops->set_window_monitor(engine->window, nullptr, engine->core.windowedPosX, engine->core.windowedPosY, engine->core.windowedWidth,
-                            engine->core.windowedHeight, 0);
-    engine->core.isFullscreen = false;
+    ops->set_window_monitor(engine->appState->window, nullptr, engine->appState->core.windowedPosX, engine->appState->core.windowedPosY,
+                            engine->appState->core.windowedWidth, engine->appState->core.windowedHeight, 0);
+    engine->appState->core.isFullscreen = false;
     LOG_INFO("runtime", "Mode fenetre active");
     return true;
 }
 
 void runtime_update_controls(VulkanEngine* engine, const WindowOps* ops) {
-    engine->currentInput.pausePressed = runtime_is_key_pressed_once(engine->window, GLFW_KEY_P, &engine->core.pauseKeyWasDown, ops);
-    engine->currentInput.cameraResetPressed = runtime_is_key_pressed_once(engine->window, GLFW_KEY_SPACE, &engine->core.cameraResetKeyWasDown, ops);
-    engine->currentInput.resetPressed = runtime_is_key_pressed_once(engine->window, GLFW_KEY_R, &engine->core.resetKeyWasDown, ops);
-    engine->currentInput.speedUpPressed = runtime_is_key_pressed_once(engine->window, GLFW_KEY_UP, &engine->core.speedUpKeyWasDown, ops);
-    engine->currentInput.speedDownPressed = runtime_is_key_pressed_once(engine->window, GLFW_KEY_DOWN, &engine->core.speedDownKeyWasDown, ops);
+    engine->appState->currentInput.pausePressed =
+        runtime_is_key_pressed_once(engine->appState->window, GLFW_KEY_P, &engine->appState->core.pauseKeyWasDown, ops);
+    engine->appState->currentInput.cameraResetPressed =
+        runtime_is_key_pressed_once(engine->appState->window, GLFW_KEY_SPACE, &engine->appState->core.cameraResetKeyWasDown, ops);
+    engine->appState->currentInput.resetPressed =
+        runtime_is_key_pressed_once(engine->appState->window, GLFW_KEY_R, &engine->appState->core.resetKeyWasDown, ops);
+    engine->appState->currentInput.speedUpPressed =
+        runtime_is_key_pressed_once(engine->appState->window, GLFW_KEY_UP, &engine->appState->core.speedUpKeyWasDown, ops);
+    engine->appState->currentInput.speedDownPressed =
+        runtime_is_key_pressed_once(engine->appState->window, GLFW_KEY_DOWN, &engine->appState->core.speedDownKeyWasDown, ops);
 
-    if (runtime_is_key_pressed_once(engine->window, GLFW_KEY_F11, &engine->core.fullscreenKeyWasDown, ops)) {
+    if (runtime_is_key_pressed_once(engine->appState->window, GLFW_KEY_F11, &engine->appState->core.fullscreenKeyWasDown, ops)) {
         if (runtime_toggle_fullscreen(engine, ops)) {
-            engine->core.lastFrameTimestamp = std::chrono::steady_clock::now();
+            engine->appState->core.lastFrameTimestamp = std::chrono::steady_clock::now();
         }
     }
 
-    if (runtime_is_key_pressed_once(engine->window, GLFW_KEY_ESCAPE, &engine->core.escapeKeyWasDown, ops)) {
-        ops->set_window_should_close(engine->window, GLFW_TRUE);
+    if (runtime_is_key_pressed_once(engine->appState->window, GLFW_KEY_ESCAPE, &engine->appState->core.escapeKeyWasDown, ops)) {
+        ops->set_window_should_close(engine->appState->window, GLFW_TRUE);
     }
 }

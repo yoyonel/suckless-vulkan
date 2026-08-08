@@ -25,7 +25,7 @@ bool vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recreateSw
     uint32_t idx;
     {
         SVK_TRACY_ZONE_SCOPED("Frame CPU Acquire");
-        SwapchainStatus status = engine->rhi->AcquireNextImage(&idx);
+        SwapchainStatus status = engine->appState->rhi->AcquireNextImage(&idx);
         if (status == SwapchainStatus::NeedRecreate) {
             return recreateSwapchain(engine);
         }
@@ -42,23 +42,24 @@ bool vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recreateSw
         vk_handle_runtime_input(engine, ops);
         vk_update_camera_key_state(engine, ops);
 
-        core_engine_update(&engine->core, &engine->currentInput, 0.25f);
+        core_engine_update(&engine->appState->core, &engine->appState->currentInput, 0.25f);
 
-        engine->currentInput.mouseDeltaX = 0.0f;
-        engine->currentInput.mouseDeltaY = 0.0f;
-        engine->currentInput.scrollDelta = 0.0f;
+        engine->appState->currentInput.mouseDeltaX = 0.0f;
+        engine->appState->currentInput.mouseDeltaY = 0.0f;
+        engine->appState->currentInput.scrollDelta = 0.0f;
     }
 
     UBOData uboData;
     uboData.modelRotation = glm::mat4(1.0f);
-    glm::mat4 view = glm::lookAt(engine->core.camera.position, engine->core.camera.position + engine->core.camera.front, engine->core.camera.up);
+    glm::mat4 view = glm::lookAt(engine->appState->core.camera.position, engine->appState->core.camera.position + engine->appState->core.camera.front,
+                                 engine->appState->core.camera.up);
 
     uint32_t renderWidth;
     uint32_t renderHeight;
-    engine->rhi->GetResolution(&renderWidth, &renderHeight);
+    engine->appState->rhi->GetResolution(&renderWidth, &renderHeight);
     const float aspect = static_cast<float>(renderWidth) / static_cast<float>(renderHeight);
 
-    glm::mat4 proj = glm::perspective(glm::radians(engine->core.camera.zoom), aspect, kNearPlane, kFarPlane);
+    glm::mat4 proj = glm::perspective(glm::radians(engine->appState->core.camera.zoom), aspect, kNearPlane, kFarPlane);
     proj[1][1] *= -1;
     uboData.vp = proj * view;
 
@@ -67,106 +68,109 @@ bool vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recreateSw
     skyboxProj[1][1] *= -1;
     uboData.invViewProj = glm::inverse(skyboxProj * skyboxView);
 
-    uboData.cameraPosEnvLod = glm::vec4(engine->core.camera.position, engine->core.envLod);
-    uboData.debugParams = glm::vec4(static_cast<float>(engine->core.iblDebugMode), engine->core.iblDebugScale, engine->core.billboardMode ? 1.0f : 0.0f, 0.0f);
-    uboData.postParams1 = glm::vec4(engine->core.exposure, engine->core.saturation, engine->core.contrast, engine->core.gamma);
-    uboData.postParams2 = glm::vec4(engine->core.gain, engine->core.offset, engine->core.wbTemp, engine->core.wbTint);
+    uboData.cameraPosEnvLod = glm::vec4(engine->appState->core.camera.position, engine->appState->core.envLod);
+    uboData.debugParams = glm::vec4(static_cast<float>(engine->appState->core.iblDebugMode), engine->appState->core.iblDebugScale,
+                                    engine->appState->core.billboardMode ? 1.0f : 0.0f, 0.0f);
+    uboData.postParams1 =
+        glm::vec4(engine->appState->core.exposure, engine->appState->core.saturation, engine->appState->core.contrast, engine->appState->core.gamma);
+    uboData.postParams2 = glm::vec4(engine->appState->core.gain, engine->appState->core.offset, engine->appState->core.wbTemp, engine->appState->core.wbTint);
     uboData.view = view;
     uboData.proj = proj;
 
     uboData.windowSize = glm::vec4(static_cast<float>(renderWidth), static_cast<float>(renderHeight), 0.0f, 0.0f);
 
-    engine->rhi->UpdateUBO(uboData);
+    engine->appState->rhi->UpdateUBO(uboData);
 
     {
         SVK_TRACY_ZONE_SCOPED("Frame CPU Record");
-        if (!engine->rhi->BeginFrame()) {
+        if (!engine->appState->rhi->BeginFrame()) {
             return false;
         }
 
-        engine->rhi->CollectProfiling();
+        engine->appState->rhi->CollectProfiling();
 
         {
-            SVK_RHI_GPU_ZONE(gpuFrameZone, engine->rhi, "GPU Frame");
+            SVK_RHI_GPU_ZONE(gpuFrameZone, engine->appState->rhi, "GPU Frame");
 
-            engine->rhi->BeginDebugLabel("Render_Frame_Graphics", 1.0f, 0.5f, 0.0f);
+            engine->appState->rhi->BeginDebugLabel("Render_Frame_Graphics", 1.0f, 0.5f, 0.0f);
 
-            engine->rhi->BeginDebugLabel("RenderPass_Begin_And_Bindings", 1.0f, 0.8f, 0.2f);
-            engine->rhi->BeginRenderPass();
-            engine->rhi->BindGlobalDescriptor();
-            engine->rhi->EndDebugLabel();
+            engine->appState->rhi->BeginDebugLabel("RenderPass_Begin_And_Bindings", 1.0f, 0.8f, 0.2f);
+            engine->appState->rhi->BeginRenderPass();
+            engine->appState->rhi->BindGlobalDescriptor();
+            engine->appState->rhi->EndDebugLabel();
 
             {
-                SVK_RHI_GPU_ZONE(gpuSkyboxZone, engine->rhi, "GPU Skybox");
-                engine->rhi->BeginDebugLabel("Render_Skybox_EnvMap", 0.2f, 0.5f, 1.0f);
-                if (engine->core.showEnvmap) {
-                    engine->rhi->BindPipeline(PipelineType::Skybox);
-                    engine->rhi->Draw(3, 1);
+                SVK_RHI_GPU_ZONE(gpuSkyboxZone, engine->appState->rhi, "GPU Skybox");
+                engine->appState->rhi->BeginDebugLabel("Render_Skybox_EnvMap", 0.2f, 0.5f, 1.0f);
+                if (engine->appState->core.showEnvmap) {
+                    engine->appState->rhi->BindPipeline(PipelineType::Skybox);
+                    engine->appState->rhi->Draw(3, 1);
                 }
-                engine->rhi->EndDebugLabel();
+                engine->appState->rhi->EndDebugLabel();
             }
 
             {
-                SVK_RHI_GPU_ZONE(gpuSphereZone, engine->rhi, "GPU Spheres");
-                engine->rhi->BeginDebugLabel("Render_Spheres_Instanced", 0.0f, 1.0f, 0.4f);
-                if (engine->core.billboardMode) {
-                    const glm::vec3 camPos = engine->core.camera.position;
-                    std::sort(engine->core.billboardInstances.begin(), engine->core.billboardInstances.end(),
+                SVK_RHI_GPU_ZONE(gpuSphereZone, engine->appState->rhi, "GPU Spheres");
+                engine->appState->rhi->BeginDebugLabel("Render_Spheres_Instanced", 0.0f, 1.0f, 0.4f);
+                if (engine->appState->core.billboardMode) {
+                    const glm::vec3 camPos = engine->appState->core.camera.position;
+                    std::sort(engine->appState->core.billboardInstances.begin(), engine->appState->core.billboardInstances.end(),
                               [&camPos](const BillboardInstance& a, const BillboardInstance& b) {
                                   glm::vec3 da = a.pos - camPos;
                                   glm::vec3 db = b.pos - camPos;
                                   return glm::dot(da, da) > glm::dot(db, db);
                               });
 
-                    engine->rhi->UpdateBillboardInstances(engine->core.billboardInstances.data(), engine->core.billboardInstances.size());
+                    engine->appState->rhi->UpdateBillboardInstances(engine->appState->core.billboardInstances.data(),
+                                                                    engine->appState->core.billboardInstances.size());
 
-                    engine->rhi->BindPipeline(PipelineType::Billboard);
-                    engine->rhi->BindMeshBuffers(true);
-                    engine->rhi->Draw(6, static_cast<uint32_t>(engine->core.billboardInstances.size()));
+                    engine->appState->rhi->BindPipeline(PipelineType::Billboard);
+                    engine->appState->rhi->BindMeshBuffers(true);
+                    engine->appState->rhi->Draw(6, static_cast<uint32_t>(engine->appState->core.billboardInstances.size()));
                 } else {
-                    engine->rhi->BindPipeline(engine->core.wireframeMode ? PipelineType::Wireframe : PipelineType::Graphics);
-                    engine->rhi->BindMeshBuffers(false);
-                    engine->rhi->DrawIndexed(engine->indexCount, kGridSize * kGridSize);
+                    engine->appState->rhi->BindPipeline(engine->appState->core.wireframeMode ? PipelineType::Wireframe : PipelineType::Graphics);
+                    engine->appState->rhi->BindMeshBuffers(false);
+                    engine->appState->rhi->DrawIndexed(engine->indexCount, kGridSize * kGridSize);
                 }
 
-                if (engine->core.wireframeMode && engine->core.billboardMode) {
+                if (engine->appState->core.wireframeMode && engine->appState->core.billboardMode) {
                     DebugPushConstant dp = {};
                     dp.model = glm::mat4(1.0f);
                     dp.radius = 1.0f;
 
-                    engine->rhi->BindPipeline(PipelineType::DebugTriangle);
+                    engine->appState->rhi->BindPipeline(PipelineType::DebugTriangle);
                     dp.color = glm::vec4(1.0f, 1.0f, 1.0f, 0.1f);
                     dp.mode = 1;
                     dp.stippled = 2;
-                    engine->rhi->PushDebugConstants(&dp, sizeof(DebugPushConstant));
-                    engine->rhi->Draw(6, kGridSize * kGridSize);
+                    engine->appState->rhi->PushDebugConstants(&dp, sizeof(DebugPushConstant));
+                    engine->appState->rhi->Draw(6, kGridSize * kGridSize);
 
-                    engine->rhi->BindPipeline(PipelineType::DebugLine);
+                    engine->appState->rhi->BindPipeline(PipelineType::DebugLine);
                     dp.color = glm::vec4(0.0f, 1.0f, 0.0f, 1.0f);
                     dp.mode = 1;
                     dp.stippled = 0;
-                    engine->rhi->PushDebugConstants(&dp, sizeof(DebugPushConstant));
-                    engine->rhi->Draw(8, kGridSize * kGridSize);
+                    engine->appState->rhi->PushDebugConstants(&dp, sizeof(DebugPushConstant));
+                    engine->appState->rhi->Draw(8, kGridSize * kGridSize);
 
                     dp.color = glm::vec4(1.0f, 1.0f, 0.0f, 0.5f);
                     dp.mode = 0;
                     dp.stippled = 1;
-                    engine->rhi->PushDebugConstants(&dp, sizeof(DebugPushConstant));
-                    engine->rhi->Draw(24, kGridSize * kGridSize);
+                    engine->appState->rhi->PushDebugConstants(&dp, sizeof(DebugPushConstant));
+                    engine->appState->rhi->Draw(24, kGridSize * kGridSize);
                 }
-                engine->rhi->EndDebugLabel();
+                engine->appState->rhi->EndDebugLabel();
             }
 
-            engine->rhi->EndRenderPass();
-            engine->rhi->EndDebugLabel();
+            engine->appState->rhi->EndRenderPass();
+            engine->appState->rhi->EndDebugLabel();
         }
 
-        engine->rhi->EndFrame();
+        engine->appState->rhi->EndFrame();
     }
 
     {
         SVK_TRACY_ZONE_SCOPED("Frame CPU Submit and Present");
-        SwapchainStatus status = engine->rhi->SubmitAndPresent(idx);
+        SwapchainStatus status = engine->appState->rhi->SubmitAndPresent(idx);
         if (status == SwapchainStatus::NeedRecreate) {
             return recreateSwapchain(engine);
         }

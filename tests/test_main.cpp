@@ -191,7 +191,9 @@ static bool verify_and_capture_frame(VulkanEngine* engine, const char* filename)
 }
 
 static bool test_integration_rendering() {
+    EngineState appState = {};
     VulkanEngine engine = {};
+    engine.appState = &appState;
     if (!init_vulkan_engine(&engine)) {
         return false;
     }
@@ -204,7 +206,7 @@ static bool test_integration_rendering() {
     bool b1 = verify_and_capture_frame(&engine, "test_billboard.png");
 
     // Capture 2: Icosphere
-    engine.core.billboardMode = false;
+    engine.appState->core.billboardMode = false;
     if (!draw_frame(&engine)) {
         cleanup_vulkan_engine(&engine);
         return false;
@@ -212,8 +214,8 @@ static bool test_integration_rendering() {
     bool b2 = verify_and_capture_frame(&engine, "test_icosphere.png");
 
     // Capture 3: Billboard Wireframe (New)
-    engine.core.billboardMode = true;
-    engine.core.wireframeMode = true;
+    engine.appState->core.billboardMode = true;
+    engine.appState->core.wireframeMode = true;
     if (!draw_frame(&engine)) {
         cleanup_vulkan_engine(&engine);
         return false;
@@ -221,8 +223,8 @@ static bool test_integration_rendering() {
     bool b3 = verify_and_capture_frame(&engine, "test_wireframe_billboard.png");
 
     // Capture 4: Icosphere Wireframe
-    engine.core.billboardMode = false;
-    engine.core.wireframeMode = true;
+    engine.appState->core.billboardMode = false;
+    engine.appState->core.wireframeMode = true;
     if (!draw_frame(&engine)) {
         cleanup_vulkan_engine(&engine);
         return false;
@@ -232,12 +234,12 @@ static bool test_integration_rendering() {
     // Capture 5: Close-up Billboard Singularity (Extreme Proximity)
     // Sphere at (1.25, 1.25, 0.0), Radius 1.0.
     // Camera at distance 1.5 -> 0.5 from surface
-    engine.core.camera.position = glm::vec3(1.25f, 1.25f, 1.5f);
-    engine.core.camera.yaw = -90.0f;
-    engine.core.camera.pitch = 0.0f;
-    camera_update_vectors(&engine.core.camera);
-    engine.core.billboardMode = true;
-    engine.core.wireframeMode = true;
+    engine.appState->core.camera.position = glm::vec3(1.25f, 1.25f, 1.5f);
+    engine.appState->core.camera.yaw = -90.0f;
+    engine.appState->core.camera.pitch = 0.0f;
+    camera_update_vectors(&engine.appState->core.camera);
+    engine.appState->core.billboardMode = true;
+    engine.appState->core.wireframeMode = true;
     if (!draw_frame(&engine)) {
         cleanup_vulkan_engine(&engine);
         return false;
@@ -246,8 +248,8 @@ static bool test_integration_rendering() {
 
     // Test coverage for default WindowOps wrappers
     const WindowOps* ops = runtime_default_window_ops();
-    ops->get_key(engine.window, GLFW_KEY_UNKNOWN);
-    ops->set_window_should_close(engine.window, GLFW_FALSE);
+    ops->get_key(engine.appState->window, GLFW_KEY_UNKNOWN);
+    ops->set_window_should_close(engine.appState->window, GLFW_FALSE);
     GLFWmonitor* primary = ops->get_primary_monitor();
     if (primary) {
         ops->get_video_mode(primary);
@@ -256,9 +258,9 @@ static bool test_integration_rendering() {
     int winY = 0;
     int winW = 0;
     int winH = 0;
-    ops->get_window_pos(engine.window, &winX, &winY);
-    ops->get_window_size(engine.window, &winW, &winH);
-    ops->set_window_monitor(engine.window, nullptr, winX, winY, winW, winH, 0);
+    ops->get_window_pos(engine.appState->window, &winX, &winY);
+    ops->get_window_size(engine.appState->window, &winW, &winH);
+    ops->set_window_monitor(engine.appState->window, nullptr, winX, winY, winW, winH, 0);
 
     // Test envmap logic
     vk_adjust_env_lod(&engine, 1.0f);
@@ -268,14 +270,14 @@ static bool test_integration_rendering() {
     vk_ibl_export_maps(&engine);
 
     // Cover mouse and scroll callbacks
-    engine.core.cameraEnabled = false;
-    vk_mouse_callback(engine.window, 10.0, 10.0); // camera off
-    engine.core.cameraEnabled = true;
-    engine.core.camera.firstMouse = true;
-    vk_mouse_callback(engine.window, 10.0, 10.0); // first mouse
-    vk_mouse_callback(engine.window, 20.0, 20.0); // move mouse
+    engine.appState->core.cameraEnabled = false;
+    vk_mouse_callback(engine.appState->window, 10.0, 10.0); // camera off
+    engine.appState->core.cameraEnabled = true;
+    engine.appState->core.camera.firstMouse = true;
+    vk_mouse_callback(engine.appState->window, 10.0, 10.0); // first mouse
+    vk_mouse_callback(engine.appState->window, 20.0, 20.0); // move mouse
 
-    vk_scroll_callback(engine.window, 0, 1.0); // scroll
+    vk_scroll_callback(engine.appState->window, 0, 1.0); // scroll
 
     cleanup_vulkan_engine(&engine);
     return b1 && b2 && b3 && b4 && b5;

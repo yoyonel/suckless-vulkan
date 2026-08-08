@@ -7,7 +7,7 @@
     runtime_update_controls(&engine, &ops);                                                                                                                    \
     vk_handle_runtime_input(&engine, &ops);                                                                                                                    \
     vk_update_camera_key_state(&engine, &ops);                                                                                                                 \
-    core_engine_update(&engine.core, &engine.currentInput, 0.16f);
+    core_engine_update(&engine.appState->core, &engine.appState->currentInput, 0.16f);
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -188,11 +188,13 @@ void test_runtime_controls(TestStats* stats) {
     g_fake = &state;
     const WindowOps ops = make_fake_ops();
 
+    EngineState appState = {};
     VulkanEngine engine = {};
-    engine.window = reinterpret_cast<GLFWwindow*>(0x2);
-    engine.core.animationSpeed = 1.0f;
-    engine.core.animationTimeSeconds = 3.0f;
-    engine.core.lastFrameTimestamp = std::chrono::steady_clock::now();
+    engine.appState = &appState;
+    engine.appState->window = reinterpret_cast<GLFWwindow*>(0x2);
+    engine.appState->core.animationSpeed = 1.0f;
+    engine.appState->core.animationTimeSeconds = 3.0f;
+    engine.appState->core.lastFrameTimestamp = std::chrono::steady_clock::now();
 
     state.keyStates[GLFW_KEY_ESCAPE] = GLFW_PRESS;
     UPDATE_CONTROLS();
@@ -204,7 +206,7 @@ void test_runtime_controls(TestStats* stats) {
 
     state.keyStates[GLFW_KEY_F11] = GLFW_PRESS;
     UPDATE_CONTROLS();
-    check(stats, engine.core.isFullscreen, "F11 should switch to fullscreen");
+    check(stats, engine.appState->core.isFullscreen, "F11 should switch to fullscreen");
     check(stats, state.setWindowMonitorCallCount == 1, "Entering fullscreen should call set_window_monitor once");
     check(stats, state.lastMonitor != nullptr, "Fullscreen should pass a monitor");
     check(stats, state.lastW == 1920 && state.lastH == 1080, "Fullscreen should use monitor resolution");
@@ -214,7 +216,7 @@ void test_runtime_controls(TestStats* stats) {
 
     state.keyStates[GLFW_KEY_F11] = GLFW_PRESS;
     UPDATE_CONTROLS();
-    check(stats, !engine.core.isFullscreen, "Second F11 should return to window mode");
+    check(stats, !engine.appState->core.isFullscreen, "Second F11 should return to window mode");
     check(stats, state.setWindowMonitorCallCount == 2, "Windowed restore should call set_window_monitor");
     check(stats, state.lastMonitor == nullptr, "Windowed restore should pass null monitor");
     check(stats, state.lastX == state.windowX && state.lastY == state.windowY, "Windowed restore should use saved position");
@@ -228,42 +230,42 @@ void test_runtime_controls(TestStats* stats) {
     check(stats, !runtime_toggle_fullscreen(&engine, &ops), "Toggle fullscreen should fail if no video mode");
     state.hasVideoMode = true;
 
-    camera_init(&engine.core.camera);
-    engine.core.camera.position = glm::vec3(1.0f, 2.0f, 3.0f);
+    camera_init(&engine.appState->core.camera);
+    engine.appState->core.camera.position = glm::vec3(1.0f, 2.0f, 3.0f);
 
     state.keyStates[GLFW_KEY_P] = GLFW_PRESS;
     UPDATE_CONTROLS();
-    check(stats, engine.core.animationPaused, "P should toggle pause on");
+    check(stats, engine.appState->core.animationPaused, "P should toggle pause on");
     state.keyStates[GLFW_KEY_P] = GLFW_RELEASE;
     UPDATE_CONTROLS();
 
     state.keyStates[GLFW_KEY_SPACE] = GLFW_PRESS;
     UPDATE_CONTROLS();
-    check(stats, engine.core.camera.position.z == 20.0f, "Space should reset camera position (z=20)");
-    check(stats, engine.core.camera.position.x == 0.0f, "Space should reset camera position (x=0)");
+    check(stats, engine.appState->core.camera.position.z == 20.0f, "Space should reset camera position (z=20)");
+    check(stats, engine.appState->core.camera.position.x == 0.0f, "Space should reset camera position (x=0)");
     state.keyStates[GLFW_KEY_SPACE] = GLFW_RELEASE;
     UPDATE_CONTROLS();
 
     state.keyStates[GLFW_KEY_UP] = GLFW_PRESS;
     UPDATE_CONTROLS();
-    check(stats, engine.core.animationSpeed > 1.2f, "Up should increase speed");
+    check(stats, engine.appState->core.animationSpeed > 1.2f, "Up should increase speed");
     state.keyStates[GLFW_KEY_UP] = GLFW_RELEASE;
     UPDATE_CONTROLS();
 
-    engine.core.animationSpeed = 0.05f;
+    engine.appState->core.animationSpeed = 0.05f;
     state.keyStates[GLFW_KEY_DOWN] = GLFW_PRESS;
     UPDATE_CONTROLS();
-    check(stats, engine.core.animationSpeed >= 0.1f, "Down should clamp speed to minimum");
+    check(stats, engine.appState->core.animationSpeed >= 0.1f, "Down should clamp speed to minimum");
     state.keyStates[GLFW_KEY_DOWN] = GLFW_RELEASE;
     UPDATE_CONTROLS();
 
-    engine.core.animationTimeSeconds = 9.0f;
-    engine.core.animationSpeed = 2.0f;
+    engine.appState->core.animationTimeSeconds = 9.0f;
+    engine.appState->core.animationSpeed = 2.0f;
     state.keyStates[GLFW_KEY_R] = GLFW_PRESS;
-    engine.core.lastFrameTimestamp -= std::chrono::milliseconds(16);
+    engine.appState->core.lastFrameTimestamp -= std::chrono::milliseconds(16);
     UPDATE_CONTROLS();
-    check(stats, engine.core.animationTimeSeconds < 0.05f, "R should reset animation time");
-    check(stats, engine.core.animationSpeed == 1.0f, "R should restore default animation speed");
+    check(stats, engine.appState->core.animationTimeSeconds < 0.05f, "R should reset animation time");
+    check(stats, engine.appState->core.animationSpeed == 1.0f, "R should restore default animation speed");
 
     g_fake = nullptr;
 }
@@ -273,42 +275,44 @@ void test_vk_engine_runtime(TestStats* stats) {
     g_fake = &state;
     const WindowOps ops = make_fake_ops();
 
+    EngineState appState = {};
     VulkanEngine engine = {};
-    engine.window = reinterpret_cast<GLFWwindow*>(0x2);
-    engine.core.lastFrameTimestamp = std::chrono::steady_clock::now();
+    engine.appState = &appState;
+    engine.appState->window = reinterpret_cast<GLFWwindow*>(0x2);
+    engine.appState->core.lastFrameTimestamp = std::chrono::steady_clock::now();
 
-    engine.core.cameraEnabled = false;
+    engine.appState->core.cameraEnabled = false;
     state.keyStates[GLFW_KEY_C] = GLFW_PRESS;
     UPDATE_CONTROLS();
-    check(stats, engine.core.cameraEnabled, "C toggles camera ON");
+    check(stats, engine.appState->core.cameraEnabled, "C toggles camera ON");
     state.keyStates[GLFW_KEY_C] = GLFW_RELEASE;
     UPDATE_CONTROLS();
 
-    engine.core.showEnvmap = false;
+    engine.appState->core.showEnvmap = false;
     state.keyStates[GLFW_KEY_K] = GLFW_PRESS;
     UPDATE_CONTROLS();
-    check(stats, engine.core.showEnvmap, "K toggles skybox ON");
+    check(stats, engine.appState->core.showEnvmap, "K toggles skybox ON");
     state.keyStates[GLFW_KEY_K] = GLFW_RELEASE;
     UPDATE_CONTROLS();
 
-    engine.core.billboardMode = false;
+    engine.appState->core.billboardMode = false;
     state.keyStates[GLFW_KEY_B] = GLFW_PRESS;
     UPDATE_CONTROLS();
-    check(stats, engine.core.billboardMode, "B toggles billboard ON");
+    check(stats, engine.appState->core.billboardMode, "B toggles billboard ON");
     state.keyStates[GLFW_KEY_B] = GLFW_RELEASE;
     UPDATE_CONTROLS();
 
-    engine.core.wireframeMode = false;
+    engine.appState->core.wireframeMode = false;
     state.keyStates[GLFW_KEY_Z] = GLFW_PRESS;
     UPDATE_CONTROLS();
-    check(stats, engine.core.wireframeMode, "Z toggles wireframe ON");
+    check(stats, engine.appState->core.wireframeMode, "Z toggles wireframe ON");
     state.keyStates[GLFW_KEY_Z] = GLFW_RELEASE;
     UPDATE_CONTROLS();
 
-    engine.core.vsync = false;
+    engine.appState->core.vsync = false;
     state.keyStates[GLFW_KEY_V] = GLFW_PRESS;
     UPDATE_CONTROLS();
-    check(stats, engine.core.vsync, "V toggles vsync ON");
+    check(stats, engine.appState->core.vsync, "V toggles vsync ON");
     state.keyStates[GLFW_KEY_V] = GLFW_RELEASE;
     UPDATE_CONTROLS();
 
@@ -337,43 +341,43 @@ void test_vk_engine_runtime(TestStats* stats) {
     for (int digit = 0; digit <= 9; ++digit) {
         state.keyStates[GLFW_KEY_0 + digit] = GLFW_PRESS;
         UPDATE_CONTROLS();
-        check(stats, engine.core.iblDebugMode == digit, "Digit key sets IBL debug mode");
+        check(stats, engine.appState->core.iblDebugMode == digit, "Digit key sets IBL debug mode");
         state.keyStates[GLFW_KEY_0 + digit] = GLFW_RELEASE;
         UPDATE_CONTROLS();
     }
 
-    engine.core.iblDebugMode = 5;
+    engine.appState->core.iblDebugMode = 5;
     state.keyStates[GLFW_KEY_LEFT_BRACKET] = GLFW_PRESS;
     UPDATE_CONTROLS();
-    check(stats, engine.core.iblDebugMode == 4, "[ decrements IBL debug mode");
+    check(stats, engine.appState->core.iblDebugMode == 4, "[ decrements IBL debug mode");
     state.keyStates[GLFW_KEY_LEFT_BRACKET] = GLFW_RELEASE;
     UPDATE_CONTROLS();
 
     state.keyStates[GLFW_KEY_LEFT_BRACKET] = GLFW_PRESS;
-    engine.core.iblDebugMode = -100;
+    engine.appState->core.iblDebugMode = -100;
     UPDATE_CONTROLS();
-    check(stats, engine.core.iblDebugMode == 0, "[ clamps IBL mode to 0");
+    check(stats, engine.appState->core.iblDebugMode == 0, "[ clamps IBL mode to 0");
     state.keyStates[GLFW_KEY_LEFT_BRACKET] = GLFW_RELEASE;
     UPDATE_CONTROLS();
 
     state.keyStates[GLFW_KEY_RIGHT_BRACKET] = GLFW_PRESS;
-    engine.core.iblDebugMode = 5;
+    engine.appState->core.iblDebugMode = 5;
     UPDATE_CONTROLS();
-    check(stats, engine.core.iblDebugMode == 6, "] increments IBL debug mode");
+    check(stats, engine.appState->core.iblDebugMode == 6, "] increments IBL debug mode");
     state.keyStates[GLFW_KEY_RIGHT_BRACKET] = GLFW_RELEASE;
     UPDATE_CONTROLS();
 
     state.keyStates[GLFW_KEY_RIGHT_BRACKET] = GLFW_PRESS;
-    engine.core.iblDebugMode = 100;
+    engine.appState->core.iblDebugMode = 100;
     UPDATE_CONTROLS();
-    check(stats, engine.core.iblDebugMode == 9, "] clamps IBL debug mode to 9");
+    check(stats, engine.appState->core.iblDebugMode == 9, "] clamps IBL debug mode to 9");
     state.keyStates[GLFW_KEY_RIGHT_BRACKET] = GLFW_RELEASE;
     UPDATE_CONTROLS();
 
-    engine.core.iblDebugMode = 5;
+    engine.appState->core.iblDebugMode = 5;
     state.keyStates[GLFW_KEY_F5] = GLFW_PRESS;
     UPDATE_CONTROLS();
-    check(stats, engine.core.iblDebugMode == 6, "F5 cycles IBL debug mode");
+    check(stats, engine.appState->core.iblDebugMode == 6, "F5 cycles IBL debug mode");
     state.keyStates[GLFW_KEY_F5] = GLFW_RELEASE;
     UPDATE_CONTROLS();
 
@@ -382,40 +386,40 @@ void test_vk_engine_runtime(TestStats* stats) {
     state.keyStates[GLFW_KEY_O] = GLFW_RELEASE;
     UPDATE_CONTROLS();
 
-    engine.core.exposure = 1.0f;
+    engine.appState->core.exposure = 1.0f;
     state.keyStates[GLFW_KEY_KP_ADD] = GLFW_PRESS;
-    engine.core.lastFrameTimestamp -= std::chrono::milliseconds(100);
+    engine.appState->core.lastFrameTimestamp -= std::chrono::milliseconds(100);
     UPDATE_CONTROLS();
-    check(stats, engine.core.exposure > 1.0f, "KP_ADD increases exposure");
+    check(stats, engine.appState->core.exposure > 1.0f, "KP_ADD increases exposure");
     state.keyStates[GLFW_KEY_KP_ADD] = GLFW_RELEASE;
     UPDATE_CONTROLS();
 
     state.keyStates[GLFW_KEY_KP_SUBTRACT] = GLFW_PRESS;
-    engine.core.lastFrameTimestamp -= std::chrono::milliseconds(100);
+    engine.appState->core.lastFrameTimestamp -= std::chrono::milliseconds(100);
     UPDATE_CONTROLS();
-    check(stats, engine.core.exposure < 1.3f, "KP_SUBTRACT decreases exposure");
+    check(stats, engine.appState->core.exposure < 1.3f, "KP_SUBTRACT decreases exposure");
     state.keyStates[GLFW_KEY_KP_SUBTRACT] = GLFW_RELEASE;
     UPDATE_CONTROLS();
 
-    engine.core.exposure = 0.0f;
+    engine.appState->core.exposure = 0.0f;
     state.keyStates[GLFW_KEY_KP_SUBTRACT] = GLFW_PRESS;
-    engine.core.lastFrameTimestamp -= std::chrono::milliseconds(100);
+    engine.appState->core.lastFrameTimestamp -= std::chrono::milliseconds(100);
     UPDATE_CONTROLS();
-    check(stats, engine.core.exposure == 0.01f, "KP_SUBTRACT clamps to 0.01f");
+    check(stats, engine.appState->core.exposure == 0.01f, "KP_SUBTRACT clamps to 0.01f");
     state.keyStates[GLFW_KEY_KP_SUBTRACT] = GLFW_RELEASE;
     UPDATE_CONTROLS();
 
-    engine.core.exposure = 0.5f;
+    engine.appState->core.exposure = 0.5f;
     state.keyStates[GLFW_KEY_0] = GLFW_PRESS;
     UPDATE_CONTROLS();
-    check(stats, engine.core.exposure == 1.0f, "0 resets exposure");
+    check(stats, engine.appState->core.exposure == 1.0f, "0 resets exposure");
     state.keyStates[GLFW_KEY_0] = GLFW_RELEASE;
     UPDATE_CONTROLS();
 
-    engine.core.exposure = 0.5f;
+    engine.appState->core.exposure = 0.5f;
     state.keyStates[GLFW_KEY_KP_0] = GLFW_PRESS;
     UPDATE_CONTROLS();
-    check(stats, engine.core.exposure == 1.0f, "KP_0 resets exposure");
+    check(stats, engine.appState->core.exposure == 1.0f, "KP_0 resets exposure");
     state.keyStates[GLFW_KEY_KP_0] = GLFW_RELEASE;
     UPDATE_CONTROLS();
 
@@ -427,8 +431,8 @@ void test_vk_engine_runtime(TestStats* stats) {
     state.keyStates[GLFW_KEY_E] = GLFW_PRESS;
     UPDATE_CONTROLS();
     check(stats,
-          engine.core.camera.moveForward && engine.core.camera.moveBackward && engine.core.camera.moveLeft && engine.core.camera.moveRight &&
-              engine.core.camera.moveUp && engine.core.camera.moveDown,
+          engine.appState->core.camera.moveForward && engine.appState->core.camera.moveBackward && engine.appState->core.camera.moveLeft &&
+              engine.appState->core.camera.moveRight && engine.appState->core.camera.moveUp && engine.appState->core.camera.moveDown,
           "Camera keys set correctly");
 
     g_fake = nullptr;
