@@ -183,6 +183,13 @@ renderdoc-debug-shaders: build-debug-renderdoc
 test-tracy: build-tracy
     @scripts/smoke_test_app.sh ./build/tracy/vulkan_app
 
+test-oom: build
+    @scripts/test_oom.sh
+
+benchmark: build
+    @chmod +x scripts/benchmark.sh
+    @scripts/benchmark.sh
+
 test: build
     @ctest --test-dir build/release --output-on-failure
 
