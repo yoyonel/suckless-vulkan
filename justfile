@@ -181,7 +181,7 @@ renderdoc-debug-shaders: build-debug-renderdoc
 
 # Exécute tous les tests CTest du build release.
 test-tracy: build-tracy
-    @xvfb-run -a scripts/smoke_test_app.sh ./build/tracy/vulkan_app
+    @scripts/smoke_test_app.sh ./build/tracy/vulkan_app
 
 test: build
     @ctest --test-dir build/release --output-on-failure

@@ -168,7 +168,7 @@ jobs:
             -w /work \
             "$CI_IMAGE" \
             bash -lc "just build-tracy && \\
-              xvfb-run -a scripts/smoke_test_app.sh build/tracy/vulkan_app"
+              scripts/smoke_test_app.sh build/tracy/vulkan_app"
 
   memory-checks-validation-layers:
     needs: static-checks
