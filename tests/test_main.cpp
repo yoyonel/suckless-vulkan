@@ -1,4 +1,5 @@
 #include "app_log.h"
+#include "rhi/vulkan_rhi.h"
 #include "runtime_controls.h"
 #include "vk_engine.h"
 #include "vk_engine_envmap.h"
@@ -190,13 +191,26 @@ static bool verify_and_capture_frame(VulkanEngine* engine, const char* filename)
     return validate_frame(frame, filename);
 }
 
+extern "C" IRHI* CreateRHI(EngineState*);
 static bool test_integration_rendering() {
     EngineState appState = {};
-    VulkanEngine engine = {};
-    engine.appState = &appState;
-    if (!init_vulkan_engine(&engine)) {
+
+    if (glfwInit() != GLFW_TRUE) {
         return false;
     }
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+    appState.window = glfwCreateWindow(1024, 768, "Test", NULL, NULL);
+    if (!appState.window) {
+        return false;
+    }
+
+    appState.rhi = CreateRHI(&appState);
+    if (!appState.rhi->Init()) {
+        return false;
+    }
+    VulkanEngine& engine = *static_cast<VulkanRHI*>(appState.rhi)->_engine;
+    // init_vulkan_engine is called by Init()
 
     // Capture 1: Billboard (Default)
     if (!draw_frame(&engine)) {
@@ -280,6 +294,8 @@ static bool test_integration_rendering() {
     vk_scroll_callback(engine.appState->window, 0, 1.0); // scroll
 
     cleanup_vulkan_engine(&engine);
+    glfwDestroyWindow(appState.window);
+    glfwTerminate();
     return b1 && b2 && b3 && b4 && b5;
 }
 

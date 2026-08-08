@@ -39,7 +39,7 @@ struct CoreInput {
     bool iblDebugPrevPressed;
     bool iblDebugNextPressed;
     bool iblExportPressed;
-    bool iblDebugF5Pressed;
+    bool iblDebugF6Pressed;
 
     bool cameraResetPressed;
     bool postResetPressed;
@@ -76,7 +76,7 @@ struct CoreEngine {
     bool iblDebugPrevKeyWasDown;
     bool iblDebugNextKeyWasDown;
     bool iblExportKeyWasDown;
-    bool iblDebugF5KeyWasDown;
+    bool iblDebugF6KeyWasDown;
     bool cameraResetKeyWasDown;
     bool postResetKeyWasDown;
     bool postExposureAddKeyWasDown;

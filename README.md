@@ -100,6 +100,8 @@ Runtime controls:
 - `Up`: increase animation speed
 - `Down`: decrease animation speed
 - `R`: reset animation time
+- `F5`: hot-reload RHI module (dynamic reload)
+- `F6`: toggle IBL debug mode (Irradiance map)
 - `C`: toggle mouse camera capture
 - `W/A/S/D/Q/E`: move camera
 - Mouse wheel: camera FOV

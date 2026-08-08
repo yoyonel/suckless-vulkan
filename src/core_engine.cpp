@@ -30,7 +30,7 @@ void core_engine_init(CoreEngine* core) {
     core->iblDebugPrevKeyWasDown = false;
     core->iblDebugNextKeyWasDown = false;
     core->iblExportKeyWasDown = false;
-    core->iblDebugF5KeyWasDown = false;
+    core->iblDebugF6KeyWasDown = false;
     core->cameraResetKeyWasDown = false;
     core->postResetKeyWasDown = false;
     core->postExposureAddKeyWasDown = false;
@@ -101,7 +101,7 @@ static void process_ibl_inputs(CoreEngine* core, const CoreInput* input) {
         core->iblDebugMode = std::max(0, core->iblDebugMode - 1);
     if (input->iblDebugNextPressed)
         core->iblDebugMode = std::min(9, core->iblDebugMode + 1);
-    if (input->iblDebugF5Pressed)
+    if (input->iblDebugF6Pressed)
         core->iblDebugMode = (core->iblDebugMode + 1) % 10;
 }
 

@@ -1,12 +1,40 @@
 #include "app_log.h"
+#include "engine_state.h"
 #include "runtime_controls.h"
 #include "tracy_client.h"
-#include "vk_engine.h"
+
+typedef IRHI* (*CreateRHIFunc)(EngineState*);
+typedef void (*DestroyRHIFunc)(IRHI*);
+
+bool handle_rhi_reload(EngineState* state, const std::string& libName, CreateRHIFunc& createFunc, DestroyRHIFunc& destroyFunc) {
+    LOG_INFO("app", "F5 pressed: Reloading RHI module...");
+
+    state->rhi->Shutdown();
+    destroyFunc(state->rhi);
+    state->rhiModule.Unload();
+
+    if (!state->rhiModule.Load(libName)) {
+        LOG_CRITICAL("app", "Failed to reload RHI module %s", libName.c_str());
+        return false;
+    }
+    createFunc = (CreateRHIFunc)state->rhiModule.GetSymbol("CreateRHI");
+    destroyFunc = (DestroyRHIFunc)state->rhiModule.GetSymbol("DestroyRHI");
+    if (!createFunc || !destroyFunc) {
+        LOG_CRITICAL("app", "Failed to find symbols in reloaded RHI module");
+        return false;
+    }
+
+    state->rhi = createFunc(state);
+    if (!state->rhi->Init()) {
+        LOG_CRITICAL("app", "Failed to initialize reloaded RHI");
+        return false;
+    }
+    LOG_INFO("app", "RHI module reloaded successfully!");
+    return true;
+}
 
 int main(int argc, char** argv) {
     EngineState state = {};
-    VulkanEngine engine = {};
-    engine.appState = &state;
 
     // 1. Initial Default (Disabled by default to match OGL behavior/preferences)
     state.core.vsync = false;
@@ -34,34 +62,70 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    LOG_INFO("app", "Initialisation de Vulkan... (VSync=%s par defaut)", state.core.vsync ? "ENABLED" : "DISABLED");
-    if (!init_vulkan_engine(&engine)) {
+    if (glfwInit() != GLFW_TRUE) {
+        return -1;
+    }
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+    state.window = glfwCreateWindow(1024, 768, "Vulkan - Icosphere Full GPU", NULL, NULL);
+    if (!state.window) {
+        return -1;
+    }
+
+    std::string libName = state.useNullRHI ? "libnull_rhi.so" : "libvulkan_rhi.so";
+    if (!state.rhiModule.Load(libName)) {
+        LOG_CRITICAL("app", "Failed to load RHI module %s", libName.c_str());
+        return -1;
+    }
+
+    CreateRHIFunc createFunc = (CreateRHIFunc)state.rhiModule.GetSymbol("CreateRHI");
+    DestroyRHIFunc destroyFunc = (DestroyRHIFunc)state.rhiModule.GetSymbol("DestroyRHI");
+    if (!createFunc || !destroyFunc) {
+        LOG_CRITICAL("app", "Failed to find CreateRHI/DestroyRHI symbols");
+        return -1;
+    }
+
+    state.rhi = createFunc(&state);
+    if (!state.rhi->Init()) {
         LOG_CRITICAL("app", "Echec de l'initialisation.");
         tracy_client_shutdown();
         return -1;
     }
+
     LOG_INFO("app", "Vulkan initialise avec succes ! La fenetre devrait apparaitre.");
-    LOG_INFO("app",
-             "Controles: P pause/reprise, SPACE reset camera, Fleche haut accelere, Fleche bas ralentit, R reinitialise anime, "
-             "C camera souris on/off, W/A/S/D/Q/E deplacement, molette impulse cinétique, K skybox on/off, PageUp/PageDown HDR, Shift+PageUp/PageDown LOD, F11 "
-             "fullscreen/fenetre, ESC quitter, V toggle vsync, 0..9 modes debug IBL (F5 cycle), [/] mode precedent/suivant, O export maps IBL.");
 
     // main  loop
+    bool f5_was_down = false;
     while (!glfwWindowShouldClose(state.window)) {
         glfwPollEvents();
-        runtime_update_controls(&engine, runtime_default_window_ops());
+
+        bool is_f5_down = (glfwGetKey(state.window, GLFW_KEY_F5) == GLFW_PRESS);
+        if (is_f5_down && !f5_was_down) {
+            if (!handle_rhi_reload(&state, libName, createFunc, destroyFunc)) {
+                break;
+            }
+        }
+        f5_was_down = is_f5_down;
+
+        runtime_update_controls(&state, runtime_default_window_ops());
         tracy_client_poll_connection();
-        if (!draw_frame(&engine)) {
+        state.rhi->HandleInputs(runtime_default_window_ops());
+        if (!state.rhi->DrawFrame()) {
             LOG_ERROR("app", "Echec du rendu d'une frame.");
-            cleanup_vulkan_engine(&engine);
-            tracy_client_shutdown();
-            return 1;
+            break;
         }
         tracy_client_mark_frame();
     }
 
     LOG_INFO("app", "Nettoyage et fermeture...");
-    cleanup_vulkan_engine(&engine);
+
+    state.rhi->Shutdown();
+    if (destroyFunc)
+        destroyFunc(state.rhi);
+
+    state.rhiModule.Unload();
+    glfwDestroyWindow(state.window);
+    glfwTerminate();
     tracy_client_shutdown();
     return 0;
 }

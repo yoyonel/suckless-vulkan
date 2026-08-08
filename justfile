@@ -180,6 +180,9 @@ renderdoc-debug-shaders: build-debug-renderdoc
     @{{ renderdoc_bin }} --working-dir . ./build/debug/vulkan_app
 
 # Exécute tous les tests CTest du build release.
+test-tracy: build-tracy
+    @xvfb-run -a scripts/smoke_test_app.sh ./build/tracy/vulkan_app
+
 test: build
     @ctest --test-dir build/release --output-on-failure
 

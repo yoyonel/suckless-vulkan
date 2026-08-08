@@ -4,12 +4,18 @@
 #include "../tracy_vulkan.h"
 #include <cstring>
 
+#include "vk_engine.h"
 extern "C" {
-    __attribute__((visibility("default"))) IRHI* CreateRHI(struct VulkanEngine* engine) {
+    __attribute__((visibility("default"))) IRHI* CreateRHI(EngineState* state) {
+        VulkanEngine* engine = new VulkanEngine();
+        engine->appState = state;
         return new VulkanRHI(engine);
     }
     __attribute__((visibility("default"))) void DestroyRHI(IRHI* rhi) {
-        delete rhi;
+        VulkanRHI* vkRhi = static_cast<VulkanRHI*>(rhi);
+        VulkanEngine* engine = vkRhi->_engine;
+        delete vkRhi;
+        delete engine;
     }
 }
 
@@ -121,10 +127,22 @@ static bool create_gpu_buffer_rhi(struct VulkanEngine* engine, VkDeviceSize size
 
 
 bool VulkanRHI::Init() {
-    return true;
+    return init_vulkan_engine(_engine);
 }
 
 void VulkanRHI::Shutdown() {
+    cleanup_vulkan_engine(_engine);
+}
+
+#include "vk_engine_runtime.h"
+
+bool VulkanRHI::DrawFrame() {
+    return draw_frame(_engine);
+}
+
+void VulkanRHI::HandleInputs(const struct WindowOps* ops) {
+    vk_handle_runtime_input(_engine, ops);
+    vk_update_camera_key_state(_engine, ops);
 }
 
 BufferHandle VulkanRHI::CreateBuffer(std::size_t size, BufferUsage usage, const void* initialData, const char* name) {

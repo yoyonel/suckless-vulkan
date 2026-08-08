@@ -16,6 +16,8 @@ Raccourcis clavier :
 - `Up` : acceleration animation (x1.25).
 - `Down` : ralentissement animation (x0.8, borne min).
 - `R` : reset du temps d'animation.
+- `F5` : rechargement dynamique du module RHI (hot-reload).
+- `F6` : active/desactive le mode debug IBL (Irradiance map).
 - `F11` : bascule fullscreen/fenetre.
 - `Esc` : fermeture propre de l'application.
 - `C` : active/desactive la capture souris pour la camera.

@@ -12,6 +12,7 @@ public:
 
     bool Init() override;
     void Shutdown() override;
+    void HandleInputs(const struct WindowOps* ops) override;
 
     BufferHandle CreateBuffer(std::size_t size, BufferUsage usage, const void* initialData = nullptr, const char* name = nullptr) override;
     void DestroyBuffer(BufferHandle handle) override;
@@ -146,6 +147,9 @@ private:
     std::vector<VulkanDescriptorSet> m_descriptorSets;
     uint32_t m_nextDescriptorSetHandle{1};
 
+    bool DrawFrame() override;
+
+public:
     struct VulkanEngine* _engine;
 };
 

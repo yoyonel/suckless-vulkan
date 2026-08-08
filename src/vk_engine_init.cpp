@@ -315,21 +315,9 @@ void cleanup_core_resources(VulkanEngine* engine) {
         vkDestroyInstance(engine->instance, nullptr);
         engine->instance = VK_NULL_HANDLE;
     }
-
-    if (engine->appState->window != nullptr) {
-        glfwDestroyWindow(engine->appState->window);
-        engine->appState->window = nullptr;
-    }
 }
 
 bool init_core(VulkanEngine* engine) {
-    if (glfwInit() != GLFW_TRUE) {
-        return false;
-    }
-    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
-    // Keep startup viewport ISO with legacy OpenGL app (1024x768).
-    engine->appState->window = glfwCreateWindow(kLegacyWindowWidth, kLegacyWindowHeight, "Vulkan - Icosphere Full GPU", NULL, NULL);
     if (engine->appState->window == nullptr) {
         return false;
     }
@@ -1064,20 +1052,7 @@ bool vk_init_vulkan_engine(VulkanEngine* engine) {
         return false;
     }
 
-    std::string libName = engine->appState->useNullRHI ? "libnull_rhi.so" : "libvulkan_rhi.so";
-    if (!engine->appState->rhiModule.Load(libName)) {
-        LOG_ERROR("app", "Failed to load RHI module %s", libName.c_str());
-        return false;
-    }
-    typedef IRHI* (*CreateRHIFunc)(VulkanEngine*);
-    CreateRHIFunc createFunc = (CreateRHIFunc)engine->appState->rhiModule.GetSymbol("CreateRHI");
-    if (!createFunc) {
-        LOG_ERROR("app", "Failed to find CreateRHI symbol");
-        return false;
-    }
-    engine->appState->rhi = createFunc(engine);
-    engine->appState->rhi->Init();
-
+    // Engine RHI is initialized in main.cpp, here we just initialize the internal engine parts
     LOG_INFO("app", "init_swapchain...");
     if (!init_swapchain(engine)) {
         LOG_ERROR("app", "init_swapchain failed");
@@ -1182,14 +1157,4 @@ void vk_cleanup_vulkan_engine(VulkanEngine* engine) {
     cleanup_core_resources(engine);
     LOG_INFO("postprocess", "Post-processing cleaned up");
     LOG_INFO("perf", "Performance mode cleaned up");
-    if (engine->appState->rhi) {
-        typedef void (*DestroyRHIFunc)(IRHI*);
-        DestroyRHIFunc destroyFunc = (DestroyRHIFunc)engine->appState->rhiModule.GetSymbol("DestroyRHI");
-        if (destroyFunc) {
-            destroyFunc(engine->appState->rhi);
-        }
-        engine->appState->rhi = nullptr;
-    }
-    engine->appState->rhiModule.Unload();
-    glfwTerminate();
 }

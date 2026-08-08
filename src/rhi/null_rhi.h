@@ -9,6 +9,13 @@ class NullRHI : public IRHI {
     }
     void Shutdown() override {}
 
+    bool DrawFrame() override {
+        return true;
+    }
+    void HandleInputs(const struct WindowOps* ops) override {
+        (void)ops;
+    }
+
     BufferHandle CreateBuffer(std::size_t /*size*/, BufferUsage /*usage*/, const void* /*initialData*/ = nullptr, const char* /*name*/ = nullptr) override { return 0; }
     void DestroyBuffer(BufferHandle /*handle*/) override {}
     void* MapBuffer(BufferHandle /*handle*/) override { return nullptr; }

@@ -37,22 +37,18 @@ Le code métier étant désormais totalement isolé de Vulkan, l'objectif de la 
 - **Tâche 1 (10 min) :** Modifier `CMakeLists.txt`. Isoler `VulkanRHI` et `NullRHI` en cibles `SHARED`. Vérifier la compilation (`just build`).
 - **Tâche 2 (10 min) :** Définir API C d'export (`extern "C" IRHI* CreateRHI()`, `DestroyRHI()`). Exposer symboles. Vérifier link (`just build`).
 
-#### 9.2 Chargement Dynamique Runtime (20 min)
+#### 9.2 Chargement Dynamique Runtime (10 min)
 
-- **Tâche 3 (10 min) :** Implémenter classe utilitaire `ModuleLoader` (wrappers `dlopen`/`dlsym`/`dlclose`).
-- **Tâche 4 (10 min) :** Refactor `vk_engine` pour utiliser `ModuleLoader` au démarrage. Vérifier exécution (`just test`).
+- **Itération 1 :** Implémenter classe `ModuleLoader` (wrappers OS). Refactor de l'initialisation du RHI dans le Core pour utiliser `dlopen`/`CreateRHI`. Vérification complète.
 
-#### 9.3 Préservation d'État (EngineState) (40 min)
+#### 9.3 Préservation d'État (EngineState) (20 min)
 
-- **Tâche 5 (10 min) :** Créer structure `EngineState` (scène, entités, inputs, temps). Isoler des objets graphiques.
-- **Tâche 6 (10 min) :** Déplacer variables globales vers `EngineState`.
-- **Tâche 7 (10 min) :** Refactor boucle principale pour passer `EngineState` au render/update.
-- **Tâche 8 (10 min) :** Fix compilation, tests unitaires, linter (`just check`, `just test`).
+- **Itération 2 (10 min) :** Créer la structure globale `EngineState` (contexte non-graphique). Isoler et extraire l'état (inputs, caméra, etc.) hors du moteur graphique.
+- **Itération 3 (10 min) :** Propager `EngineState` dans la boucle principale (`draw_frame`, `update`). Fixer toutes les erreurs de compilation et tests (`just test`).
 
-#### 9.4 Logique Hot-Reload (20 min)
+#### 9.4 Logique Hot-Reload (10 min)
 
-- **Tâche 9 (10 min) :** Ajouter mécanisme de déclenchement (ex: touche F5). Implémenter teardown partiel.
-- **Tâche 10 (10 min) :** Implémenter recharge DLL, ré-instanciation RHI, et recréation des ressources depuis `EngineState`. Vérifier visuel.
+- **Itération 4 :** Implémenter la touche F5 pour le rechargement. Écrire la logique complète : Teardown du RHI existant, rechargement DLL, ré-instanciation et reconstruction des ressources via `EngineState`. Vérifier visuellement en modifiant une couleur à chaud.
 
 ## 4. Contexte pour la reprise
 

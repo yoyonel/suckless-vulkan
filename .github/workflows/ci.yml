@@ -138,6 +138,38 @@ jobs:
             bash -lc "chmod +x scripts/ci/run_ci_asan.sh && \
               scripts/ci/run_ci_asan.sh"
 
+  build-tracy:
+    needs: lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Resolve CI image (GHCR or local fallback)
+        run: |
+          REGISTRY="ghcr.io/${{ github.repository_owner }}"
+          IMAGE="$REGISTRY/suckless-vulkan-ci:latest"
+          if docker pull "$IMAGE"; then
+            echo "CI_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          else
+            docker build --network=host -t local/suckless-vulkan-ci:latest \
+              -f docker/ci/Dockerfile .
+            echo "CI_IMAGE=local/suckless-vulkan-ci:latest" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build with Tracy enabled
+        run: |
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -e CI=true \
+            -e HOME=/tmp \
+            -v "${{ github.workspace }}:/work" \
+            -w /work \
+            "$CI_IMAGE" \
+            bash -lc "just build-tracy && \\
+              xvfb-run -a scripts/smoke_test_app.sh build/tracy/vulkan_app"
+
   memory-checks-validation-layers:
     needs: static-checks
     runs-on: ubuntu-latest

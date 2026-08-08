@@ -38,10 +38,7 @@ bool vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recreateSw
     {
         SVK_TRACY_ZONE_SCOPED("Frame CPU Update");
         vk_process_ready_environment_texture(engine);
-        const WindowOps* ops = runtime_default_window_ops();
-        vk_handle_runtime_input(engine, ops);
-        vk_update_camera_key_state(engine, ops);
-
+        // Inputs are now handled by HandleInputs() before DrawFrame()
         core_engine_update(&engine->appState->core, &engine->appState->currentInput, 0.25f);
 
         engine->appState->currentInput.mouseDeltaX = 0.0f;

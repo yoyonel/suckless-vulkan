@@ -58,8 +58,8 @@ void handle_ibl_debug_inputs(VulkanEngine* engine, const WindowOps* ops) {
         is_key_pressed_once(engine->appState->window, GLFW_KEY_LEFT_BRACKET, &engine->appState->core.iblDebugPrevKeyWasDown, ops);
     engine->appState->currentInput.iblDebugNextPressed =
         is_key_pressed_once(engine->appState->window, GLFW_KEY_RIGHT_BRACKET, &engine->appState->core.iblDebugNextKeyWasDown, ops);
-    engine->appState->currentInput.iblDebugF5Pressed =
-        is_key_pressed_once(engine->appState->window, GLFW_KEY_F5, &engine->appState->core.iblDebugF5KeyWasDown, ops);
+    engine->appState->currentInput.iblDebugF6Pressed =
+        is_key_pressed_once(engine->appState->window, GLFW_KEY_F6, &engine->appState->core.iblDebugF6KeyWasDown, ops);
     engine->appState->currentInput.iblExportPressed =
         is_key_pressed_once(engine->appState->window, GLFW_KEY_O, &engine->appState->core.iblExportKeyWasDown, ops);
 

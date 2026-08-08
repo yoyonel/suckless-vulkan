@@ -503,3 +503,6 @@ When executing a code review, always present findings sequentially with the foll
 - **Corrections**: Possible fixes
 - **Gains**: Associated benefits
 - **Testable**: Test coverage and testability
+
+### Testing Safety
+- **NEVER** run the application (`just run` or `vulkan_app`) without a `timeout` command (e.g., `timeout 5s just run`). Otherwise, the application window will stay open indefinitely and block the agent's execution.

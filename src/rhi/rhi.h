@@ -219,6 +219,8 @@ public:
 
     virtual bool Init() = 0;
     virtual void Shutdown() = 0;
+    virtual bool DrawFrame() = 0;
+    virtual void HandleInputs(const struct WindowOps* ops) = 0;
 
     // Resources
     virtual BufferHandle CreateBuffer(std::size_t size, BufferUsage usage, const void* initialData = nullptr, const char* name = nullptr) = 0;
