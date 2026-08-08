@@ -13,6 +13,23 @@ public:
     bool Init() override;
     void Shutdown() override;
 
+    BufferHandle CreateBuffer(std::size_t size, BufferUsage usage, const void* initialData = nullptr, const char* name = nullptr) override;
+    void DestroyBuffer(BufferHandle handle) override;
+    void* MapBuffer(BufferHandle handle) override;
+    void UnmapBuffer(BufferHandle handle) override;
+
+    VkBuffer GetVkBuffer(BufferHandle handle) const;
+
+    TextureHandle CreateTexture(uint32_t width, uint32_t height, TextureFormat format, TextureUsage usage, uint32_t mipLevels = 1, const char* name = nullptr) override;
+    void DestroyTexture(TextureHandle handle) override;
+
+    SamplerHandle CreateSampler(uint32_t mipLevels = 1, bool clampToEdge = false, const char* name = nullptr) override;
+    void DestroySampler(SamplerHandle handle) override;
+
+    VkImage GetVkImage(TextureHandle handle) const;
+    VkImageView GetVkImageView(TextureHandle handle) const;
+    VkSampler GetVkSampler(SamplerHandle handle) const;
+
     bool BeginFrame() override;
     void EndFrame() override;
 
@@ -29,7 +46,7 @@ public:
 
     void Draw(uint32_t vertexCount, uint32_t instanceCount) override;
     void DrawIndexed(uint32_t indexCount, uint32_t instanceCount) override;
-    void UpdateBillboardInstances(const struct BillboardInstance* instances, size_t count) override;
+    void UpdateBillboardInstances(const struct BillboardInstance* instances, std::size_t count) override;
     
     void PushDebugConstants(const void* data, uint32_t size) override;
     void BeginDebugLabel(const char* name, float r, float g, float b) override;
@@ -40,6 +57,31 @@ public:
     void* GetOpaqueCommandBuffer() const override;
 
 private:
+    struct VulkanBuffer {
+        VkBuffer buffer{VK_NULL_HANDLE};
+        VmaAllocation allocation{VK_NULL_HANDLE};
+        void* mappedData{nullptr};
+    };
+
+    struct VulkanTexture {
+        VkImage image{VK_NULL_HANDLE};
+        VkImageView imageView{VK_NULL_HANDLE};
+        VmaAllocation allocation{VK_NULL_HANDLE};
+    };
+
+    struct VulkanSampler {
+        VkSampler sampler{VK_NULL_HANDLE};
+    };
+
+    std::vector<VulkanBuffer> m_buffers;
+    uint32_t m_nextBufferHandle{1};
+
+    std::vector<VulkanTexture> m_textures;
+    uint32_t m_nextTextureHandle{1};
+
+    std::vector<VulkanSampler> m_samplers;
+    uint32_t m_nextSamplerHandle{1};
+
     struct VulkanEngine* _engine;
 };
 

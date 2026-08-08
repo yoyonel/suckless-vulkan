@@ -1,7 +1,9 @@
 #include "vk_engine_ibl.h"
 #include "app_log.h"
+#include "rhi/vulkan_rhi.h"
 #include "tracy_client.h"
 #include "tracy_vulkan.h"
+#include "vk_engine.h"
 #include <algorithm>
 #include <cerrno>
 #include <cmath>
@@ -264,84 +266,20 @@ bool create_compute_pipeline(VkDevice device, VkShaderModule shaderModule, VkPip
 
 static bool init_ibl_resources(VulkanEngine* engine) {
     {
-        VkImageCreateInfo info{};
-        info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-        info.imageType = VK_IMAGE_TYPE_2D;
-        info.extent = {IBL_IRM_SIZE, IBL_IRM_SIZE, 1};
-        info.mipLevels = 1;
-        info.arrayLayers = 1;
-        info.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-        info.tiling = VK_IMAGE_TILING_OPTIMAL;
-        info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        info.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-        info.samples = VK_SAMPLE_COUNT_1_BIT;
-        VmaAllocationCreateInfo allocInfo{};
-        allocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-        if (vmaCreateImage(engine->allocator, &info, &allocInfo, &engine->ibl.irradianceMap, &engine->ibl.irradianceMapAllocation, nullptr) != VK_SUCCESS)
-            return false;
-        vk_set_object_name(engine->device, (uint64_t)engine->ibl.irradianceMap, VK_OBJECT_TYPE_IMAGE, "IBL_IrradianceMap");
-
-        VkImageViewCreateInfo viewInfo{};
-        viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        viewInfo.image = engine->ibl.irradianceMap;
-        viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        viewInfo.format = info.format;
-        viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        if (vkCreateImageView(engine->device, &viewInfo, nullptr, &engine->ibl.irradianceMapView) != VK_SUCCESS)
+        engine->ibl.irradianceMap =
+            engine->rhi->CreateTexture(IBL_IRM_SIZE, IBL_IRM_SIZE, TextureFormat::RGBA16_SFLOAT, TextureUsage::Storage, 1, "IBL_IrradianceMap");
+        if (engine->ibl.irradianceMap == INVALID_HANDLE)
             return false;
     }
     {
-        VkImageCreateInfo info{};
-        info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-        info.imageType = VK_IMAGE_TYPE_2D;
-        info.extent = {IBL_SPM_SIZE, IBL_SPM_SIZE, 1};
-        info.mipLevels = IBL_SPM_MIPS;
-        info.arrayLayers = 1;
-        info.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-        info.tiling = VK_IMAGE_TILING_OPTIMAL;
-        info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        info.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-        info.samples = VK_SAMPLE_COUNT_1_BIT;
-        VmaAllocationCreateInfo allocInfo{};
-        allocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-        if (vmaCreateImage(engine->allocator, &info, &allocInfo, &engine->ibl.prefilteredMap, &engine->ibl.prefilteredMapAllocation, nullptr) != VK_SUCCESS)
-            return false;
-        vk_set_object_name(engine->device, (uint64_t)engine->ibl.prefilteredMap, VK_OBJECT_TYPE_IMAGE, "IBL_PrefilteredMap");
-
-        VkImageViewCreateInfo viewInfo{};
-        viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        viewInfo.image = engine->ibl.prefilteredMap;
-        viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        viewInfo.format = info.format;
-        viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, IBL_SPM_MIPS, 0, 1};
-        if (vkCreateImageView(engine->device, &viewInfo, nullptr, &engine->ibl.prefilteredMapView) != VK_SUCCESS)
+        engine->ibl.prefilteredMap =
+            engine->rhi->CreateTexture(IBL_SPM_SIZE, IBL_SPM_SIZE, TextureFormat::RGBA16_SFLOAT, TextureUsage::Storage, IBL_SPM_MIPS, "IBL_PrefilteredMap");
+        if (engine->ibl.prefilteredMap == INVALID_HANDLE)
             return false;
     }
     {
-        VkImageCreateInfo info{};
-        info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-        info.imageType = VK_IMAGE_TYPE_2D;
-        info.extent = {IBL_BRDF_SIZE, IBL_BRDF_SIZE, 1};
-        info.mipLevels = 1;
-        info.arrayLayers = 1;
-        info.format = VK_FORMAT_R16G16_SFLOAT;
-        info.tiling = VK_IMAGE_TILING_OPTIMAL;
-        info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        info.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-        info.samples = VK_SAMPLE_COUNT_1_BIT;
-        VmaAllocationCreateInfo allocInfo{};
-        allocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-        if (vmaCreateImage(engine->allocator, &info, &allocInfo, &engine->ibl.brdfLut, &engine->ibl.brdfLutAllocation, nullptr) != VK_SUCCESS)
-            return false;
-        vk_set_object_name(engine->device, (uint64_t)engine->ibl.brdfLut, VK_OBJECT_TYPE_IMAGE, "IBL_BrdfLut");
-
-        VkImageViewCreateInfo viewInfo{};
-        viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        viewInfo.image = engine->ibl.brdfLut;
-        viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        viewInfo.format = info.format;
-        viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        if (vkCreateImageView(engine->device, &viewInfo, nullptr, &engine->ibl.brdfLutView) != VK_SUCCESS)
+        engine->ibl.brdfLut = engine->rhi->CreateTexture(IBL_BRDF_SIZE, IBL_BRDF_SIZE, TextureFormat::RG16_SFLOAT, TextureUsage::Storage, 1, "IBL_BrdfLut");
+        if (engine->ibl.brdfLut == INVALID_HANDLE)
             return false;
     }
     {
@@ -362,21 +300,10 @@ static bool init_ibl_resources(VulkanEngine* engine) {
 }
 
 static bool init_ibl_pipelines(VulkanEngine* engine) {
-    VkSamplerCreateInfo samplerInfo{};
-    samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    samplerInfo.magFilter = VK_FILTER_LINEAR;
-    samplerInfo.minFilter = VK_FILTER_LINEAR;
-    samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-    samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    samplerInfo.maxAnisotropy = 1.0f;
-    samplerInfo.maxLod = 12.0f;
-    if (vkCreateSampler(engine->device, &samplerInfo, nullptr, &engine->ibl.irradianceSampler) != VK_SUCCESS)
-        return false;
-    if (vkCreateSampler(engine->device, &samplerInfo, nullptr, &engine->ibl.prefilteredSampler) != VK_SUCCESS)
-        return false;
-    if (vkCreateSampler(engine->device, &samplerInfo, nullptr, &engine->ibl.brdfLutSampler) != VK_SUCCESS)
+    engine->ibl.irradianceSampler = engine->rhi->CreateSampler(1, true, "IBL_IrrSampler");
+    engine->ibl.prefilteredSampler = engine->rhi->CreateSampler(13, true, "IBL_PrefSampler"); // maxLod 12 means 13 levels
+    engine->ibl.brdfLutSampler = engine->rhi->CreateSampler(1, true, "IBL_BrdfSampler");
+    if (engine->ibl.irradianceSampler == INVALID_HANDLE || engine->ibl.prefilteredSampler == INVALID_HANDLE || engine->ibl.brdfLutSampler == INVALID_HANDLE)
         return false;
 
     {
@@ -475,15 +402,12 @@ bool init_ibl(VulkanEngine* engine) {
 void cleanup_ibl(VulkanEngine* engine) {
     if (engine->device == VK_NULL_HANDLE)
         return;
-    vkDestroySampler(engine->device, engine->ibl.irradianceSampler, nullptr);
-    vkDestroySampler(engine->device, engine->ibl.prefilteredSampler, nullptr);
-    vkDestroySampler(engine->device, engine->ibl.brdfLutSampler, nullptr);
-    vkDestroyImageView(engine->device, engine->ibl.irradianceMapView, nullptr);
-    vkDestroyImageView(engine->device, engine->ibl.prefilteredMapView, nullptr);
-    vkDestroyImageView(engine->device, engine->ibl.brdfLutView, nullptr);
-    vmaDestroyImage(engine->allocator, engine->ibl.irradianceMap, engine->ibl.irradianceMapAllocation);
-    vmaDestroyImage(engine->allocator, engine->ibl.prefilteredMap, engine->ibl.prefilteredMapAllocation);
-    vmaDestroyImage(engine->allocator, engine->ibl.brdfLut, engine->ibl.brdfLutAllocation);
+    engine->rhi->DestroySampler(engine->ibl.irradianceSampler);
+    engine->rhi->DestroySampler(engine->ibl.prefilteredSampler);
+    engine->rhi->DestroySampler(engine->ibl.brdfLutSampler);
+    engine->rhi->DestroyTexture(engine->ibl.irradianceMap);
+    engine->rhi->DestroyTexture(engine->ibl.prefilteredMap);
+    engine->rhi->DestroyTexture(engine->ibl.brdfLut);
     vmaDestroyBuffer(engine->allocator, engine->ibl.lumGroupSumsBuffer, engine->ibl.lumGroupSumsAllocation);
     vmaDestroyBuffer(engine->allocator, engine->ibl.lumMeanBuffer, engine->ibl.lumMeanAllocation);
     vkDestroyPipeline(engine->device, engine->ibl.lum1Pipeline, nullptr);
@@ -507,7 +431,10 @@ void vk_ibl_bake(VulkanEngine* engine) {
         LOG_WARNING("ibl", "vk_ibl_bake: engine not fully initialized, skipping bake.");
         return;
     }
-    if (engine->envHdrImage == VK_NULL_HANDLE || engine->envHdrImageView == VK_NULL_HANDLE) {
+    VkImageView vkEnvHdrImageView = ((VulkanRHI*)engine->rhi)->GetVkImageView(engine->envHdrImage);
+    VkSampler vkEnvHdrSampler = engine->envHdrSampler != INVALID_HANDLE ? ((VulkanRHI*)engine->rhi)->GetVkSampler(engine->envHdrSampler) : VK_NULL_HANDLE;
+
+    if (engine->envHdrImage == INVALID_HANDLE || vkEnvHdrImageView == VK_NULL_HANDLE) {
         LOG_WARNING("ibl", "vk_ibl_bake: envHdr resources not ready, skipping bake.");
         return;
     }
@@ -518,13 +445,13 @@ void vk_ibl_bake(VulkanEngine* engine) {
         return;
     tracy_vk_collect(engine, cb);
 
-    transition_image_layout(cb, engine->ibl.irradianceMap, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, 0, VK_ACCESS_SHADER_WRITE_BIT,
-                            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
-    transition_image_layout(cb, engine->ibl.prefilteredMap, IBL_SPM_MIPS, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, 0, VK_ACCESS_SHADER_WRITE_BIT,
-                            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+    transition_image_layout(cb, ((VulkanRHI*)engine->rhi)->GetVkImage(engine->ibl.irradianceMap), 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, 0,
+                            VK_ACCESS_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+    transition_image_layout(cb, ((VulkanRHI*)engine->rhi)->GetVkImage(engine->ibl.prefilteredMap), IBL_SPM_MIPS, VK_IMAGE_LAYOUT_UNDEFINED,
+                            VK_IMAGE_LAYOUT_GENERAL, 0, VK_ACCESS_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
     if (!engine->ibl.brdfLutBaked) {
-        transition_image_layout(cb, engine->ibl.brdfLut, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, 0, VK_ACCESS_SHADER_WRITE_BIT,
-                                VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+        transition_image_layout(cb, ((VulkanRHI*)engine->rhi)->GetVkImage(engine->ibl.brdfLut), 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, 0,
+                                VK_ACCESS_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
     }
 
     uint32_t dX = (engine->envHdrWidth + 15) / 16;
@@ -536,7 +463,7 @@ void vk_ibl_bake(VulkanEngine* engine) {
         SVK_TRACY_VK_NAMED_ZONE(gpuIblLumZone, engine, cb, "GPU IBL Luminance");
 
         vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, engine->ibl.lum1Pipeline);
-        VkDescriptorImageInfo envHdrImageInfo{engine->envHdrSampler, engine->envHdrImageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        VkDescriptorImageInfo envHdrImageInfo{vkEnvHdrSampler, vkEnvHdrImageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
         VkDescriptorBufferInfo lumGroupBufferInfo{engine->ibl.lumGroupSumsBuffer, 0, nG * sizeof(float)};
 
         VkWriteDescriptorSet ws[2] = {};
@@ -625,8 +552,8 @@ void vk_ibl_bake(VulkanEngine* engine) {
         SVK_TRACY_VK_NAMED_ZONE(gpuIblBrdfZone, engine, cb, "GPU IBL BRDF LUT");
         vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, engine->ibl.brdfLutPipeline);
 
-        VkDescriptorImageInfo iI{engine->envHdrSampler, engine->envHdrImageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-        VkDescriptorImageInfo oI{VK_NULL_HANDLE, engine->ibl.brdfLutView, VK_IMAGE_LAYOUT_GENERAL};
+        VkDescriptorImageInfo iI{vkEnvHdrSampler, vkEnvHdrImageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        VkDescriptorImageInfo oI{VK_NULL_HANDLE, ((VulkanRHI*)engine->rhi)->GetVkImageView(engine->ibl.brdfLut), VK_IMAGE_LAYOUT_GENERAL};
 
         VkWriteDescriptorSet ws[2] = {};
         ws[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -653,8 +580,8 @@ void vk_ibl_bake(VulkanEngine* engine) {
         SVK_TRACY_VK_NAMED_ZONE(gpuIblIrrZone, engine, cb, "GPU IBL Irradiance");
         LOG_INFO("ibl", "Pass 2: Irradiance Map...");
         vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, engine->ibl.irmapPipeline);
-        VkDescriptorImageInfo iI{engine->envHdrSampler, engine->envHdrImageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-        VkDescriptorImageInfo oI{VK_NULL_HANDLE, engine->ibl.irradianceMapView, VK_IMAGE_LAYOUT_GENERAL};
+        VkDescriptorImageInfo iI{vkEnvHdrSampler, vkEnvHdrImageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        VkDescriptorImageInfo oI{VK_NULL_HANDLE, ((VulkanRHI*)engine->rhi)->GetVkImageView(engine->ibl.irradianceMap), VK_IMAGE_LAYOUT_GENERAL};
 
         VkWriteDescriptorSet ws[2] = {};
         ws[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -703,7 +630,7 @@ void vk_ibl_bake(VulkanEngine* engine) {
                         VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
                         nullptr,
                         0,
-                        engine->ibl.prefilteredMap,
+                        ((VulkanRHI*)engine->rhi)->GetVkImage(engine->ibl.prefilteredMap),
                         VK_IMAGE_VIEW_TYPE_2D,
                         VK_FORMAT_R16G16B16A16_SFLOAT,
                         {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY},
@@ -712,7 +639,7 @@ void vk_ibl_bake(VulkanEngine* engine) {
                     vkCreateImageView(engine->device, &vi, nullptr, &v);
                     views.push_back(v);
 
-                    VkDescriptorImageInfo iI{engine->envHdrSampler, engine->envHdrImageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+                    VkDescriptorImageInfo iI{vkEnvHdrSampler, vkEnvHdrImageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
                     VkDescriptorImageInfo oI{VK_NULL_HANDLE, v, VK_IMAGE_LAYOUT_GENERAL};
                     VkWriteDescriptorSet ws[2] = {};
                     ws[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -744,13 +671,15 @@ void vk_ibl_bake(VulkanEngine* engine) {
             }
         }
 
-        transition_image_layout(cb, engine->ibl.irradianceMap, 1, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_SHADER_WRITE_BIT,
-                                VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-        transition_image_layout(cb, engine->ibl.prefilteredMap, IBL_SPM_MIPS, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                                VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                                VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-        transition_image_layout(cb, engine->ibl.brdfLut, 1, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_SHADER_WRITE_BIT,
-                                VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+        transition_image_layout(cb, ((VulkanRHI*)engine->rhi)->GetVkImage(engine->ibl.irradianceMap), 1, VK_IMAGE_LAYOUT_GENERAL,
+                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+                                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+        transition_image_layout(cb, ((VulkanRHI*)engine->rhi)->GetVkImage(engine->ibl.prefilteredMap), IBL_SPM_MIPS, VK_IMAGE_LAYOUT_GENERAL,
+                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+                                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+        transition_image_layout(cb, ((VulkanRHI*)engine->rhi)->GetVkImage(engine->ibl.brdfLut), 1, VK_IMAGE_LAYOUT_GENERAL,
+                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+                                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
     }
 
     vk_end_label(engine->device, cb);
@@ -776,13 +705,14 @@ void vk_ibl_export_maps(VulkanEngine* engine) {
     LOG_INFO("ibl", "Exporting IBL maps to HDR files in %s...", dump_dir);
     char path[512];
     snprintf(path, sizeof(path), "%s/brdf_lut.hdr", dump_dir);
-    save_image_as_hdr(engine, engine->ibl.brdfLut, IBL_BRDF_SIZE, IBL_BRDF_SIZE, VK_FORMAT_R16G16_SFLOAT, 0, path);
+    save_image_as_hdr(engine, ((VulkanRHI*)engine->rhi)->GetVkImage(engine->ibl.brdfLut), IBL_BRDF_SIZE, IBL_BRDF_SIZE, VK_FORMAT_R16G16_SFLOAT, 0, path);
     snprintf(path, sizeof(path), "%s/irradiance.hdr", dump_dir);
-    save_image_as_hdr(engine, engine->ibl.irradianceMap, IBL_IRM_SIZE, IBL_IRM_SIZE, VK_FORMAT_R16G16B16A16_SFLOAT, 0, path);
+    save_image_as_hdr(engine, ((VulkanRHI*)engine->rhi)->GetVkImage(engine->ibl.irradianceMap), IBL_IRM_SIZE, IBL_IRM_SIZE, VK_FORMAT_R16G16B16A16_SFLOAT, 0,
+                      path);
     for (uint32_t i = 0; i < IBL_SPM_MIPS; ++i) {
         uint32_t sz = std::max(1u, IBL_SPM_SIZE >> i);
         snprintf(path, sizeof(path), "%s/prefiltered_mip%u.hdr", dump_dir, i);
-        save_image_as_hdr(engine, engine->ibl.prefilteredMap, sz, sz, VK_FORMAT_R16G16B16A16_SFLOAT, i, path);
+        save_image_as_hdr(engine, ((VulkanRHI*)engine->rhi)->GetVkImage(engine->ibl.prefilteredMap), sz, sz, VK_FORMAT_R16G16B16A16_SFLOAT, i, path);
     }
     LOG_DEBUG("ibl", "Export Complete. Exiting.");
     exit(0);

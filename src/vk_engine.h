@@ -46,21 +46,14 @@ struct HdrLoadRequest {
 
 // Phase IBL-0: Synchronous Bake Resources
 struct IblResources {
-    // Baked Images
-    VkImage irradianceMap;
-    VmaAllocation irradianceMapAllocation;
-    VkImageView irradianceMapView;
-    VkSampler irradianceSampler;
+    TextureHandle irradianceMap{INVALID_HANDLE};
+    SamplerHandle irradianceSampler{INVALID_HANDLE};
 
-    VkImage prefilteredMap;
-    VmaAllocation prefilteredMapAllocation;
-    VkImageView prefilteredMapView;
-    VkSampler prefilteredSampler;
+    TextureHandle prefilteredMap{INVALID_HANDLE};
+    SamplerHandle prefilteredSampler{INVALID_HANDLE};
 
-    VkImage brdfLut;
-    VmaAllocation brdfLutAllocation;
-    VkImageView brdfLutView;
-    VkSampler brdfLutSampler;
+    TextureHandle brdfLut{INVALID_HANDLE};
+    SamplerHandle brdfLutSampler{INVALID_HANDLE};
 
     // Internal Compute Resources (Luminance Reduction)
     VkBuffer lumGroupSumsBuffer;
@@ -144,9 +137,7 @@ struct VulkanEngine {
     VkFramebuffer swapchainFramebuffers[MAX_SWAPCHAIN_IMAGES];
 
     VkRenderPass renderPass;
-    VkImage depthImage;
-    VmaAllocation depthImageAllocation;
-    VkImageView depthImageView;
+    TextureHandle depthImage;
     VkFormat depthFormat;
 
     // NOUVEAU : Le Layout de notre descripteur
@@ -161,33 +152,26 @@ struct VulkanEngine {
     VkPipeline debugTrianglePipeline;
     VkPipeline skyboxPipeline;
 
-    VkBuffer vertexBuffer;
-    VmaAllocation vertexBufferAllocation;
-    VkBuffer indexBuffer;
-    VmaAllocation indexBufferAllocation;
+    BufferHandle vertexBuffer{INVALID_HANDLE};
+    BufferHandle indexBuffer{INVALID_HANDLE};
     uint32_t indexCount;
 
     // Instancing : buffer contenant les positions des 100 sphères
-    VkBuffer instanceBuffer;
-    VmaAllocation instanceBufferAllocation;
+    BufferHandle instanceBuffer{INVALID_HANDLE};
 
     // Buffer (SSBO) pour stocker les 100 matériaux PBR
-    VkBuffer materialBuffer;
-    VmaAllocation materialBufferAllocation;
+    BufferHandle materialBuffer;
 
     // Notre Uniform Buffer et son mapping persistant
-    VkBuffer uniformBuffer;
-    VmaAllocation uniformBufferAllocation;
+    BufferHandle uniformBuffer;
     void* uniformBufferMapped;
 
     // NOUVEAU : Le pool et le set de descripteurs
     VkDescriptorPool descriptorPool;
     VkDescriptorSet descriptorSet;
 
-    VkImage envHdrImage;
-    VmaAllocation envHdrImageAllocation;
-    VkImageView envHdrImageView;
-    VkSampler envHdrSampler;
+    TextureHandle envHdrImage;
+    SamplerHandle envHdrSampler;
     uint32_t envHdrMipLevels;
     uint32_t envHdrWidth;
     uint32_t envHdrHeight;
@@ -213,8 +197,7 @@ struct VulkanEngine {
     uint32_t lastRenderedImageIndex;
     void* tracyVkContext;
 
-    VkBuffer billboardBuffer;
-    VmaAllocation billboardAllocation;
+    BufferHandle billboardBuffer{INVALID_HANDLE};
     void* billboardMapped;
 
     IblResources ibl;

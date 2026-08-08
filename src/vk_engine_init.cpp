@@ -5,6 +5,7 @@
 #include "material_loader.h"
 #include "rhi/null_rhi.h"
 #include "rhi/vulkan_rhi.h"
+
 #include "tracy_client.h"
 #include "tracy_vulkan.h"
 #include "vk_engine_envmap.h"
@@ -233,35 +234,6 @@ template <typename Handle, typename DestroyFn> void destroy_device_handle(VkDevi
     handle = VK_NULL_HANDLE;
 }
 
-void unmap_allocation(VmaAllocator allocator, VmaAllocation allocation, void*& mappedMemory) {
-    if (allocator == VK_NULL_HANDLE || allocation == VK_NULL_HANDLE || mappedMemory == nullptr) {
-        return;
-    }
-
-    vmaUnmapMemory(allocator, allocation);
-    mappedMemory = nullptr;
-}
-
-void destroy_buffer_allocation(VmaAllocator allocator, VkBuffer& buffer, VmaAllocation& allocation) {
-    if (allocator == VK_NULL_HANDLE || buffer == VK_NULL_HANDLE || allocation == VK_NULL_HANDLE) {
-        return;
-    }
-
-    vmaDestroyBuffer(allocator, buffer, allocation);
-    buffer = VK_NULL_HANDLE;
-    allocation = VK_NULL_HANDLE;
-}
-
-void destroy_image_allocation(VmaAllocator allocator, VkImage& image, VmaAllocation& allocation) {
-    if (allocator == VK_NULL_HANDLE || image == VK_NULL_HANDLE || allocation == VK_NULL_HANDLE) {
-        return;
-    }
-
-    vmaDestroyImage(allocator, image, allocation);
-    image = VK_NULL_HANDLE;
-    allocation = VK_NULL_HANDLE;
-}
-
 void cleanup_swapchain_targets(VulkanEngine* engine) {
     if (engine->device == VK_NULL_HANDLE) {
         return;
@@ -282,8 +254,10 @@ void cleanup_swapchain_dependent_resources(VulkanEngine* engine) {
     destroy_device_handle(engine->device, engine->debugTrianglePipeline, vkDestroyPipeline);
     destroy_device_handle(engine->device, engine->pipelineLayout, vkDestroyPipelineLayout);
     destroy_device_handle(engine->device, engine->debugPipelineLayout, vkDestroyPipelineLayout);
-    destroy_device_handle(engine->device, engine->depthImageView, vkDestroyImageView);
-    destroy_image_allocation(engine->allocator, engine->depthImage, engine->depthImageAllocation);
+    if (engine->depthImage != INVALID_HANDLE) {
+        engine->rhi->DestroyTexture(engine->depthImage);
+        engine->depthImage = INVALID_HANDLE;
+    }
     cleanup_swapchain_targets(engine);
     destroy_device_handle(engine->device, engine->renderPass, vkDestroyRenderPass);
     destroy_device_handle(engine->device, engine->swapchain, vkDestroySwapchainKHR);
@@ -302,14 +276,17 @@ void cleanup_descriptor_resources(VulkanEngine* engine) {
 }
 
 void cleanup_buffer_resources(VulkanEngine* engine) {
-    unmap_allocation(engine->allocator, engine->uniformBufferAllocation, engine->uniformBufferMapped);
-    destroy_buffer_allocation(engine->allocator, engine->uniformBuffer, engine->uniformBufferAllocation);
-    unmap_allocation(engine->allocator, engine->billboardAllocation, engine->billboardMapped);
-    destroy_buffer_allocation(engine->allocator, engine->billboardBuffer, engine->billboardAllocation);
-    destroy_buffer_allocation(engine->allocator, engine->materialBuffer, engine->materialBufferAllocation);
-    destroy_buffer_allocation(engine->allocator, engine->instanceBuffer, engine->instanceBufferAllocation);
-    destroy_buffer_allocation(engine->allocator, engine->vertexBuffer, engine->vertexBufferAllocation);
-    destroy_buffer_allocation(engine->allocator, engine->indexBuffer, engine->indexBufferAllocation);
+    engine->rhi->UnmapBuffer(engine->uniformBuffer);
+    engine->rhi->DestroyBuffer(engine->uniformBuffer);
+
+    engine->rhi->DestroyBuffer(engine->billboardBuffer);
+
+    engine->rhi->DestroyBuffer(engine->materialBuffer);
+
+    engine->rhi->DestroyBuffer(engine->instanceBuffer);
+    engine->rhi->DestroyBuffer(engine->vertexBuffer);
+    engine->rhi->DestroyBuffer(engine->indexBuffer);
+
     vk_cleanup_environment_resources(engine);
 }
 
@@ -576,38 +553,10 @@ bool init_swapchain(VulkanEngine* engine) {
         return false;
     }
 
-    VkImageCreateInfo depthInfo{};
-    depthInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    depthInfo.imageType = VK_IMAGE_TYPE_2D;
-    depthInfo.extent = {engine->swapchainExtent.width, engine->swapchainExtent.height, 1};
-    depthInfo.mipLevels = 1;
-    depthInfo.arrayLayers = 1;
-    depthInfo.format = engine->depthFormat;
-    depthInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-    depthInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
-    depthInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    engine->depthImage = engine->rhi->CreateTexture(engine->swapchainExtent.width, engine->swapchainExtent.height, TextureFormat::Depth,
+                                                    TextureUsage::DepthAttachment, 1, "Depth_Buffer_Image");
 
-    VmaAllocationCreateInfo depthAllocInfo{};
-    depthAllocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-    if (vmaCreateImage(engine->allocator, &depthInfo, &depthAllocInfo, &engine->depthImage, &engine->depthImageAllocation, nullptr) != VK_SUCCESS) {
-        return false;
-    }
-    vk_set_object_name(engine->device, (uint64_t)engine->depthImage, VK_OBJECT_TYPE_IMAGE, "Depth_Buffer_Image");
-
-    VkImageViewCreateInfo depthViewInfo{};
-    depthViewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    depthViewInfo.image = engine->depthImage;
-    depthViewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    depthViewInfo.format = engine->depthFormat;
-    depthViewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-    depthViewInfo.subresourceRange.levelCount = 1;
-    depthViewInfo.subresourceRange.layerCount = 1;
-    const VkResult depthImageViewResult = vkCreateImageView(engine->device, &depthViewInfo, nullptr, &engine->depthImageView);
-    if (depthImageViewResult != VK_SUCCESS) {
-        return false;
-    }
-    vk_set_object_name(engine->device, (uint64_t)engine->depthImageView, VK_OBJECT_TYPE_IMAGE_VIEW, "Depth_Buffer_ImageView");
-    return true;
+    return engine->depthImage != INVALID_HANDLE;
 }
 
 bool init_render_pass(VulkanEngine* engine) {
@@ -647,7 +596,8 @@ bool init_render_pass(VulkanEngine* engine) {
     vk_set_object_name(engine->device, (uint64_t)engine->renderPass, VK_OBJECT_TYPE_RENDER_PASS, "Main_RenderPass");
 
     for (uint32_t i = 0; i < engine->imageCount; i++) {
-        VkImageView fbAtt[] = {engine->swapchainImageViews[i], engine->depthImageView};
+        VkImageView depthImageView = ((VulkanRHI*)engine->rhi)->GetVkImageView(engine->depthImage);
+        VkImageView fbAtt[] = {engine->swapchainImageViews[i], depthImageView};
         VkFramebufferCreateInfo fbInfo{};
         fbInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
         fbInfo.renderPass = engine->renderPass;
@@ -1105,115 +1055,15 @@ bool create_debug_pipelines(VulkanEngine* engine, const PipelineCommonState& com
     return true;
 }
 
-bool create_gpu_buffer(VulkanEngine* engine, VkDeviceSize size, VkBufferUsageFlags usage, const void* srcData, VkBuffer& buf, VmaAllocation& alloc,
-                       const char* name) {
-    VkBuffer staging = VK_NULL_HANDLE;
-    VmaAllocation stgAlloc = VK_NULL_HANDLE;
-    VkBufferCreateInfo stgIn{};
-    stgIn.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    stgIn.size = size;
-    stgIn.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-    VmaAllocationCreateInfo stgAl{};
-    stgAl.usage = VMA_MEMORY_USAGE_CPU_ONLY;
-    if (vmaCreateBuffer(engine->allocator, &stgIn, &stgAl, &staging, &stgAlloc, nullptr) != VK_SUCCESS) {
-        return false;
-    }
-    {
-        const std::string stagingBufferName = std::string(name) + "_Staging_Buffer";
-        vk_set_object_name(engine->device, (uint64_t)staging, VK_OBJECT_TYPE_BUFFER, stagingBufferName.c_str());
-    }
-
-    void* map = nullptr;
-    if (vmaMapMemory(engine->allocator, stgAlloc, &map) != VK_SUCCESS) {
-        vmaDestroyBuffer(engine->allocator, staging, stgAlloc);
-        return false;
-    }
-    memcpy(map, srcData, size);
-    vmaUnmapMemory(engine->allocator, stgAlloc);
-
-    VkBufferCreateInfo gpuIn{};
-    gpuIn.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    gpuIn.size = size;
-    gpuIn.usage = usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-    VmaAllocationCreateInfo gpuAl{};
-    gpuAl.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-    if (vmaCreateBuffer(engine->allocator, &gpuIn, &gpuAl, &buf, &alloc, nullptr) != VK_SUCCESS) {
-        vmaDestroyBuffer(engine->allocator, staging, stgAlloc);
-        return false;
-    }
-    vk_set_object_name(engine->device, (uint64_t)buf, VK_OBJECT_TYPE_BUFFER, name);
-
-    VkCommandBufferAllocateInfo ai{};
-    ai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    ai.commandPool = engine->commandPool;
-    ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    ai.commandBufferCount = 1;
-
-    VkCommandBuffer stagingCb = VK_NULL_HANDLE;
-    if (vkAllocateCommandBuffers(engine->device, &ai, &stagingCb) != VK_SUCCESS) {
-        vmaDestroyBuffer(engine->allocator, buf, alloc);
-        buf = VK_NULL_HANDLE;
-        alloc = VK_NULL_HANDLE;
-        vmaDestroyBuffer(engine->allocator, staging, stgAlloc);
-        return false;
-    }
-    {
-        const std::string stagingCbName = std::string(name) + "_Staging_CommandBuffer";
-        vk_set_object_name(engine->device, (uint64_t)stagingCb, VK_OBJECT_TYPE_COMMAND_BUFFER, stagingCbName.c_str());
-    }
-    VkCommandBufferBeginInfo bi{};
-    bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    if (vkBeginCommandBuffer(stagingCb, &bi) != VK_SUCCESS) {
-        vkFreeCommandBuffers(engine->device, engine->commandPool, 1, &stagingCb);
-        vmaDestroyBuffer(engine->allocator, buf, alloc);
-        buf = VK_NULL_HANDLE;
-        alloc = VK_NULL_HANDLE;
-        vmaDestroyBuffer(engine->allocator, staging, stgAlloc);
-        return false;
-    }
-
-    vk_begin_label(engine->device, stagingCb, "GPU_Staging_Copy", 0.0f, 1.0f, 0.0f);
-    VkBufferCopy cp{};
-    cp.size = size;
-    vkCmdCopyBuffer(stagingCb, staging, buf, 1, &cp);
-    vk_end_label(engine->device, stagingCb);
-
-    if (vkEndCommandBuffer(stagingCb) != VK_SUCCESS) {
-        vkFreeCommandBuffers(engine->device, engine->commandPool, 1, &stagingCb);
-        vmaDestroyBuffer(engine->allocator, buf, alloc);
-        buf = VK_NULL_HANDLE;
-        alloc = VK_NULL_HANDLE;
-        vmaDestroyBuffer(engine->allocator, staging, stgAlloc);
-        return false;
-    }
-
-    VkSubmitInfo si{};
-    si.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    si.commandBufferCount = 1;
-    si.pCommandBuffers = &stagingCb;
-
-    if (vkQueueSubmit(engine->graphicsQueue, 1, &si, nullptr) != VK_SUCCESS || vkQueueWaitIdle(engine->graphicsQueue) != VK_SUCCESS) {
-        vkFreeCommandBuffers(engine->device, engine->commandPool, 1, &stagingCb);
-        vmaDestroyBuffer(engine->allocator, buf, alloc);
-        buf = VK_NULL_HANDLE;
-        alloc = VK_NULL_HANDLE;
-        vmaDestroyBuffer(engine->allocator, staging, stgAlloc);
-        return false;
-    }
-
-    vkFreeCommandBuffers(engine->device, engine->commandPool, 1, &stagingCb);
-    vmaDestroyBuffer(engine->allocator, staging, stgAlloc);
-    return true;
-}
-
 bool create_icosphere_buffers(VulkanEngine* engine, const Icosphere& sphere) {
-    if (!create_gpu_buffer(engine, sphere.vertices.size() * sizeof(Vertex), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, sphere.vertices.data(), engine->vertexBuffer,
-                           engine->vertexBufferAllocation, "Icosphere_Vertex_Buffer")) {
+    engine->vertexBuffer =
+        engine->rhi->CreateBuffer(sphere.vertices.size() * sizeof(Vertex), BufferUsage::Vertex, sphere.vertices.data(), "Icosphere_Vertex_Buffer");
+    if (engine->vertexBuffer == INVALID_HANDLE)
         return false;
-    }
-    return create_gpu_buffer(engine, sphere.indices.size() * sizeof(uint32_t), VK_BUFFER_USAGE_INDEX_BUFFER_BIT, sphere.indices.data(), engine->indexBuffer,
-                             engine->indexBufferAllocation, "Icosphere_Index_Buffer");
+
+    engine->indexBuffer =
+        engine->rhi->CreateBuffer(sphere.indices.size() * sizeof(uint32_t), BufferUsage::Index, sphere.indices.data(), "Icosphere_Index_Buffer");
+    return engine->indexBuffer != INVALID_HANDLE;
 }
 
 bool create_instance_grid_buffers(VulkanEngine* engine, std::vector<glm::vec3>& instancePositions) {
@@ -1227,8 +1077,9 @@ bool create_instance_grid_buffers(VulkanEngine* engine, std::vector<glm::vec3>& 
             instancePositions[instanceIndex] = {x, y, 0.0f};
         }
     }
-    return create_gpu_buffer(engine, instancePositions.size() * sizeof(glm::vec3), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, instancePositions.data(),
-                             engine->instanceBuffer, engine->instanceBufferAllocation, "Instance_Offsets_Buffer");
+    engine->instanceBuffer =
+        engine->rhi->CreateBuffer(instancePositions.size() * sizeof(glm::vec3), BufferUsage::Vertex, instancePositions.data(), "Instance_Offsets_Buffer");
+    return engine->instanceBuffer != INVALID_HANDLE;
 }
 
 bool create_billboard_instance_buffer(VulkanEngine* engine, const std::vector<glm::vec3>& instancePositions) {
@@ -1238,17 +1089,8 @@ bool create_billboard_instance_buffer(VulkanEngine* engine, const std::vector<gl
         engine->core.billboardInstances[i] = {instancePositions[i], static_cast<int>(i)};
     }
 
-    VkBufferCreateInfo billboardIn{};
-    billboardIn.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    billboardIn.size = instanceCount * sizeof(BillboardInstance);
-    billboardIn.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-    VmaAllocationCreateInfo billboardAl{};
-    billboardAl.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
-    if (vmaCreateBuffer(engine->allocator, &billboardIn, &billboardAl, &engine->billboardBuffer, &engine->billboardAllocation, nullptr) != VK_SUCCESS) {
-        return false;
-    }
-    vk_set_object_name(engine->device, (uint64_t)engine->billboardBuffer, VK_OBJECT_TYPE_BUFFER, "Billboard_Instance_Buffer");
-    return vmaMapMemory(engine->allocator, engine->billboardAllocation, &engine->billboardMapped) == VK_SUCCESS;
+    engine->billboardBuffer = engine->rhi->CreateBuffer(instanceCount * sizeof(BillboardInstance), BufferUsage::Vertex, nullptr, "Billboard_Instance_Buffer");
+    return engine->billboardBuffer != INVALID_HANDLE;
 }
 
 bool create_material_ssbo(VulkanEngine* engine) {
@@ -1256,22 +1098,21 @@ bool create_material_ssbo(VulkanEngine* engine) {
     if (!load_legacy_materials_for_grid(materials, kMaterialInstanceCount)) {
         return false;
     }
-    return create_gpu_buffer(engine, materials.size() * sizeof(MaterialGpu), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, materials.data(), engine->materialBuffer,
-                             engine->materialBufferAllocation, "PBR_Materials_SSBO");
+    if (materials.empty()) {
+        return true;
+    }
+    engine->materialBuffer = engine->rhi->CreateBuffer(materials.size() * sizeof(MaterialGpu), BufferUsage::Storage, materials.data(), "PBR_Materials_SSBO");
+    return engine->materialBuffer != INVALID_HANDLE;
 }
 
 bool create_global_uniform_buffer(VulkanEngine* engine) {
-    VkBufferCreateInfo uboIn{};
-    uboIn.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    uboIn.size = sizeof(UBOData);
-    uboIn.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-    VmaAllocationCreateInfo uboAl{};
-    uboAl.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
-    if (vmaCreateBuffer(engine->allocator, &uboIn, &uboAl, &engine->uniformBuffer, &engine->uniformBufferAllocation, nullptr) != VK_SUCCESS) {
+    engine->uniformBuffer = engine->rhi->CreateBuffer(sizeof(UBOData), BufferUsage::Uniform,
+                                                      nullptr, // We don't have initial data, we will map it
+                                                      "Global_MVP_UBO");
+    if (engine->uniformBuffer == INVALID_HANDLE)
         return false;
-    }
-    vk_set_object_name(engine->device, (uint64_t)engine->uniformBuffer, VK_OBJECT_TYPE_BUFFER, "Global_MVP_UBO");
-    return vmaMapMemory(engine->allocator, engine->uniformBufferAllocation, &engine->uniformBufferMapped) == VK_SUCCESS;
+    engine->uniformBufferMapped = engine->rhi->MapBuffer(engine->uniformBuffer);
+    return engine->uniformBufferMapped != nullptr;
 }
 
 bool init_pipeline(VulkanEngine* engine) {
@@ -1412,40 +1253,53 @@ bool init_descriptor_pool_and_sets(VulkanEngine* engine) {
     vk_set_object_name(engine->device, (uint64_t)engine->descriptorSet, VK_OBJECT_TYPE_DESCRIPTOR_SET, "Global_Descriptor_Set");
 
     VkDescriptorBufferInfo bi{};
-    bi.buffer = engine->uniformBuffer;
+    bi.buffer = ((VulkanRHI*)engine->rhi)->GetVkBuffer(engine->uniformBuffer);
     bi.offset = 0;
     bi.range = sizeof(UBOData);
 
     VkDescriptorBufferInfo materialBufferInfo{};
-    materialBufferInfo.buffer = engine->materialBuffer;
+    materialBufferInfo.buffer = ((VulkanRHI*)engine->rhi)->GetVkBuffer(engine->materialBuffer);
     materialBufferInfo.offset = 0;
     materialBufferInfo.range = VK_WHOLE_SIZE;
 
-    if (engine->envHdrImageView == VK_NULL_HANDLE || engine->envHdrSampler == VK_NULL_HANDLE) {
+    VkImageView vkEnvHdrImageView = ((VulkanRHI*)engine->rhi)->GetVkImageView(engine->envHdrImage);
+    VkSampler vkEnvHdrSampler = engine->envHdrSampler != INVALID_HANDLE ? ((VulkanRHI*)engine->rhi)->GetVkSampler(engine->envHdrSampler) : VK_NULL_HANDLE;
+
+    if (vkEnvHdrImageView == VK_NULL_HANDLE || engine->envHdrSampler == INVALID_HANDLE) {
         LOG_WARNING("engine", "init_descriptor_pool_and_sets: environment HDR resources not ready, initial descriptor update will use fallbacks.");
     }
 
     VkDescriptorImageInfo envInfo{};
     envInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    envInfo.imageView = engine->envHdrImageView ? engine->envHdrImageView : engine->ibl.irradianceMapView; // Fallback to IR if Env NULL
-    envInfo.sampler = engine->envHdrSampler ? engine->envHdrSampler : engine->ibl.irradianceSampler;
+    VkImageView irrView =
+        engine->ibl.irradianceMap != INVALID_HANDLE ? ((VulkanRHI*)engine->rhi)->GetVkImageView(engine->ibl.irradianceMap) : (VkImageView)VK_NULL_HANDLE;
+    VkSampler irrSamp =
+        engine->ibl.irradianceSampler != INVALID_HANDLE ? ((VulkanRHI*)engine->rhi)->GetVkSampler(engine->ibl.irradianceSampler) : (VkSampler)VK_NULL_HANDLE;
+    VkImageView prefView =
+        engine->ibl.prefilteredMap != INVALID_HANDLE ? ((VulkanRHI*)engine->rhi)->GetVkImageView(engine->ibl.prefilteredMap) : (VkImageView)VK_NULL_HANDLE;
+    VkSampler prefSamp =
+        engine->ibl.prefilteredSampler != INVALID_HANDLE ? ((VulkanRHI*)engine->rhi)->GetVkSampler(engine->ibl.prefilteredSampler) : (VkSampler)VK_NULL_HANDLE;
+    VkImageView lutView = engine->ibl.brdfLut != INVALID_HANDLE ? ((VulkanRHI*)engine->rhi)->GetVkImageView(engine->ibl.brdfLut) : (VkImageView)VK_NULL_HANDLE;
+    VkSampler lutSamp =
+        engine->ibl.brdfLutSampler != INVALID_HANDLE ? ((VulkanRHI*)engine->rhi)->GetVkSampler(engine->ibl.brdfLutSampler) : (VkSampler)VK_NULL_HANDLE;
 
-    // Provide dummy or real image info for IBL maps (initially they might be empty, but they are created in init_ibl)
-    // We assume init_ibl has been called before this function.
+    envInfo.imageView = vkEnvHdrImageView ? vkEnvHdrImageView : irrView;
+    envInfo.sampler = vkEnvHdrSampler ? vkEnvHdrSampler : irrSamp;
+    envInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
     VkDescriptorImageInfo irrInfo{};
+    irrInfo.imageView = irrView ? irrView : vkEnvHdrImageView;
+    irrInfo.sampler = irrSamp ? irrSamp : vkEnvHdrSampler;
     irrInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    irrInfo.imageView = engine->ibl.irradianceMapView ? engine->ibl.irradianceMapView : engine->envHdrImageView;
-    irrInfo.sampler = engine->ibl.irradianceSampler ? engine->ibl.irradianceSampler : engine->envHdrSampler;
 
     VkDescriptorImageInfo prefInfo{};
+    prefInfo.imageView = prefView ? prefView : vkEnvHdrImageView;
+    prefInfo.sampler = prefSamp ? prefSamp : vkEnvHdrSampler;
     prefInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    prefInfo.imageView = engine->ibl.prefilteredMapView ? engine->ibl.prefilteredMapView : engine->envHdrImageView;
-    prefInfo.sampler = engine->ibl.prefilteredSampler ? engine->ibl.prefilteredSampler : engine->envHdrSampler;
 
     VkDescriptorImageInfo lutInfo{};
-    lutInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    lutInfo.imageView = engine->ibl.brdfLutView ? engine->ibl.brdfLutView : engine->envHdrImageView;
-    lutInfo.sampler = engine->ibl.brdfLutSampler ? engine->ibl.brdfLutSampler : engine->envHdrSampler;
+    lutInfo.imageView = lutView ? lutView : vkEnvHdrImageView;
+    lutInfo.sampler = lutSamp ? lutSamp : vkEnvHdrSampler;
 
     // Safety: ensure no NULL handles are passed to vkUpdateDescriptorSets for required bindings
     if (envInfo.imageView == VK_NULL_HANDLE || irrInfo.imageView == VK_NULL_HANDLE || prefInfo.imageView == VK_NULL_HANDLE ||
@@ -1569,6 +1423,14 @@ bool vk_init_vulkan_engine(VulkanEngine* engine) {
         LOG_ERROR("app", "init_allocator failed");
         return false;
     }
+
+    if (engine->useNullRHI) {
+        engine->rhi = new NullRHI();
+    } else {
+        engine->rhi = new VulkanRHI(engine);
+    }
+    engine->rhi->Init();
+
     LOG_INFO("app", "init_swapchain...");
     if (!init_swapchain(engine)) {
         LOG_ERROR("app", "init_swapchain failed");
@@ -1629,13 +1491,6 @@ bool vk_init_vulkan_engine(VulkanEngine* engine) {
 
     LOG_INFO("app", "Initialization complete.");
     core_engine_init(&engine->core);
-
-    if (engine->useNullRHI) {
-        engine->rhi = new NullRHI();
-    } else {
-        engine->rhi = new VulkanRHI(engine);
-    }
-    engine->rhi->Init();
 
     engine->hdrIoThreadRunning = false;
     engine->hdrLoadInFlight = false;
