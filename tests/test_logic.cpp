@@ -1,7 +1,13 @@
 #include "app_log.h"
+#include "core_engine.h"
 #include "runtime_controls.h"
 #include "vk_engine_runtime.h"
 
+#define UPDATE_CONTROLS()                                                                                                                                      \
+    runtime_update_controls(&engine, &ops);                                                                                                                    \
+    vk_handle_runtime_input(&engine, &ops);                                                                                                                    \
+    vk_update_camera_key_state(&engine, &ops);                                                                                                                 \
+    core_engine_update(&engine.core, &engine.currentInput, 0.16f);
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -184,30 +190,31 @@ void test_runtime_controls(TestStats* stats) {
 
     VulkanEngine engine = {};
     engine.window = reinterpret_cast<GLFWwindow*>(0x2);
-    engine.animationSpeed = 1.0f;
-    engine.animationTimeSeconds = 3.0f;
+    engine.core.animationSpeed = 1.0f;
+    engine.core.animationTimeSeconds = 3.0f;
+    engine.core.lastFrameTimestamp = std::chrono::steady_clock::now();
 
     state.keyStates[GLFW_KEY_ESCAPE] = GLFW_PRESS;
-    runtime_update_controls(&engine, &ops);
+    UPDATE_CONTROLS();
     check(stats, state.shouldCloseCalled, "ESC should request window close");
     check(stats, state.shouldCloseValue == GLFW_TRUE, "ESC should set GLFW_TRUE close flag");
 
     state.keyStates[GLFW_KEY_ESCAPE] = GLFW_RELEASE;
-    runtime_update_controls(&engine, &ops);
+    UPDATE_CONTROLS();
 
     state.keyStates[GLFW_KEY_F11] = GLFW_PRESS;
-    runtime_update_controls(&engine, &ops);
-    check(stats, engine.isFullscreen, "F11 should switch to fullscreen");
+    UPDATE_CONTROLS();
+    check(stats, engine.core.isFullscreen, "F11 should switch to fullscreen");
     check(stats, state.setWindowMonitorCallCount == 1, "Entering fullscreen should call set_window_monitor once");
     check(stats, state.lastMonitor != nullptr, "Fullscreen should pass a monitor");
     check(stats, state.lastW == 1920 && state.lastH == 1080, "Fullscreen should use monitor resolution");
 
     state.keyStates[GLFW_KEY_F11] = GLFW_RELEASE;
-    runtime_update_controls(&engine, &ops);
+    UPDATE_CONTROLS();
 
     state.keyStates[GLFW_KEY_F11] = GLFW_PRESS;
-    runtime_update_controls(&engine, &ops);
-    check(stats, !engine.isFullscreen, "Second F11 should return to window mode");
+    UPDATE_CONTROLS();
+    check(stats, !engine.core.isFullscreen, "Second F11 should return to window mode");
     check(stats, state.setWindowMonitorCallCount == 2, "Windowed restore should call set_window_monitor");
     check(stats, state.lastMonitor == nullptr, "Windowed restore should pass null monitor");
     check(stats, state.lastX == state.windowX && state.lastY == state.windowY, "Windowed restore should use saved position");
@@ -221,41 +228,42 @@ void test_runtime_controls(TestStats* stats) {
     check(stats, !runtime_toggle_fullscreen(&engine, &ops), "Toggle fullscreen should fail if no video mode");
     state.hasVideoMode = true;
 
-    camera_init(&engine.camera);
-    engine.camera.position = glm::vec3(1.0f, 2.0f, 3.0f);
+    camera_init(&engine.core.camera);
+    engine.core.camera.position = glm::vec3(1.0f, 2.0f, 3.0f);
 
     state.keyStates[GLFW_KEY_P] = GLFW_PRESS;
-    runtime_update_controls(&engine, &ops);
-    check(stats, engine.animationPaused, "P should toggle pause on");
+    UPDATE_CONTROLS();
+    check(stats, engine.core.animationPaused, "P should toggle pause on");
     state.keyStates[GLFW_KEY_P] = GLFW_RELEASE;
-    runtime_update_controls(&engine, &ops);
+    UPDATE_CONTROLS();
 
     state.keyStates[GLFW_KEY_SPACE] = GLFW_PRESS;
-    runtime_update_controls(&engine, &ops);
-    check(stats, engine.camera.position.z == 20.0f, "Space should reset camera position (z=20)");
-    check(stats, engine.camera.position.x == 0.0f, "Space should reset camera position (x=0)");
+    UPDATE_CONTROLS();
+    check(stats, engine.core.camera.position.z == 20.0f, "Space should reset camera position (z=20)");
+    check(stats, engine.core.camera.position.x == 0.0f, "Space should reset camera position (x=0)");
     state.keyStates[GLFW_KEY_SPACE] = GLFW_RELEASE;
-    runtime_update_controls(&engine, &ops);
+    UPDATE_CONTROLS();
 
     state.keyStates[GLFW_KEY_UP] = GLFW_PRESS;
-    runtime_update_controls(&engine, &ops);
-    check(stats, engine.animationSpeed > 1.2f, "Up should increase speed");
+    UPDATE_CONTROLS();
+    check(stats, engine.core.animationSpeed > 1.2f, "Up should increase speed");
     state.keyStates[GLFW_KEY_UP] = GLFW_RELEASE;
-    runtime_update_controls(&engine, &ops);
+    UPDATE_CONTROLS();
 
-    engine.animationSpeed = 0.05f;
+    engine.core.animationSpeed = 0.05f;
     state.keyStates[GLFW_KEY_DOWN] = GLFW_PRESS;
-    runtime_update_controls(&engine, &ops);
-    check(stats, engine.animationSpeed >= 0.1f, "Down should clamp speed to minimum");
+    UPDATE_CONTROLS();
+    check(stats, engine.core.animationSpeed >= 0.1f, "Down should clamp speed to minimum");
     state.keyStates[GLFW_KEY_DOWN] = GLFW_RELEASE;
-    runtime_update_controls(&engine, &ops);
+    UPDATE_CONTROLS();
 
-    engine.animationTimeSeconds = 9.0f;
-    engine.animationSpeed = 2.0f;
+    engine.core.animationTimeSeconds = 9.0f;
+    engine.core.animationSpeed = 2.0f;
     state.keyStates[GLFW_KEY_R] = GLFW_PRESS;
-    runtime_update_controls(&engine, &ops);
-    check(stats, engine.animationTimeSeconds == 0.0f, "R should reset animation time");
-    check(stats, engine.animationSpeed == 1.0f, "R should restore default animation speed");
+    engine.core.lastFrameTimestamp -= std::chrono::milliseconds(16);
+    UPDATE_CONTROLS();
+    check(stats, engine.core.animationTimeSeconds < 0.05f, "R should reset animation time");
+    check(stats, engine.core.animationSpeed == 1.0f, "R should restore default animation speed");
 
     g_fake = nullptr;
 }
@@ -267,146 +275,149 @@ void test_vk_engine_runtime(TestStats* stats) {
 
     VulkanEngine engine = {};
     engine.window = reinterpret_cast<GLFWwindow*>(0x2);
+    engine.core.lastFrameTimestamp = std::chrono::steady_clock::now();
 
-    engine.cameraEnabled = false;
+    engine.core.cameraEnabled = false;
     state.keyStates[GLFW_KEY_C] = GLFW_PRESS;
-    vk_handle_runtime_input(&engine, &ops);
-    check(stats, engine.cameraEnabled, "C toggles camera ON");
+    UPDATE_CONTROLS();
+    check(stats, engine.core.cameraEnabled, "C toggles camera ON");
     state.keyStates[GLFW_KEY_C] = GLFW_RELEASE;
-    vk_handle_runtime_input(&engine, &ops);
+    UPDATE_CONTROLS();
 
-    engine.showEnvmap = false;
+    engine.core.showEnvmap = false;
     state.keyStates[GLFW_KEY_K] = GLFW_PRESS;
-    vk_handle_runtime_input(&engine, &ops);
-    check(stats, engine.showEnvmap, "K toggles skybox ON");
+    UPDATE_CONTROLS();
+    check(stats, engine.core.showEnvmap, "K toggles skybox ON");
     state.keyStates[GLFW_KEY_K] = GLFW_RELEASE;
-    vk_handle_runtime_input(&engine, &ops);
+    UPDATE_CONTROLS();
 
-    engine.billboardMode = false;
+    engine.core.billboardMode = false;
     state.keyStates[GLFW_KEY_B] = GLFW_PRESS;
-    vk_handle_runtime_input(&engine, &ops);
-    check(stats, engine.billboardMode, "B toggles billboard ON");
+    UPDATE_CONTROLS();
+    check(stats, engine.core.billboardMode, "B toggles billboard ON");
     state.keyStates[GLFW_KEY_B] = GLFW_RELEASE;
-    vk_handle_runtime_input(&engine, &ops);
+    UPDATE_CONTROLS();
 
-    engine.wireframeMode = false;
+    engine.core.wireframeMode = false;
     state.keyStates[GLFW_KEY_Z] = GLFW_PRESS;
-    vk_handle_runtime_input(&engine, &ops);
-    check(stats, engine.wireframeMode, "Z toggles wireframe ON");
+    UPDATE_CONTROLS();
+    check(stats, engine.core.wireframeMode, "Z toggles wireframe ON");
     state.keyStates[GLFW_KEY_Z] = GLFW_RELEASE;
-    vk_handle_runtime_input(&engine, &ops);
+    UPDATE_CONTROLS();
 
-    engine.vsync = false;
+    engine.core.vsync = false;
     state.keyStates[GLFW_KEY_V] = GLFW_PRESS;
-    vk_handle_runtime_input(&engine, &ops);
-    check(stats, engine.vsync, "V toggles vsync ON");
+    UPDATE_CONTROLS();
+    check(stats, engine.core.vsync, "V toggles vsync ON");
     state.keyStates[GLFW_KEY_V] = GLFW_RELEASE;
-    vk_handle_runtime_input(&engine, &ops);
+    UPDATE_CONTROLS();
 
     state.keyStates[GLFW_KEY_PAGE_UP] = GLFW_PRESS;
-    vk_handle_runtime_input(&engine, &ops);
+    UPDATE_CONTROLS();
     state.keyStates[GLFW_KEY_PAGE_UP] = GLFW_RELEASE;
 
     state.keyStates[GLFW_KEY_LEFT_SHIFT] = GLFW_PRESS;
     state.keyStates[GLFW_KEY_PAGE_UP] = GLFW_PRESS;
-    vk_handle_runtime_input(&engine, &ops);
+    UPDATE_CONTROLS();
     state.keyStates[GLFW_KEY_PAGE_UP] = GLFW_RELEASE;
 
     state.keyStates[GLFW_KEY_PAGE_DOWN] = GLFW_PRESS;
-    vk_handle_runtime_input(&engine, &ops);
+    UPDATE_CONTROLS();
     state.keyStates[GLFW_KEY_PAGE_DOWN] = GLFW_RELEASE;
     state.keyStates[GLFW_KEY_LEFT_SHIFT] = GLFW_RELEASE;
 
     state.keyStates[GLFW_KEY_PAGE_DOWN] = GLFW_PRESS;
-    vk_handle_runtime_input(&engine, &ops);
+    UPDATE_CONTROLS();
     state.keyStates[GLFW_KEY_PAGE_DOWN] = GLFW_RELEASE;
 
     state.keyStates[GLFW_KEY_RIGHT_SHIFT] = GLFW_PRESS;
-    vk_handle_runtime_input(&engine, &ops);
+    UPDATE_CONTROLS();
     state.keyStates[GLFW_KEY_RIGHT_SHIFT] = GLFW_RELEASE;
 
     for (int digit = 0; digit <= 9; ++digit) {
         state.keyStates[GLFW_KEY_0 + digit] = GLFW_PRESS;
-        vk_handle_runtime_input(&engine, &ops);
-        check(stats, engine.iblDebugMode == digit, "Digit key sets IBL debug mode");
+        UPDATE_CONTROLS();
+        check(stats, engine.core.iblDebugMode == digit, "Digit key sets IBL debug mode");
         state.keyStates[GLFW_KEY_0 + digit] = GLFW_RELEASE;
-        vk_handle_runtime_input(&engine, &ops);
+        UPDATE_CONTROLS();
     }
 
-    engine.iblDebugMode = 5;
+    engine.core.iblDebugMode = 5;
     state.keyStates[GLFW_KEY_LEFT_BRACKET] = GLFW_PRESS;
-    vk_handle_runtime_input(&engine, &ops);
-    check(stats, engine.iblDebugMode == 4, "[ decrements IBL debug mode");
+    UPDATE_CONTROLS();
+    check(stats, engine.core.iblDebugMode == 4, "[ decrements IBL debug mode");
     state.keyStates[GLFW_KEY_LEFT_BRACKET] = GLFW_RELEASE;
-    vk_handle_runtime_input(&engine, &ops);
+    UPDATE_CONTROLS();
 
     state.keyStates[GLFW_KEY_LEFT_BRACKET] = GLFW_PRESS;
-    engine.iblDebugMode = -100;
-    vk_handle_runtime_input(&engine, &ops);
-    check(stats, engine.iblDebugMode == 0, "[ clamps IBL mode to 0");
+    engine.core.iblDebugMode = -100;
+    UPDATE_CONTROLS();
+    check(stats, engine.core.iblDebugMode == 0, "[ clamps IBL mode to 0");
     state.keyStates[GLFW_KEY_LEFT_BRACKET] = GLFW_RELEASE;
-    vk_handle_runtime_input(&engine, &ops);
+    UPDATE_CONTROLS();
 
     state.keyStates[GLFW_KEY_RIGHT_BRACKET] = GLFW_PRESS;
-    engine.iblDebugMode = 5;
-    vk_handle_runtime_input(&engine, &ops);
-    check(stats, engine.iblDebugMode == 6, "] increments IBL debug mode");
+    engine.core.iblDebugMode = 5;
+    UPDATE_CONTROLS();
+    check(stats, engine.core.iblDebugMode == 6, "] increments IBL debug mode");
     state.keyStates[GLFW_KEY_RIGHT_BRACKET] = GLFW_RELEASE;
-    vk_handle_runtime_input(&engine, &ops);
+    UPDATE_CONTROLS();
 
     state.keyStates[GLFW_KEY_RIGHT_BRACKET] = GLFW_PRESS;
-    engine.iblDebugMode = 100;
-    vk_handle_runtime_input(&engine, &ops);
-    check(stats, engine.iblDebugMode == 9, "] clamps IBL debug mode to 9");
+    engine.core.iblDebugMode = 100;
+    UPDATE_CONTROLS();
+    check(stats, engine.core.iblDebugMode == 9, "] clamps IBL debug mode to 9");
     state.keyStates[GLFW_KEY_RIGHT_BRACKET] = GLFW_RELEASE;
-    vk_handle_runtime_input(&engine, &ops);
+    UPDATE_CONTROLS();
 
-    engine.iblDebugMode = 5;
+    engine.core.iblDebugMode = 5;
     state.keyStates[GLFW_KEY_F5] = GLFW_PRESS;
-    vk_handle_runtime_input(&engine, &ops);
-    check(stats, engine.iblDebugMode == 6, "F5 cycles IBL debug mode");
+    UPDATE_CONTROLS();
+    check(stats, engine.core.iblDebugMode == 6, "F5 cycles IBL debug mode");
     state.keyStates[GLFW_KEY_F5] = GLFW_RELEASE;
-    vk_handle_runtime_input(&engine, &ops);
+    UPDATE_CONTROLS();
 
     state.keyStates[GLFW_KEY_O] = GLFW_PRESS;
-    vk_handle_runtime_input(&engine, &ops);
+    UPDATE_CONTROLS();
     state.keyStates[GLFW_KEY_O] = GLFW_RELEASE;
-    vk_handle_runtime_input(&engine, &ops);
+    UPDATE_CONTROLS();
 
-    engine.exposure = 1.0f;
-    engine.lastFrameDeltaSeconds = 1.0f;
+    engine.core.exposure = 1.0f;
     state.keyStates[GLFW_KEY_KP_ADD] = GLFW_PRESS;
-    vk_handle_runtime_input(&engine, &ops);
-    check(stats, engine.exposure > 1.0f, "KP_ADD increases exposure");
+    engine.core.lastFrameTimestamp -= std::chrono::milliseconds(100);
+    UPDATE_CONTROLS();
+    check(stats, engine.core.exposure > 1.0f, "KP_ADD increases exposure");
     state.keyStates[GLFW_KEY_KP_ADD] = GLFW_RELEASE;
-    vk_handle_runtime_input(&engine, &ops);
+    UPDATE_CONTROLS();
 
     state.keyStates[GLFW_KEY_KP_SUBTRACT] = GLFW_PRESS;
-    vk_handle_runtime_input(&engine, &ops);
-    check(stats, engine.exposure < 1.3f, "KP_SUBTRACT decreases exposure");
+    engine.core.lastFrameTimestamp -= std::chrono::milliseconds(100);
+    UPDATE_CONTROLS();
+    check(stats, engine.core.exposure < 1.3f, "KP_SUBTRACT decreases exposure");
     state.keyStates[GLFW_KEY_KP_SUBTRACT] = GLFW_RELEASE;
-    vk_handle_runtime_input(&engine, &ops);
+    UPDATE_CONTROLS();
 
-    engine.exposure = 0.0f;
+    engine.core.exposure = 0.0f;
     state.keyStates[GLFW_KEY_KP_SUBTRACT] = GLFW_PRESS;
-    vk_handle_runtime_input(&engine, &ops);
-    check(stats, engine.exposure == 0.01f, "KP_SUBTRACT clamps to 0.01f");
+    engine.core.lastFrameTimestamp -= std::chrono::milliseconds(100);
+    UPDATE_CONTROLS();
+    check(stats, engine.core.exposure == 0.01f, "KP_SUBTRACT clamps to 0.01f");
     state.keyStates[GLFW_KEY_KP_SUBTRACT] = GLFW_RELEASE;
-    vk_handle_runtime_input(&engine, &ops);
+    UPDATE_CONTROLS();
 
-    engine.exposure = 0.5f;
+    engine.core.exposure = 0.5f;
     state.keyStates[GLFW_KEY_0] = GLFW_PRESS;
-    vk_handle_runtime_input(&engine, &ops);
-    check(stats, engine.exposure == 1.0f, "0 resets exposure");
+    UPDATE_CONTROLS();
+    check(stats, engine.core.exposure == 1.0f, "0 resets exposure");
     state.keyStates[GLFW_KEY_0] = GLFW_RELEASE;
-    vk_handle_runtime_input(&engine, &ops);
+    UPDATE_CONTROLS();
 
-    engine.exposure = 0.5f;
+    engine.core.exposure = 0.5f;
     state.keyStates[GLFW_KEY_KP_0] = GLFW_PRESS;
-    vk_handle_runtime_input(&engine, &ops);
-    check(stats, engine.exposure == 1.0f, "KP_0 resets exposure");
+    UPDATE_CONTROLS();
+    check(stats, engine.core.exposure == 1.0f, "KP_0 resets exposure");
     state.keyStates[GLFW_KEY_KP_0] = GLFW_RELEASE;
-    vk_handle_runtime_input(&engine, &ops);
+    UPDATE_CONTROLS();
 
     state.keyStates[GLFW_KEY_W] = GLFW_PRESS;
     state.keyStates[GLFW_KEY_S] = GLFW_PRESS;
@@ -414,10 +425,10 @@ void test_vk_engine_runtime(TestStats* stats) {
     state.keyStates[GLFW_KEY_D] = GLFW_PRESS;
     state.keyStates[GLFW_KEY_Q] = GLFW_PRESS;
     state.keyStates[GLFW_KEY_E] = GLFW_PRESS;
-    vk_update_camera_key_state(&engine, &ops);
+    UPDATE_CONTROLS();
     check(stats,
-          engine.camera.moveForward && engine.camera.moveBackward && engine.camera.moveLeft && engine.camera.moveRight && engine.camera.moveUp &&
-              engine.camera.moveDown,
+          engine.core.camera.moveForward && engine.core.camera.moveBackward && engine.core.camera.moveLeft && engine.core.camera.moveRight &&
+              engine.core.camera.moveUp && engine.core.camera.moveDown,
           "Camera keys set correctly");
 
     g_fake = nullptr;

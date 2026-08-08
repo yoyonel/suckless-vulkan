@@ -1,6 +1,8 @@
 # Application and test source layout.
 
 set(APP_SHARED_SOURCES
+    src/rhi/vulkan_rhi.cpp
+    src/rhi/null_rhi.cpp
     src/vk_engine.cpp
     src/vk_engine_frame.cpp
     src/vk_engine_envmap.cpp
@@ -9,6 +11,7 @@ set(APP_SHARED_SOURCES
     src/vk_engine_ibl.cpp
     src/tracy_vulkan.cpp
     src/camera.cpp
+    src/core_engine.cpp
     src/app_log.cpp
     src/runtime_controls.cpp
     src/stb_image_impl.cpp
@@ -31,4 +34,5 @@ set(LOGIC_TEST_SOURCES
     src/app_log.cpp
     src/runtime_controls.cpp
     src/camera.cpp
-    src/vk_engine_runtime.cpp)
+    src/vk_engine_runtime.cpp
+    src/core_engine.cpp)

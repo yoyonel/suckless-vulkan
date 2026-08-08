@@ -7,21 +7,23 @@ int main(int argc, char** argv) {
     VulkanEngine engine = {};
 
     // 1. Initial Default (Disabled by default to match OGL behavior/preferences)
-    engine.vsync = false;
+    engine.core.vsync = false;
 
     // 2. Environment Variable Override
     const char* vsyncEnv = std::getenv("SVK_VSYNC");
     if (vsyncEnv != nullptr) {
-        engine.vsync = (std::string(vsyncEnv) != "0");
+        engine.core.vsync = (std::string(vsyncEnv) != "0");
     }
 
     // 3. CLI Argument Override (Highest priority)
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
         if (arg == "--no-vsync") {
-            engine.vsync = false;
+            engine.core.vsync = false;
         } else if (arg == "--vsync") {
-            engine.vsync = true;
+            engine.core.vsync = true;
+        } else if (arg == "--nullrhi") {
+            engine.useNullRHI = true;
         }
     }
 
@@ -30,7 +32,7 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    LOG_INFO("app", "Initialisation de Vulkan... (VSync=%s par defaut)", engine.vsync ? "ENABLED" : "DISABLED");
+    LOG_INFO("app", "Initialisation de Vulkan... (VSync=%s par defaut)", engine.core.vsync ? "ENABLED" : "DISABLED");
     if (!init_vulkan_engine(&engine)) {
         LOG_CRITICAL("app", "Echec de l'initialisation.");
         tracy_client_shutdown();

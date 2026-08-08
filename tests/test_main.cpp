@@ -204,7 +204,7 @@ static bool test_integration_rendering() {
     bool b1 = verify_and_capture_frame(&engine, "test_billboard.png");
 
     // Capture 2: Icosphere
-    engine.billboardMode = false;
+    engine.core.billboardMode = false;
     if (!draw_frame(&engine)) {
         cleanup_vulkan_engine(&engine);
         return false;
@@ -212,8 +212,8 @@ static bool test_integration_rendering() {
     bool b2 = verify_and_capture_frame(&engine, "test_icosphere.png");
 
     // Capture 3: Billboard Wireframe (New)
-    engine.billboardMode = true;
-    engine.wireframeMode = true;
+    engine.core.billboardMode = true;
+    engine.core.wireframeMode = true;
     if (!draw_frame(&engine)) {
         cleanup_vulkan_engine(&engine);
         return false;
@@ -221,8 +221,8 @@ static bool test_integration_rendering() {
     bool b3 = verify_and_capture_frame(&engine, "test_wireframe_billboard.png");
 
     // Capture 4: Icosphere Wireframe
-    engine.billboardMode = false;
-    engine.wireframeMode = true;
+    engine.core.billboardMode = false;
+    engine.core.wireframeMode = true;
     if (!draw_frame(&engine)) {
         cleanup_vulkan_engine(&engine);
         return false;
@@ -232,12 +232,12 @@ static bool test_integration_rendering() {
     // Capture 5: Close-up Billboard Singularity (Extreme Proximity)
     // Sphere at (1.25, 1.25, 0.0), Radius 1.0.
     // Camera at distance 1.5 -> 0.5 from surface
-    engine.camera.position = glm::vec3(1.25f, 1.25f, 1.5f);
-    engine.camera.yaw = -90.0f;
-    engine.camera.pitch = 0.0f;
-    camera_update_vectors(&engine.camera);
-    engine.billboardMode = true;
-    engine.wireframeMode = true;
+    engine.core.camera.position = glm::vec3(1.25f, 1.25f, 1.5f);
+    engine.core.camera.yaw = -90.0f;
+    engine.core.camera.pitch = 0.0f;
+    camera_update_vectors(&engine.core.camera);
+    engine.core.billboardMode = true;
+    engine.core.wireframeMode = true;
     if (!draw_frame(&engine)) {
         cleanup_vulkan_engine(&engine);
         return false;
@@ -268,10 +268,10 @@ static bool test_integration_rendering() {
     vk_ibl_export_maps(&engine);
 
     // Cover mouse and scroll callbacks
-    engine.cameraEnabled = false;
+    engine.core.cameraEnabled = false;
     vk_mouse_callback(engine.window, 10.0, 10.0); // camera off
-    engine.cameraEnabled = true;
-    engine.camera.firstMouse = true;
+    engine.core.cameraEnabled = true;
+    engine.core.camera.firstMouse = true;
     vk_mouse_callback(engine.window, 10.0, 10.0); // first mouse
     vk_mouse_callback(engine.window, 20.0, 20.0); // move mouse
 

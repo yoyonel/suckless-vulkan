@@ -59,7 +59,8 @@ RUN pip3 install --break-system-packages --no-cache-dir \
     uv==0.10.11 \
     cmakelang==0.6.13 \
     yamllint==1.38.0 \
-    pymarkdownlnt==0.9.36
+    pymarkdownlnt==0.9.36 \
+    ruff==0.2.1
 
 # Copy ASan suppressions file for Vulkan SDK/driver false-positives
 COPY .asan_ignorefile /work/.asan_ignorefile

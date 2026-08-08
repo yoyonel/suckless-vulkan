@@ -15,6 +15,8 @@
 #include <vma/vk_mem_alloc.h>
 
 #include "camera.h"
+#include "core_engine.h"
+#include "rhi/rhi.h"
 
 // Configuration de GLM pour Vulkan
 #define GLM_FORCE_RADIANS
@@ -92,14 +94,9 @@ struct IblResources {
     float bakedMeanLuminance;
 };
 
-typedef struct {
+struct Vertex {
     float position[3];
     float color[3];
-} Vertex;
-
-struct BillboardInstance {
-    glm::vec3 pos;
-    int materialIdx;
 };
 
 struct UBOData {
@@ -123,8 +120,9 @@ struct DebugPushConstant {
     int stippled;
 };
 
-typedef struct {
-    GLFWwindow* window;
+struct VulkanEngine {
+    bool useNullRHI{false};
+    struct GLFWwindow* window;
     VkInstance instance;
     VkSurfaceKHR surface;
     VkPhysicalDevice physicalDevice;
@@ -215,72 +213,16 @@ typedef struct {
     uint32_t lastRenderedImageIndex;
     void* tracyVkContext;
 
-    float animationTimeSeconds;
-    float animationSpeed;
-    bool animationPaused;
-    bool pauseKeyWasDown;
-    bool resetKeyWasDown;
-    bool speedUpKeyWasDown;
-    bool speedDownKeyWasDown;
-    bool fullscreenKeyWasDown;
-    bool escapeKeyWasDown;
-    bool isFullscreen;
-    bool cameraToggleKeyWasDown;
-    bool showEnvmapToggleKeyWasDown;
-    bool envPageUpKeyWasDown;
-    bool envPageDownKeyWasDown;
-    bool cameraEnabled;
-    bool showEnvmap;
-    float envLod;
-    int iblDebugMode;
-    float iblDebugScale;
-    bool iblDebugDigitKeyWasDown[10];
-    bool iblDebugPrevKeyWasDown;
-    bool iblDebugNextKeyWasDown;
-    bool iblExportKeyWasDown;
-    bool iblDebugF5KeyWasDown;
-    bool cameraResetKeyWasDown;
-    bool postResetKeyWasDown;
-    bool postExposureAddKeyWasDown;
-    bool postExposureSubKeyWasDown;
-    int windowedPosX;
-    int windowedPosY;
-    int windowedWidth;
-    int windowedHeight;
-    float lastFrameDeltaSeconds;
-
-    bool billboardMode;
-    bool billboardKeyWasDown;
-    bool wireframeMode;
-    bool wireframeKeyWasDown;
-
-    Camera camera;
-    std::chrono::steady_clock::time_point lastFrameTimestamp;
-
-    std::vector<BillboardInstance> billboardInstances;
     VkBuffer billboardBuffer;
     VmaAllocation billboardAllocation;
     void* billboardMapped;
 
     IblResources ibl;
-    bool pbrEnabled;
-    bool iblEnabled;
-    float iblIntensity;
 
-    // Post-processing parameters (Legacy Parity)
-    float exposure;
-    float saturation;
-    float contrast;
-    float gamma;
-    float gain;
-    float offset;
-    float wbTemp;
-    float wbTint;
-
-    bool vsync;
-    bool vsyncKeyWasDown;
-
-} VulkanEngine;
+    CoreInput currentInput;
+    CoreEngine core;
+    IRHI* rhi;
+};
 
 bool init_vulkan_engine(VulkanEngine* engine);
 bool draw_frame(VulkanEngine* engine);

@@ -301,13 +301,18 @@ format-just:
     @echo "Formatage du justfile..."
     @JUST_UNSTABLE=1 just --fmt
 
+# Formate le code Python.
+format-python:
+    @echo "Formatage du code Python..."
+    @uvx ruff format scripts/
+
 # Formate la documentation Markdown.
 format-docs:
     @echo "Formatage du Markdown avec mdformat..."
     @uvx mdformat docs/
 
 # Lance tous les formateurs.
-format: format-code format-cmake format-shell format-yaml format-docs format-just
+format: format-code format-cmake format-shell format-yaml format-docs format-just format-python
 
 # Lance clang-tidy en parallèle sur tous les fichiers C/C++ du projet (hors ext). En CI (CI=true), cmake est regenere dans un dossier temporaire (chemins natifs au conteneur). En local, build/release est reutilise pour la vitesse. Parallelise avec xargs -P $(nproc) pour utiliser tous les cores.
 lint-c:
@@ -417,14 +422,24 @@ lint-actions:
         docker run --rm -v "${PWD}:/work" -w /work rhysd/actionlint:latest; \
     fi
 
+# Vérifie qu'aucun type Vulkan ne fuite dans la logique pure.
+check-rhi-leaks:
+    @echo "Vérification des fuites RHI..."
+    @python3 scripts/check_rhi_leaks.py
+
+# Lint Python scripts.
+lint-python:
+    @echo "Lint Python scripts (ruff)..."
+    @uvx ruff check scripts/
+
 # Lint rapide (sans clang-tidy complet ni docker/actions).
-lint-fast: lint-cmake lint-shell lint-yaml lint-just lint-shaders lint-docs
+lint-fast: check-rhi-leaks lint-cmake lint-shell lint-yaml lint-just lint-shaders lint-docs lint-python
 
 # Lint iteration rapide (inclut clang-tidy sur fichiers modifies).
-lint-iter: lint-c-changed lint-cmake lint-shell lint-yaml lint-just lint-shaders lint-docs
+lint-iter: check-rhi-leaks lint-c-changed lint-cmake lint-shell lint-yaml lint-just lint-shaders lint-docs lint-python
 
 # Lint complet.
-lint: lint-c lint-cmake lint-shell lint-yaml lint-just lint-shaders lint-docs lint-dockerfile lint-actions
+lint: lint-c lint-cmake lint-shell lint-yaml lint-just lint-shaders lint-docs lint-dockerfile lint-actions lint-python
 
 # Format + lint + tests (gate local principal).
 check: format lint test

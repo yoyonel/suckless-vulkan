@@ -3,6 +3,8 @@
 #include "camera.h"
 #include "icosphere.h"
 #include "material_loader.h"
+#include "rhi/null_rhi.h"
+#include "rhi/vulkan_rhi.h"
 #include "tracy_client.h"
 #include "tracy_vulkan.h"
 #include "vk_engine_envmap.h"
@@ -492,7 +494,7 @@ bool init_swapchain(VulkanEngine* engine) {
     }
 
     const VkSurfaceFormatKHR surfaceFormat = choose_surface_format(formats);
-    const VkPresentModeKHR presentMode = choose_present_mode(presentModes, engine->vsync);
+    const VkPresentModeKHR presentMode = choose_present_mode(presentModes, engine->core.vsync);
     engine->swapchainImageFormat = surfaceFormat.format;
     engine->swapchainExtent = choose_swapchain_extent(engine->window, capabilities);
 
@@ -1231,9 +1233,9 @@ bool create_instance_grid_buffers(VulkanEngine* engine, std::vector<glm::vec3>& 
 
 bool create_billboard_instance_buffer(VulkanEngine* engine, const std::vector<glm::vec3>& instancePositions) {
     const size_t instanceCount = instancePositions.size();
-    engine->billboardInstances.resize(instanceCount);
+    engine->core.billboardInstances.resize(instanceCount);
     for (size_t i = 0; i < instanceCount; ++i) {
-        engine->billboardInstances[i] = {instancePositions[i], static_cast<int>(i)};
+        engine->core.billboardInstances[i] = {instancePositions[i], static_cast<int>(i)};
     }
 
     VkBufferCreateInfo billboardIn{};
@@ -1626,73 +1628,35 @@ bool vk_init_vulkan_engine(VulkanEngine* engine) {
     }
 
     LOG_INFO("app", "Initialization complete.");
-    engine->animationTimeSeconds = 0.0f;
-    engine->animationSpeed = 1.0f;
-    engine->animationPaused = false;
-    engine->pauseKeyWasDown = false;
-    engine->resetKeyWasDown = false;
-    engine->speedUpKeyWasDown = false;
-    engine->speedDownKeyWasDown = false;
-    engine->fullscreenKeyWasDown = false;
-    engine->escapeKeyWasDown = false;
-    engine->isFullscreen = false;
-    engine->cameraToggleKeyWasDown = false;
-    engine->showEnvmapToggleKeyWasDown = false;
-    engine->envPageUpKeyWasDown = false;
-    engine->envPageDownKeyWasDown = false;
-    engine->cameraEnabled = true;
-    engine->showEnvmap = true;
-    engine->envLod = 0.0f;
-    engine->iblDebugMode = 0;
-    engine->iblDebugScale = 1.0f;
-    engine->iblIntensity = 1.0f;
-    for (int i = 0; i < 10; ++i) {
-        engine->iblDebugDigitKeyWasDown[i] = false;
+    core_engine_init(&engine->core);
+
+    if (engine->useNullRHI) {
+        engine->rhi = new NullRHI();
+    } else {
+        engine->rhi = new VulkanRHI(engine);
     }
-    engine->iblDebugPrevKeyWasDown = false;
-    engine->iblDebugNextKeyWasDown = false;
-    engine->iblExportKeyWasDown = false;
-    engine->iblDebugF5KeyWasDown = false;
-    engine->cameraResetKeyWasDown = false;
-    engine->postResetKeyWasDown = false;
-    engine->postExposureAddKeyWasDown = false;
-    engine->postExposureSubKeyWasDown = false;
+    engine->rhi->Init();
 
-    engine->billboardMode = true;
-    engine->billboardKeyWasDown = false;
-    engine->wireframeMode = false;
-    engine->wireframeKeyWasDown = false;
-
-    engine->exposure = 1.0f;
-    engine->saturation = 1.0f;
-    engine->contrast = 1.0f;
-    engine->gamma = 1.0f;
-    engine->gain = 1.0f;
-    engine->offset = 0.0f;
-    engine->wbTemp = 6500.0f;
-    engine->wbTint = 0.0f;
-
-    engine->lastFrameDeltaSeconds = 0.0f;
     engine->hdrIoThreadRunning = false;
     engine->hdrLoadInFlight = false;
     engine->pendingHdrIndex = -1;
 
-    camera_init(&engine->camera);
     glfwSetInputMode(engine->window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-    glfwGetWindowPos(engine->window, &engine->windowedPosX, &engine->windowedPosY);
-    glfwGetWindowSize(engine->window, &engine->windowedWidth, &engine->windowedHeight);
-    engine->lastFrameTimestamp = std::chrono::steady_clock::now();
+
+    // Some values still depend on window layout
+    glfwGetWindowPos(engine->window, &engine->core.windowedPosX, &engine->core.windowedPosY);
+    glfwGetWindowSize(engine->window, &engine->core.windowedWidth, &engine->core.windowedHeight);
     if (!vk_start_hdr_io_thread(engine)) {
         vk_cleanup_vulkan_engine(engine);
         return false;
     }
     LOG_INFO("engine", "Vulkan initialise avec succes !");
-    LOG_INFO("postprocess", "Default Exposure: %.2f", engine->exposure);
-    LOG_INFO("postprocess", "Default IBL Intensity: %.2f (Scale: %.2f)", engine->iblIntensity, engine->iblDebugScale);
+    LOG_INFO("postprocess", "Default Exposure: %.2f", engine->core.exposure);
+    LOG_INFO("postprocess", "Default IBL Intensity: %.2f (Scale: %.2f)", engine->core.iblIntensity, engine->core.iblDebugScale);
     LOG_INFO("postprocess", "Default Tonemapper: Filmic ACES (DISABLED by default for Legacy OGL-ISO parity)");
-    LOG_INFO("postprocess", "Default Color Grading: Sat=%.2f, Contrast=%.2f, Gamma=%.2f, Gain=%.2f, Offset=%.2f", engine->saturation, engine->contrast,
-             engine->gamma, engine->gain, engine->offset);
-    LOG_INFO("postprocess", "Default White Balance: Temp=%.1f, Tint=%.2f", engine->wbTemp, engine->wbTint);
+    LOG_INFO("postprocess", "Default Color Grading: Sat=%.2f, Contrast=%.2f, Gamma=%.2f, Gain=%.2f, Offset=%.2f", engine->core.saturation,
+             engine->core.contrast, engine->core.gamma, engine->core.gain, engine->core.offset);
+    LOG_INFO("postprocess", "Default White Balance: Temp=%.1f, Tint=%.2f", engine->core.wbTemp, engine->core.wbTint);
     return true;
 }
 
@@ -1716,5 +1680,9 @@ void vk_cleanup_vulkan_engine(VulkanEngine* engine) {
     cleanup_core_resources(engine);
     LOG_INFO("postprocess", "Post-processing cleaned up");
     LOG_INFO("perf", "Performance mode cleaned up");
+    if (engine->rhi) {
+        delete engine->rhi;
+        engine->rhi = nullptr;
+    }
     glfwTerminate();
 }
