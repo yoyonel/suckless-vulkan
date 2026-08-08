@@ -33,3 +33,6 @@ core.*
 .idea/
 .DS_Store
 .cache/
+
+# Profiling
+heaptrack.*
