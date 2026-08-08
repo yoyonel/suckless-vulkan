@@ -62,26 +62,26 @@ struct IblResources {
     VmaAllocation lumMeanAllocation;
 
     // Compute Pipelines
-    VkPipeline irmapPipeline;
-    VkPipeline spmapPipeline;
-    VkPipeline brdfLutPipeline;
-    VkPipeline lum1Pipeline;
-    VkPipeline lum2Pipeline;
+    PipelineHandle irmapPipeline{INVALID_HANDLE};
+    PipelineHandle spmapPipeline{INVALID_HANDLE};
+    PipelineHandle brdfLutPipeline{INVALID_HANDLE};
+    PipelineHandle lum1Pipeline{INVALID_HANDLE};
+    PipelineHandle lum2Pipeline{INVALID_HANDLE};
 
-    VkPipelineLayout iblPipelineLayout;
-    VkPipelineLayout lum1PipelineLayout;
-    VkPipelineLayout lum2PipelineLayout;
-    VkDescriptorSetLayout iblDescriptorSetLayout;
-    VkDescriptorSetLayout lum1DescriptorSetLayout;
-    VkDescriptorSetLayout lum2DescriptorSetLayout;
-    VkDescriptorPool computeDescriptorPool;
+    PipelineLayoutHandle iblPipelineLayout{INVALID_HANDLE};
+    PipelineLayoutHandle lum1PipelineLayout{INVALID_HANDLE};
+    PipelineLayoutHandle lum2PipelineLayout{INVALID_HANDLE};
+    DescriptorLayoutHandle iblDescriptorSetLayout{INVALID_HANDLE};
+    DescriptorLayoutHandle lum1DescriptorSetLayout{INVALID_HANDLE};
+    DescriptorLayoutHandle lum2DescriptorSetLayout{INVALID_HANDLE};
+    DescriptorPoolHandle computeDescriptorPool{INVALID_HANDLE};
 
     // Descriptor sets for individual compute passes
-    VkDescriptorSet lum1DescriptorSet;
-    VkDescriptorSet lum2DescriptorSet;
-    VkDescriptorSet irmapDescriptorSet;
-    VkDescriptorSet spmapDescriptorSet;
-    VkDescriptorSet brdfLutDescriptorSet;
+    DescriptorSetHandle lum1DescriptorSet{INVALID_HANDLE};
+    DescriptorSetHandle lum2DescriptorSet{INVALID_HANDLE};
+    DescriptorSetHandle irmapDescriptorSet{INVALID_HANDLE};
+    DescriptorSetHandle spmapDescriptorSet{INVALID_HANDLE};
+    DescriptorSetHandle brdfLutDescriptorSet{INVALID_HANDLE};
 
     bool brdfLutBaked;
     float bakedMeanLuminance;
@@ -141,16 +141,16 @@ struct VulkanEngine {
     VkFormat depthFormat;
 
     // NOUVEAU : Le Layout de notre descripteur
-    VkDescriptorSetLayout descriptorSetLayout;
+    DescriptorLayoutHandle globalDescriptorLayout{INVALID_HANDLE};
 
-    VkPipelineLayout pipelineLayout;
-    VkPipelineLayout debugPipelineLayout;
-    VkPipeline graphicsPipeline;
-    VkPipeline billboardPipeline;
-    VkPipeline wireframePipeline;
-    VkPipeline debugLinePipeline;
-    VkPipeline debugTrianglePipeline;
-    VkPipeline skyboxPipeline;
+    PipelineLayoutHandle pipelineLayout{INVALID_HANDLE};
+    PipelineLayoutHandle debugPipelineLayout{INVALID_HANDLE};
+    PipelineHandle graphicsPipeline{INVALID_HANDLE};
+    PipelineHandle billboardPipeline{INVALID_HANDLE};
+    PipelineHandle wireframePipeline{INVALID_HANDLE};
+    PipelineHandle debugLinePipeline{INVALID_HANDLE};
+    PipelineHandle debugTrianglePipeline{INVALID_HANDLE};
+    PipelineHandle skyboxPipeline{INVALID_HANDLE};
 
     BufferHandle vertexBuffer{INVALID_HANDLE};
     BufferHandle indexBuffer{INVALID_HANDLE};
@@ -167,8 +167,8 @@ struct VulkanEngine {
     void* uniformBufferMapped;
 
     // NOUVEAU : Le pool et le set de descripteurs
-    VkDescriptorPool descriptorPool;
-    VkDescriptorSet descriptorSet;
+    DescriptorPoolHandle globalDescriptorPool{INVALID_HANDLE};
+    DescriptorSetHandle descriptorSet{INVALID_HANDLE};
 
     TextureHandle envHdrImage;
     SamplerHandle envHdrSampler;

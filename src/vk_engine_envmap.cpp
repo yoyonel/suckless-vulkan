@@ -3,72 +3,69 @@
 #include "app_log.h"
 #include "rhi/vulkan_rhi.h"
 
-static VkImageView get_rhi_view(VulkanEngine* engine, TextureHandle handle, VkImageView fallback) {
-    return handle != INVALID_HANDLE ? ((VulkanRHI*)engine->rhi)->GetVkImageView(handle) : fallback;
-}
-
-static VkSampler get_rhi_sampler(VulkanEngine* engine, SamplerHandle handle, VkSampler fallback) {
-    return handle != INVALID_HANDLE ? ((VulkanRHI*)engine->rhi)->GetVkSampler(handle) : fallback;
-}
-
 static void update_envmap_descriptor_set(VulkanEngine* engine) {
-    if (engine->descriptorSet == VK_NULL_HANDLE)
+    if (engine->descriptorSet == INVALID_HANDLE)
         return;
 
-    VkImageView vkEnvHdrImageView = ((VulkanRHI*)engine->rhi)->GetVkImageView(engine->envHdrImage);
-    VkSampler vkEnvHdrSampler = engine->envHdrSampler != INVALID_HANDLE ? ((VulkanRHI*)engine->rhi)->GetVkSampler(engine->envHdrSampler) : VK_NULL_HANDLE;
+    DescriptorImageInfo envInfo{};
+    envInfo.imageLayout = TextureLayout::ShaderReadOnlyOptimal;
+    envInfo.texture = engine->envHdrImage;
+    envInfo.imageView = INVALID_HANDLE;
+    envInfo.sampler = engine->envHdrSampler;
 
-    VkDescriptorImageInfo envInfo{};
-    envInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    envInfo.imageView = vkEnvHdrImageView;
-    envInfo.sampler = vkEnvHdrSampler;
+    DescriptorImageInfo irrInfo{};
+    irrInfo.imageLayout = TextureLayout::ShaderReadOnlyOptimal;
+    irrInfo.texture = engine->ibl.irradianceMap != INVALID_HANDLE ? engine->ibl.irradianceMap : engine->envHdrImage;
+    irrInfo.imageView = INVALID_HANDLE;
+    irrInfo.sampler = engine->ibl.irradianceSampler != INVALID_HANDLE ? engine->ibl.irradianceSampler : engine->envHdrSampler;
 
-    VkDescriptorImageInfo irrInfo{};
-    irrInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    irrInfo.imageView = get_rhi_view(engine, engine->ibl.irradianceMap, vkEnvHdrImageView);
-    irrInfo.sampler = get_rhi_sampler(engine, engine->ibl.irradianceSampler, vkEnvHdrSampler);
+    DescriptorImageInfo prefInfo{};
+    prefInfo.imageLayout = TextureLayout::ShaderReadOnlyOptimal;
+    prefInfo.texture = engine->ibl.prefilteredMap != INVALID_HANDLE ? engine->ibl.prefilteredMap : engine->envHdrImage;
+    prefInfo.imageView = INVALID_HANDLE;
+    prefInfo.sampler = engine->ibl.prefilteredSampler != INVALID_HANDLE ? engine->ibl.prefilteredSampler : engine->envHdrSampler;
 
-    VkDescriptorImageInfo prefInfo{};
-    prefInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    prefInfo.imageView = get_rhi_view(engine, engine->ibl.prefilteredMap, vkEnvHdrImageView);
-    prefInfo.sampler = get_rhi_sampler(engine, engine->ibl.prefilteredSampler, vkEnvHdrSampler);
+    DescriptorImageInfo lutInfo{};
+    lutInfo.imageLayout = TextureLayout::ShaderReadOnlyOptimal;
+    lutInfo.texture = engine->ibl.brdfLut != INVALID_HANDLE ? engine->ibl.brdfLut : engine->envHdrImage;
+    lutInfo.imageView = INVALID_HANDLE;
+    lutInfo.sampler = engine->ibl.brdfLutSampler != INVALID_HANDLE ? engine->ibl.brdfLutSampler : engine->envHdrSampler;
 
-    VkDescriptorImageInfo lutInfo{};
-    lutInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    lutInfo.imageView = get_rhi_view(engine, engine->ibl.brdfLut, vkEnvHdrImageView);
-    lutInfo.sampler = get_rhi_sampler(engine, engine->ibl.brdfLutSampler, vkEnvHdrSampler);
+    WriteDescriptorSet writes[4] = {};
 
-    VkWriteDescriptorSet writes[4] = {};
-
-    writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     writes[0].dstSet = engine->descriptorSet;
     writes[0].dstBinding = 1; // HDR Map
+    writes[0].dstArrayElement = 0;
     writes[0].descriptorCount = 1;
-    writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writes[0].descriptorType = DescriptorType::CombinedImageSampler;
     writes[0].pImageInfo = &envInfo;
+    writes[0].pBufferInfo = nullptr;
 
-    writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     writes[1].dstSet = engine->descriptorSet;
     writes[1].dstBinding = 2; // Irradiance Map
+    writes[1].dstArrayElement = 0;
     writes[1].descriptorCount = 1;
-    writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writes[1].descriptorType = DescriptorType::CombinedImageSampler;
     writes[1].pImageInfo = &irrInfo;
+    writes[1].pBufferInfo = nullptr;
 
-    writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     writes[2].dstSet = engine->descriptorSet;
     writes[2].dstBinding = 3; // Prefiltered Map
+    writes[2].dstArrayElement = 0;
     writes[2].descriptorCount = 1;
-    writes[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writes[2].descriptorType = DescriptorType::CombinedImageSampler;
     writes[2].pImageInfo = &prefInfo;
+    writes[2].pBufferInfo = nullptr;
 
-    writes[3].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     writes[3].dstSet = engine->descriptorSet;
     writes[3].dstBinding = 4; // BRDF LUT
+    writes[3].dstArrayElement = 0;
     writes[3].descriptorCount = 1;
-    writes[3].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writes[3].descriptorType = DescriptorType::CombinedImageSampler;
     writes[3].pImageInfo = &lutInfo;
+    writes[3].pBufferInfo = nullptr;
 
-    vkUpdateDescriptorSets(engine->device, 4, writes, 0, nullptr);
+    engine->rhi->UpdateDescriptorSets(4, writes);
 }
 
 #include "tracy_client.h"
@@ -167,7 +164,7 @@ bool transition_hdr_image_layout(VulkanEngine* engine, VkCommandBuffer commandBu
     barrier.srcAccessMask = srcAccessMask;
     barrier.dstAccessMask = dstAccessMask;
 
-    vkCmdPipelineBarrier(commandBuffer, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+    ((VulkanRHI*)engine->rhi)->CmdPipelineBarrier(commandBuffer, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
     return true;
 }
 
@@ -254,8 +251,9 @@ void generate_hdr_mipmaps(VulkanEngine* engine, VkCommandBuffer commandBuffer, i
         blit.dstSubresource.layerCount = 1;
 
         VkImage vkEnvHdrImage = ((VulkanRHI*)engine->rhi)->GetVkImage(engine->envHdrImage);
-        vkCmdBlitImage(commandBuffer, vkEnvHdrImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, vkEnvHdrImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit,
-                       VK_FILTER_LINEAR);
+        ((VulkanRHI*)engine->rhi)
+            ->CmdBlitImage(commandBuffer, vkEnvHdrImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, vkEnvHdrImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit,
+                           VK_FILTER_LINEAR);
 
         transition_hdr_image_layout(engine, commandBuffer, i - 1, 1, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                                     VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
@@ -325,7 +323,7 @@ bool init_environment_texture_from_pixels(VulkanEngine* engine, const float* pix
     region.imageSubresource.baseArrayLayer = 0;
     region.imageSubresource.layerCount = 1;
     region.imageExtent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1};
-    vkCmdCopyBufferToImage(commandBuffer, stagingBuffer, vkEnvHdrImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+    ((VulkanRHI*)engine->rhi)->CmdCopyBufferToImage(commandBuffer, stagingBuffer, vkEnvHdrImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
     vk_end_label(engine->device, commandBuffer);
 
     vk_begin_label(engine->device, commandBuffer, "Generate_EnvHDR_Mipmaps", 0.0f, 0.4f, 0.8f);

@@ -470,6 +470,7 @@ Rationale: RenderDoc readability is a project quality requirement, not an option
 - ❌ Make docs-only changes without updating `mkdocs.yml`
 - ❌ Forget to update docs when changing behavior
 - ❌ Ignore failing CI checks — fix them, don't skip
+- ❌ **NEVER leave temporary patch scripts (like python or shell files) untracked in the git working directory. ALWAYS delete them immediately after use.**
 
 **Do:**
 - ✅ Use `just` for all development tasks

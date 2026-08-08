@@ -154,8 +154,8 @@ static bool validate_frame(const FrameBufferData& frame, const char* filename) {
             }
             stbi_image_free(refPixels);
         } else {
-            LOG_WARNING("test", "Reference absente, generation automatique : %s", refPath);
-            stbi_write_png(refPath, frame.width, frame.height, 4, frame.pixels, frame.width * 4);
+            LOG_ERROR("test", "Reference absente : %s. Utilisez SVK_UPDATE_REFERENCES=1 pour la generer.", refPath);
+            success = false;
         }
     }
 

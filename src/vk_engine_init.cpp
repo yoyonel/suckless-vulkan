@@ -246,14 +246,14 @@ void cleanup_swapchain_targets(VulkanEngine* engine) {
 }
 
 void cleanup_swapchain_dependent_resources(VulkanEngine* engine) {
-    destroy_device_handle(engine->device, engine->graphicsPipeline, vkDestroyPipeline);
-    destroy_device_handle(engine->device, engine->skyboxPipeline, vkDestroyPipeline);
-    destroy_device_handle(engine->device, engine->billboardPipeline, vkDestroyPipeline);
-    destroy_device_handle(engine->device, engine->wireframePipeline, vkDestroyPipeline);
-    destroy_device_handle(engine->device, engine->debugLinePipeline, vkDestroyPipeline);
-    destroy_device_handle(engine->device, engine->debugTrianglePipeline, vkDestroyPipeline);
-    destroy_device_handle(engine->device, engine->pipelineLayout, vkDestroyPipelineLayout);
-    destroy_device_handle(engine->device, engine->debugPipelineLayout, vkDestroyPipelineLayout);
+    engine->rhi->DestroyPipeline(engine->graphicsPipeline);
+    engine->rhi->DestroyPipeline(engine->skyboxPipeline);
+    engine->rhi->DestroyPipeline(engine->billboardPipeline);
+    engine->rhi->DestroyPipeline(engine->wireframePipeline);
+    engine->rhi->DestroyPipeline(engine->debugLinePipeline);
+    engine->rhi->DestroyPipeline(engine->debugTrianglePipeline);
+    engine->rhi->DestroyPipelineLayout(engine->pipelineLayout);
+    engine->rhi->DestroyPipelineLayout(engine->debugPipelineLayout);
     if (engine->depthImage != INVALID_HANDLE) {
         engine->rhi->DestroyTexture(engine->depthImage);
         engine->depthImage = INVALID_HANDLE;
@@ -271,8 +271,8 @@ void cleanup_sync_objects(VulkanEngine* engine) {
 }
 
 void cleanup_descriptor_resources(VulkanEngine* engine) {
-    destroy_device_handle(engine->device, engine->descriptorPool, vkDestroyDescriptorPool);
-    destroy_device_handle(engine->device, engine->descriptorSetLayout, vkDestroyDescriptorSetLayout);
+    engine->rhi->DestroyDescriptorPool(engine->globalDescriptorPool);
+    engine->rhi->DestroyDescriptorLayout(engine->globalDescriptorLayout);
 }
 
 void cleanup_buffer_resources(VulkanEngine* engine) {
@@ -616,443 +616,178 @@ bool init_render_pass(VulkanEngine* engine) {
 }
 
 bool init_descriptor_layout(VulkanEngine* engine) {
-    std::vector<VkDescriptorSetLayoutBinding> bindings = {
-        // Binding 0: Uniform Buffer (MVP + Config)
-        {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
-        // Binding 1: HDR Environment Map
-        {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
-        // Binding 2: Irradiance Map
-        {2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
-        // Binding 3: Prefiltered Specular Map
-        {3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
-        // Binding 4: BRDF LUT
-        {4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
-        // Binding 5: Array of Materials (SSBO)
-        {5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}};
-
-    VkDescriptorSetLayoutCreateInfo info{};
-    info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    info.bindingCount = static_cast<uint32_t>(bindings.size());
-    info.pBindings = bindings.data();
-    if (vkCreateDescriptorSetLayout(engine->device, &info, nullptr, &engine->descriptorSetLayout) != VK_SUCCESS) {
-        return false;
-    }
-    vk_set_object_name(engine->device, (uint64_t)engine->descriptorSetLayout, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, "Global_DescriptorSetLayout");
-    return true;
+    std::vector<DescriptorSetLayoutBinding> bindings = {
+        {0, DescriptorType::UniformBuffer, 1, ShaderStage::AllGraphics},     {1, DescriptorType::CombinedImageSampler, 1, ShaderStage::Fragment},
+        {2, DescriptorType::CombinedImageSampler, 1, ShaderStage::Fragment}, {3, DescriptorType::CombinedImageSampler, 1, ShaderStage::Fragment},
+        {4, DescriptorType::CombinedImageSampler, 1, ShaderStage::Fragment}, {5, DescriptorType::StorageBuffer, 1, ShaderStage::Fragment}};
+    DescriptorLayoutDesc desc{bindings.data(), static_cast<uint32_t>(bindings.size())};
+    engine->globalDescriptorLayout = engine->rhi->CreateDescriptorLayout(desc, "Global_DescriptorSetLayout");
+    return engine->globalDescriptorLayout != INVALID_HANDLE;
 }
 
-VkShaderModule load_shader(VkDevice device, const char* path) {
+std::vector<uint32_t> load_shader(const char* path) {
     FILE* f = fopen(path, "rb");
     if (!f)
-        return VK_NULL_HANDLE;
+        return {};
     fseek(f, 0, SEEK_END);
     size_t size = static_cast<size_t>(ftell(f));
     fseek(f, 0, SEEK_SET);
     std::vector<uint32_t> buffer(size / 4);
-    fread(buffer.data(), 1, size, f);
+    if (fread(buffer.data(), 1, size, f) != size) {
+        fclose(f);
+        return {};
+    }
     fclose(f);
-    VkShaderModuleCreateInfo info{};
-    info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-    info.codeSize = size;
-    info.pCode = buffer.data();
-    VkShaderModule mod = VK_NULL_HANDLE;
-    if (vkCreateShaderModule(device, &info, nullptr, &mod) != VK_SUCCESS) {
-        return VK_NULL_HANDLE;
-    }
-    return mod;
+    return buffer;
 }
 
-struct PipelineCommonState {
-    VkPipelineInputAssemblyStateCreateInfo ia;
-    VkViewport vp;
-    VkRect2D sc;
-    VkPipelineViewportStateCreateInfo vps;
-    VkPipelineRasterizationStateCreateInfo rs;
-    VkPipelineMultisampleStateCreateInfo ms;
-    VkPipelineColorBlendAttachmentState cba;
-    VkPipelineColorBlendStateCreateInfo cb;
-    VkPipelineDepthStencilStateCreateInfo ds;
-};
-
-void init_common_pipeline_state(VulkanEngine* engine, PipelineCommonState& state) {
-    state.ia = {};
-    state.ia.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-    state.ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-
-    state.vp = {0.f, 0.f, (float)engine->swapchainExtent.width, (float)engine->swapchainExtent.height, 0.f, 1.f};
-    state.sc = {{0, 0}, engine->swapchainExtent};
-
-    state.vps = {};
-    state.vps.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-    state.vps.viewportCount = 1;
-    state.vps.pViewports = &state.vp;
-    state.vps.scissorCount = 1;
-    state.vps.pScissors = &state.sc;
-
-    state.rs = {};
-    state.rs.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-    state.rs.polygonMode = VK_POLYGON_MODE_FILL;
-    state.rs.lineWidth = 1.0f;
-    state.rs.cullMode = VK_CULL_MODE_BACK_BIT;
-    state.rs.frontFace = VK_FRONT_FACE_CLOCKWISE;
-
-    state.ms = {};
-    state.ms.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-    state.ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-
-    state.cba = {};
-    state.cba.colorWriteMask = 0xf;
-
-    state.cb = {};
-    state.cb.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    state.cb.attachmentCount = 1;
-    state.cb.pAttachments = &state.cba;
-
-    state.ds = {};
-    state.ds.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-    state.ds.depthTestEnable = VK_TRUE;
-    state.ds.depthWriteEnable = VK_TRUE;
-    state.ds.depthCompareOp = VK_COMPARE_OP_LESS;
+bool create_main_graphics_pipeline(VulkanEngine* engine, const std::vector<uint32_t>& vsm, const std::vector<uint32_t>& fsm) {
+    VertexInputBinding bindings[] = {{0, sizeof(Vertex), false}, {1, sizeof(glm::vec3), true}};
+    VertexInputAttribute attrs[] = {
+        {0, 0, VertexFormat::Float3, offsetof(Vertex, position)}, {1, 0, VertexFormat::Float3, offsetof(Vertex, color)}, {2, 1, VertexFormat::Float3, 0}};
+    GraphicsPipelineDesc desc{};
+    desc.layout = engine->pipelineLayout;
+    desc.renderPass = engine->renderPass;
+    desc.vertexShaderCode = vsm.data();
+    desc.vertexShaderSize = vsm.size() * 4;
+    desc.fragmentShaderCode = fsm.data();
+    desc.fragmentShaderSize = fsm.size() * 4;
+    desc.vertexBindings = bindings;
+    desc.vertexBindingCount = 2;
+    desc.vertexAttributes = attrs;
+    desc.vertexAttributeCount = 3;
+    desc.debugName = "Main_Graphics_Pipeline";
+    engine->graphicsPipeline = engine->rhi->CreateGraphicsPipeline(desc);
+    return engine->graphicsPipeline != INVALID_HANDLE;
 }
 
-bool create_main_graphics_pipeline(VulkanEngine* engine, const PipelineCommonState& common, VkShaderModule vsm, VkShaderModule fsm) {
-    VkPipelineShaderStageCreateInfo stages[2] = {};
-    stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-    stages[0].module = vsm;
-    stages[0].pName = "main";
-    stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-    stages[1].module = fsm;
-    stages[1].pName = "main";
+bool create_skybox_pipeline(VulkanEngine* engine, const std::vector<uint32_t>& vsm, const std::vector<uint32_t>& fsm) {
+    GraphicsPipelineDesc desc{};
+    desc.layout = engine->pipelineLayout;
+    desc.renderPass = engine->renderPass;
+    desc.vertexShaderCode = vsm.data();
+    desc.vertexShaderSize = vsm.size() * 4;
+    desc.fragmentShaderCode = fsm.data();
+    desc.fragmentShaderSize = fsm.size() * 4;
+    desc.cullMode = CullMode::None;
+    desc.depthWriteEnable = false;
+    desc.depthCompareOp = CompareOp::LessOrEqual;
+    desc.debugName = "Skybox_Graphics_Pipeline";
+    engine->skyboxPipeline = engine->rhi->CreateGraphicsPipeline(desc);
+    return engine->skyboxPipeline != INVALID_HANDLE;
+}
 
-    VkVertexInputBindingDescription bindings[2] = {};
-    bindings[0].binding = 0;
-    bindings[0].stride = sizeof(Vertex);
-    bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-    bindings[1].binding = 1;
-    bindings[1].stride = sizeof(glm::vec3);
-    bindings[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
-
-    VkVertexInputAttributeDescription attrs[3] = {};
-    attrs[0].location = 0;
-    attrs[0].binding = 0;
-    attrs[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-    attrs[0].offset = offsetof(Vertex, position);
-    attrs[1].location = 1;
-    attrs[1].binding = 0;
-    attrs[1].format = VK_FORMAT_R32G32B32_SFLOAT;
-    attrs[1].offset = offsetof(Vertex, color);
-    attrs[2].location = 2;
-    attrs[2].binding = 1;
-    attrs[2].format = VK_FORMAT_R32G32B32_SFLOAT;
-    attrs[2].offset = 0;
-
-    VkPipelineVertexInputStateCreateInfo vi{};
-    vi.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    vi.vertexBindingDescriptionCount = 2;
-    vi.pVertexBindingDescriptions = bindings;
-    vi.vertexAttributeDescriptionCount = 3;
-    vi.pVertexAttributeDescriptions = attrs;
-
-    VkGraphicsPipelineCreateInfo pipeInfo{};
-    pipeInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    pipeInfo.stageCount = 2;
-    pipeInfo.pStages = stages;
-    pipeInfo.pVertexInputState = &vi;
-    pipeInfo.pInputAssemblyState = &common.ia;
-    pipeInfo.pViewportState = &common.vps;
-    pipeInfo.pRasterizationState = &common.rs;
-    pipeInfo.pMultisampleState = &common.ms;
-    pipeInfo.pColorBlendState = &common.cb;
-    pipeInfo.pDepthStencilState = &common.ds;
-    pipeInfo.layout = engine->pipelineLayout;
-    pipeInfo.renderPass = engine->renderPass;
-
-    if (vkCreateGraphicsPipelines(engine->device, VK_NULL_HANDLE, 1, &pipeInfo, nullptr, &engine->graphicsPipeline) != VK_SUCCESS) {
+bool create_billboard_pipeline(VulkanEngine* engine) {
+    auto bvm = load_shader("shaders/billboard_vert.spv");
+    auto bfm = load_shader("shaders/billboard_frag.spv");
+    if (bvm.empty() || bfm.empty())
         return false;
-    }
-    vk_set_object_name(engine->device, (uint64_t)engine->graphicsPipeline, VK_OBJECT_TYPE_PIPELINE, "Main_Graphics_Pipeline");
-    return true;
+
+    VertexInputBinding bindings[] = {{1, sizeof(BillboardInstance), true}};
+    VertexInputAttribute attrs[] = {{2, 1, VertexFormat::Float3, 0}, {3, 1, VertexFormat::Int1, sizeof(glm::vec3)}};
+
+    GraphicsPipelineDesc desc{};
+    desc.layout = engine->pipelineLayout;
+    desc.renderPass = engine->renderPass;
+    desc.vertexShaderCode = bvm.data();
+    desc.vertexShaderSize = bvm.size() * 4;
+    desc.fragmentShaderCode = bfm.data();
+    desc.fragmentShaderSize = bfm.size() * 4;
+    desc.cullMode = CullMode::None;
+    desc.depthWriteEnable = false;
+    desc.colorBlendEnable = true;
+    desc.vertexBindings = bindings;
+    desc.vertexBindingCount = 1;
+    desc.vertexAttributes = attrs;
+    desc.vertexAttributeCount = 2;
+    desc.debugName = "Billboard_Graphics_Pipeline";
+    engine->billboardPipeline = engine->rhi->CreateGraphicsPipeline(desc);
+    return engine->billboardPipeline != INVALID_HANDLE;
 }
 
-bool create_skybox_pipeline(VulkanEngine* engine, const PipelineCommonState& common, VkShaderModule vsm, VkShaderModule fsm) {
-    VkPipelineShaderStageCreateInfo stages[2] = {};
-    stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-    stages[0].module = vsm;
-    stages[0].pName = "main";
-    stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-    stages[1].module = fsm;
-    stages[1].pName = "main";
-
-    VkPipelineVertexInputStateCreateInfo vi{};
-    vi.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-
-    VkPipelineRasterizationStateCreateInfo rs = common.rs;
-    rs.cullMode = VK_CULL_MODE_NONE;
-
-    VkPipelineDepthStencilStateCreateInfo ds = common.ds;
-    ds.depthWriteEnable = VK_FALSE;
-    ds.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
-
-    VkGraphicsPipelineCreateInfo pipeInfo{};
-    pipeInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    pipeInfo.stageCount = 2;
-    pipeInfo.pStages = stages;
-    pipeInfo.pVertexInputState = &vi;
-    pipeInfo.pInputAssemblyState = &common.ia;
-    pipeInfo.pViewportState = &common.vps;
-    pipeInfo.pRasterizationState = &rs;
-    pipeInfo.pMultisampleState = &common.ms;
-    pipeInfo.pColorBlendState = &common.cb;
-    pipeInfo.pDepthStencilState = &ds;
-    pipeInfo.layout = engine->pipelineLayout;
-    pipeInfo.renderPass = engine->renderPass;
-
-    if (vkCreateGraphicsPipelines(engine->device, VK_NULL_HANDLE, 1, &pipeInfo, nullptr, &engine->skyboxPipeline) != VK_SUCCESS) {
-        return false;
-    }
-    vk_set_object_name(engine->device, (uint64_t)engine->skyboxPipeline, VK_OBJECT_TYPE_PIPELINE, "Skybox_Graphics_Pipeline");
-    return true;
+bool create_wireframe_pipeline(VulkanEngine* engine, const std::vector<uint32_t>& vsm, const std::vector<uint32_t>& fsm) {
+    VertexInputBinding bindings[] = {{0, sizeof(Vertex), false}, {1, sizeof(glm::vec3), true}};
+    VertexInputAttribute attrs[] = {
+        {0, 0, VertexFormat::Float3, offsetof(Vertex, position)}, {1, 0, VertexFormat::Float3, offsetof(Vertex, color)}, {2, 1, VertexFormat::Float3, 0}};
+    GraphicsPipelineDesc desc{};
+    desc.layout = engine->pipelineLayout;
+    desc.renderPass = engine->renderPass;
+    desc.vertexShaderCode = vsm.data();
+    desc.vertexShaderSize = vsm.size() * 4;
+    desc.fragmentShaderCode = fsm.data();
+    desc.fragmentShaderSize = fsm.size() * 4;
+    desc.vertexBindings = bindings;
+    desc.vertexBindingCount = 2;
+    desc.vertexAttributes = attrs;
+    desc.vertexAttributeCount = 3;
+    desc.polygonMode = PolygonMode::Line;
+    desc.debugName = "Wireframe_Pipeline";
+    engine->wireframePipeline = engine->rhi->CreateGraphicsPipeline(desc);
+    return engine->wireframePipeline != INVALID_HANDLE;
 }
 
-bool create_billboard_pipeline(VulkanEngine* engine, const PipelineCommonState& common, VkPipelineVertexInputStateCreateInfo* bVi) {
-    VkShaderModule bvm = load_shader(engine->device, "shaders/billboard_vert.spv");
-    VkShaderModule bfm = load_shader(engine->device, "shaders/billboard_frag.spv");
-    if (bvm == VK_NULL_HANDLE || bfm == VK_NULL_HANDLE) {
-        LOG_ERROR("render", "Failed to load billboard shaders");
-        if (bvm)
-            vkDestroyShaderModule(engine->device, bvm, nullptr);
-        if (bfm)
-            vkDestroyShaderModule(engine->device, bfm, nullptr);
+bool create_debug_pipelines(VulkanEngine* engine) {
+    auto dvm = load_shader("shaders/debug_vert.spv");
+    auto dfm = load_shader("shaders/debug_frag.spv");
+    if (dvm.empty() || dfm.empty())
         return false;
-    }
 
-    VkPipelineShaderStageCreateInfo bStages[2] = {};
-    bStages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    bStages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-    bStages[0].module = bvm;
-    bStages[0].pName = "main";
-    bStages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    bStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-    bStages[1].module = bfm;
-    bStages[1].pName = "main";
+    PushConstantRange dPushRange{ShaderStage::Vertex | ShaderStage::Fragment, 0, sizeof(DebugPushConstant)};
+    PipelineLayoutDesc plDesc{&engine->globalDescriptorLayout, 1, &dPushRange, 1};
+    engine->debugPipelineLayout = engine->rhi->CreatePipelineLayout(plDesc, "Debug_PipelineLayout");
 
-    VkPipelineRasterizationStateCreateInfo bRs = common.rs;
-    bRs.cullMode = VK_CULL_MODE_NONE;
+    VertexInputBinding bindings[] = {
+        {1, sizeof(BillboardInstance), true} // debug lines reuse billboard instance struct for simplicity in this engine? Wait, no. Debug has no vertex input!
+    };
+    // Let's omit vertex bindings for debug pipelines since it doesn't use them (it generates vertices in vertex shader or uses empty input)
+    VertexInputAttribute attrs[] = {{2, 1, VertexFormat::Float3, 0}, {3, 1, VertexFormat::Int1, sizeof(glm::vec3)}};
 
-    VkPipelineColorBlendAttachmentState bCba = common.cba;
-    bCba.blendEnable = VK_TRUE;
-    bCba.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-    bCba.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-    bCba.colorBlendOp = VK_BLEND_OP_ADD;
-    bCba.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-    bCba.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-    bCba.alphaBlendOp = VK_BLEND_OP_ADD;
+    GraphicsPipelineDesc desc{};
+    desc.layout = engine->debugPipelineLayout;
+    desc.renderPass = engine->renderPass;
+    desc.vertexShaderCode = dvm.data();
+    desc.vertexShaderSize = dvm.size() * 4;
+    desc.fragmentShaderCode = dfm.data();
+    desc.fragmentShaderSize = dfm.size() * 4;
+    desc.vertexBindings = bindings;
+    desc.vertexBindingCount = 1;
+    desc.vertexAttributes = attrs;
+    desc.vertexAttributeCount = 2;
 
-    VkPipelineColorBlendStateCreateInfo bCb = common.cb;
-    bCb.attachmentCount = 1;
-    bCb.pAttachments = &bCba;
+    desc.topology = Topology::LineList;
+    desc.polygonMode = PolygonMode::Line;
+    desc.cullMode = CullMode::None;
+    desc.depthWriteEnable = false;
+    desc.debugName = "Debug_Line_Pipeline";
+    engine->debugLinePipeline = engine->rhi->CreateGraphicsPipeline(desc);
 
-    VkGraphicsPipelineCreateInfo bPipeInfo{};
-    bPipeInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    bPipeInfo.stageCount = 2;
-    bPipeInfo.pStages = bStages;
-    bPipeInfo.pVertexInputState = bVi;
-    bPipeInfo.pInputAssemblyState = &common.ia;
-    bPipeInfo.pViewportState = &common.vps;
-    bPipeInfo.pRasterizationState = &bRs;
-    bPipeInfo.pMultisampleState = &common.ms;
-    bPipeInfo.pColorBlendState = &bCb;
-    bPipeInfo.pDepthStencilState = &common.ds;
-    bPipeInfo.layout = engine->pipelineLayout;
-    bPipeInfo.renderPass = engine->renderPass;
+    desc.topology = Topology::TriangleList;
+    desc.polygonMode = PolygonMode::Fill;
+    desc.colorBlendEnable = true;
+    desc.debugName = "Debug_Triangle_Pipeline";
+    engine->debugTrianglePipeline = engine->rhi->CreateGraphicsPipeline(desc);
+    return engine->debugLinePipeline != INVALID_HANDLE && engine->debugTrianglePipeline != INVALID_HANDLE;
+}
+
+bool init_pipeline(VulkanEngine* engine) {
+    PipelineLayoutDesc plDesc{&engine->globalDescriptorLayout, 1, nullptr, 0};
+    engine->pipelineLayout = engine->rhi->CreatePipelineLayout(plDesc, "Main_Pipeline_Layout");
+
+    auto vsm = load_shader("shaders/vert.spv");
+    auto fsm = load_shader("shaders/frag.spv");
+    auto skyboxVsm = load_shader("shaders/skybox_vert.spv");
+    auto skyboxFsm = load_shader("shaders/skybox_frag.spv");
+    if (vsm.empty() || fsm.empty() || skyboxVsm.empty() || skyboxFsm.empty())
+        return false;
 
     bool success = true;
-    if (vkCreateGraphicsPipelines(engine->device, VK_NULL_HANDLE, 1, &bPipeInfo, nullptr, &engine->billboardPipeline) != VK_SUCCESS) {
-        LOG_ERROR("render", "Failed to create billboard pipeline");
-        success = false;
-    } else {
-        vk_set_object_name(engine->device, (uint64_t)engine->billboardPipeline, VK_OBJECT_TYPE_PIPELINE, "Billboard_Graphics_Pipeline");
-    }
+    success &= create_main_graphics_pipeline(engine, vsm, fsm);
+    success &= create_skybox_pipeline(engine, skyboxVsm, skyboxFsm);
+    success &= create_wireframe_pipeline(engine, vsm, fsm);
+    success &= create_billboard_pipeline(engine);
+    success &= create_debug_pipelines(engine);
 
-    vkDestroyShaderModule(engine->device, bvm, nullptr);
-    vkDestroyShaderModule(engine->device, bfm, nullptr);
     return success;
-}
-
-bool create_wireframe_pipeline(VulkanEngine* engine, const PipelineCommonState& common) {
-    VkShaderModule vsm = load_shader(engine->device, "shaders/vert.spv");
-    VkShaderModule fsm = load_shader(engine->device, "shaders/frag.spv");
-    if (vsm == VK_NULL_HANDLE || fsm == VK_NULL_HANDLE) {
-        if (vsm)
-            vkDestroyShaderModule(engine->device, vsm, nullptr);
-        if (fsm)
-            vkDestroyShaderModule(engine->device, fsm, nullptr);
-        return false;
-    }
-
-    VkPipelineShaderStageCreateInfo stages[2] = {};
-    stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-    stages[0].module = vsm;
-    stages[0].pName = "main";
-    stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-    stages[1].module = fsm;
-    stages[1].pName = "main";
-
-    VkVertexInputBindingDescription bindings[2] = {};
-    bindings[0].binding = 0;
-    bindings[0].stride = sizeof(Vertex);
-    bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-    bindings[1].binding = 1;
-    bindings[1].stride = sizeof(glm::vec3);
-    bindings[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
-    VkVertexInputAttributeDescription attrs[3] = {};
-    attrs[0].location = 0;
-    attrs[0].binding = 0;
-    attrs[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-    attrs[0].offset = offsetof(Vertex, position);
-    attrs[1].location = 1;
-    attrs[1].binding = 0;
-    attrs[1].format = VK_FORMAT_R32G32B32_SFLOAT;
-    attrs[1].offset = offsetof(Vertex, color);
-    attrs[2].location = 2;
-    attrs[2].binding = 1;
-    attrs[2].format = VK_FORMAT_R32G32B32_SFLOAT;
-    attrs[2].offset = 0;
-
-    VkPipelineVertexInputStateCreateInfo vi{};
-    vi.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    vi.vertexBindingDescriptionCount = 2;
-    vi.pVertexBindingDescriptions = bindings;
-    vi.vertexAttributeDescriptionCount = 3;
-    vi.pVertexAttributeDescriptions = attrs;
-
-    VkPipelineRasterizationStateCreateInfo rs = common.rs;
-    rs.polygonMode = VK_POLYGON_MODE_LINE;
-
-    VkGraphicsPipelineCreateInfo pipeInfo{};
-    pipeInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    pipeInfo.stageCount = 2;
-    pipeInfo.pStages = stages;
-    pipeInfo.pVertexInputState = &vi;
-    pipeInfo.pInputAssemblyState = &common.ia;
-    pipeInfo.pViewportState = &common.vps;
-    pipeInfo.pRasterizationState = &rs;
-    pipeInfo.pMultisampleState = &common.ms;
-    pipeInfo.pColorBlendState = &common.cb;
-    pipeInfo.pDepthStencilState = &common.ds;
-    pipeInfo.layout = engine->pipelineLayout;
-    pipeInfo.renderPass = engine->renderPass;
-
-    bool success = true;
-    if (vkCreateGraphicsPipelines(engine->device, VK_NULL_HANDLE, 1, &pipeInfo, nullptr, &engine->wireframePipeline) != VK_SUCCESS) {
-        LOG_ERROR("render", "Failed to create wireframe pipeline");
-        success = false;
-    } else {
-        vk_set_object_name(engine->device, (uint64_t)engine->wireframePipeline, VK_OBJECT_TYPE_PIPELINE, "Wireframe_Graphics_Pipeline");
-    }
-
-    vkDestroyShaderModule(engine->device, vsm, nullptr);
-    vkDestroyShaderModule(engine->device, fsm, nullptr);
-    return success;
-}
-
-bool create_debug_pipelines(VulkanEngine* engine, const PipelineCommonState& common, VkPipelineVertexInputStateCreateInfo* bVi) {
-    VkShaderModule dvm = load_shader(engine->device, "shaders/debug_vert.spv");
-    VkShaderModule dfm = load_shader(engine->device, "shaders/debug_frag.spv");
-    if (dvm == VK_NULL_HANDLE || dfm == VK_NULL_HANDLE) {
-        if (dvm)
-            vkDestroyShaderModule(engine->device, dvm, nullptr);
-        if (dfm)
-            vkDestroyShaderModule(engine->device, dfm, nullptr);
-        return false;
-    }
-
-    VkPipelineShaderStageCreateInfo dStages[2] = {};
-    dStages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    dStages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-    dStages[0].module = dvm;
-    dStages[0].pName = "main";
-    dStages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    dStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-    dStages[1].module = dfm;
-    dStages[1].pName = "main";
-
-    VkPushConstantRange dPushRange{};
-    dPushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-    dPushRange.offset = 0;
-    dPushRange.size = sizeof(DebugPushConstant);
-
-    VkPipelineLayoutCreateInfo dplInfo{};
-    dplInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    dplInfo.setLayoutCount = 1;
-    dplInfo.pSetLayouts = &engine->descriptorSetLayout;
-    dplInfo.pushConstantRangeCount = 1;
-    dplInfo.pPushConstantRanges = &dPushRange;
-    if (vkCreatePipelineLayout(engine->device, &dplInfo, nullptr, &engine->debugPipelineLayout) != VK_SUCCESS) {
-        LOG_ERROR("render", "Failed to create debug pipeline layout");
-    }
-
-    VkPipelineInputAssemblyStateCreateInfo dIaLines = common.ia;
-    dIaLines.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
-    VkPipelineDepthStencilStateCreateInfo dsDebug = common.ds;
-    dsDebug.depthWriteEnable = VK_FALSE;
-    VkPipelineRasterizationStateCreateInfo dRsLines = common.rs;
-    dRsLines.polygonMode = VK_POLYGON_MODE_LINE;
-
-    VkGraphicsPipelineCreateInfo dLineInfo{};
-    dLineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    dLineInfo.stageCount = 2;
-    dLineInfo.pStages = dStages;
-    dLineInfo.pVertexInputState = bVi;
-    dLineInfo.pInputAssemblyState = &dIaLines;
-    dLineInfo.pViewportState = &common.vps;
-    dLineInfo.pRasterizationState = &dRsLines;
-    dLineInfo.pMultisampleState = &common.ms;
-    dLineInfo.pColorBlendState = &common.cb;
-    dLineInfo.pDepthStencilState = &dsDebug;
-    dLineInfo.layout = engine->debugPipelineLayout;
-    dLineInfo.renderPass = engine->renderPass;
-
-    if (vkCreateGraphicsPipelines(engine->device, VK_NULL_HANDLE, 1, &dLineInfo, nullptr, &engine->debugLinePipeline) != VK_SUCCESS) {
-        LOG_ERROR("render", "Failed to create debug line pipeline");
-    } else {
-        vk_set_object_name(engine->device, (uint64_t)engine->debugLinePipeline, VK_OBJECT_TYPE_PIPELINE, "Debug_Line_Pipeline");
-    }
-
-    VkPipelineInputAssemblyStateCreateInfo dIaTris = common.ia;
-    dIaTris.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-    VkPipelineRasterizationStateCreateInfo dRsTris = common.rs;
-    dRsTris.polygonMode = VK_POLYGON_MODE_FILL;
-    VkPipelineColorBlendAttachmentState dCbaBlend = common.cba;
-    dCbaBlend.blendEnable = VK_TRUE;
-    dCbaBlend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-    dCbaBlend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-    dCbaBlend.colorBlendOp = VK_BLEND_OP_ADD;
-    dCbaBlend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-    dCbaBlend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-    dCbaBlend.alphaBlendOp = VK_BLEND_OP_ADD;
-    VkPipelineColorBlendStateCreateInfo dCbBlend = common.cb;
-    dCbBlend.attachmentCount = 1;
-    dCbBlend.pAttachments = &dCbaBlend;
-
-    VkGraphicsPipelineCreateInfo dTriInfo = dLineInfo;
-    dTriInfo.pInputAssemblyState = &dIaTris;
-    dTriInfo.pRasterizationState = &dRsTris;
-    dTriInfo.pColorBlendState = &dCbBlend;
-
-    if (vkCreateGraphicsPipelines(engine->device, VK_NULL_HANDLE, 1, &dTriInfo, nullptr, &engine->debugTrianglePipeline) != VK_SUCCESS) {
-        LOG_ERROR("render", "Failed to create debug triangle pipeline");
-    }
-
-    vkDestroyShaderModule(engine->device, dvm, nullptr);
-    vkDestroyShaderModule(engine->device, dfm, nullptr);
-    return true;
 }
 
 bool create_icosphere_buffers(VulkanEngine* engine, const Icosphere& sphere) {
@@ -1115,89 +850,6 @@ bool create_global_uniform_buffer(VulkanEngine* engine) {
     return engine->uniformBufferMapped != nullptr;
 }
 
-bool init_pipeline(VulkanEngine* engine) {
-    // 1. Load Main and Skybox Shaders
-    VkShaderModule vsm = load_shader(engine->device, "shaders/vert.spv");
-    VkShaderModule fsm = load_shader(engine->device, "shaders/frag.spv");
-    VkShaderModule skyboxVsm = load_shader(engine->device, "shaders/skybox_vert.spv");
-    VkShaderModule skyboxFsm = load_shader(engine->device, "shaders/skybox_frag.spv");
-
-    if (vsm == VK_NULL_HANDLE || fsm == VK_NULL_HANDLE || skyboxVsm == VK_NULL_HANDLE || skyboxFsm == VK_NULL_HANDLE) {
-        if (vsm)
-            vkDestroyShaderModule(engine->device, vsm, nullptr);
-        if (fsm)
-            vkDestroyShaderModule(engine->device, fsm, nullptr);
-        if (skyboxVsm)
-            vkDestroyShaderModule(engine->device, skyboxVsm, nullptr);
-        if (skyboxFsm)
-            vkDestroyShaderModule(engine->device, skyboxFsm, nullptr);
-        return false;
-    }
-
-    vk_set_object_name(engine->device, (uint64_t)vsm, VK_OBJECT_TYPE_SHADER_MODULE, "Icosphere_Vertex_Shader");
-    vk_set_object_name(engine->device, (uint64_t)fsm, VK_OBJECT_TYPE_SHADER_MODULE, "Icosphere_Fragment_Shader");
-    vk_set_object_name(engine->device, (uint64_t)skyboxVsm, VK_OBJECT_TYPE_SHADER_MODULE, "Skybox_Vertex_Shader");
-    vk_set_object_name(engine->device, (uint64_t)skyboxFsm, VK_OBJECT_TYPE_SHADER_MODULE, "Skybox_Fragment_Shader");
-
-    // 2. Setup Pipeline Layout
-    VkPipelineLayoutCreateInfo plInfo{};
-    plInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    plInfo.setLayoutCount = 1;
-    plInfo.pSetLayouts = &engine->descriptorSetLayout;
-    if (vkCreatePipelineLayout(engine->device, &plInfo, nullptr, &engine->pipelineLayout) != VK_SUCCESS) {
-        vkDestroyShaderModule(engine->device, vsm, nullptr);
-        vkDestroyShaderModule(engine->device, fsm, nullptr);
-        vkDestroyShaderModule(engine->device, skyboxVsm, nullptr);
-        vkDestroyShaderModule(engine->device, skyboxFsm, nullptr);
-        return false;
-    }
-    vk_set_object_name(engine->device, (uint64_t)engine->pipelineLayout, VK_OBJECT_TYPE_PIPELINE_LAYOUT, "Main_Pipeline_Layout");
-
-    // 3. Initialize Common Pipeline State
-    PipelineCommonState common;
-    init_common_pipeline_state(engine, common);
-
-    // 4. Create specialized pipelines
-    bool success = true;
-    success &= create_main_graphics_pipeline(engine, common, vsm, fsm);
-    success &= create_skybox_pipeline(engine, common, skyboxVsm, skyboxFsm);
-
-    // Setup Billboard Vertex Input (reused by debug pipelines)
-    VkVertexInputBindingDescription bBindings[1] = {};
-    bBindings[0].binding = 1;
-    bBindings[0].stride = sizeof(BillboardInstance);
-    bBindings[0].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
-
-    VkVertexInputAttributeDescription bAttrs[2] = {};
-    bAttrs[0].location = 2;
-    bAttrs[0].binding = 1;
-    bAttrs[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-    bAttrs[0].offset = offsetof(BillboardInstance, pos);
-    bAttrs[1].location = 3;
-    bAttrs[1].binding = 1;
-    bAttrs[1].format = VK_FORMAT_R32_SINT;
-    bAttrs[1].offset = offsetof(BillboardInstance, materialIdx);
-
-    VkPipelineVertexInputStateCreateInfo bVi{};
-    bVi.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    bVi.vertexBindingDescriptionCount = 1;
-    bVi.pVertexBindingDescriptions = bBindings;
-    bVi.vertexAttributeDescriptionCount = 2;
-    bVi.pVertexAttributeDescriptions = bAttrs;
-
-    success &= create_billboard_pipeline(engine, common, &bVi);
-    success &= create_wireframe_pipeline(engine, common);
-    success &= create_debug_pipelines(engine, common, &bVi);
-
-    // Cleanup
-    vkDestroyShaderModule(engine->device, vsm, nullptr);
-    vkDestroyShaderModule(engine->device, fsm, nullptr);
-    vkDestroyShaderModule(engine->device, skyboxVsm, nullptr);
-    vkDestroyShaderModule(engine->device, skyboxFsm, nullptr);
-
-    return success;
-}
-
 bool init_buffers(VulkanEngine* engine) {
     Icosphere sphere;
     sphere.generate(3);
@@ -1224,134 +876,120 @@ bool init_buffers(VulkanEngine* engine) {
 }
 
 bool init_descriptor_pool_and_sets(VulkanEngine* engine) {
-    VkDescriptorPoolSize sizes[3] = {};
-    sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    sizes[0].descriptorCount = 1;
-    sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    sizes[1].descriptorCount = 4; // environment, irradiance, prefiltered, brdfLut
-    sizes[2].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    sizes[2].descriptorCount = 1;
-
-    VkDescriptorPoolCreateInfo pIn{};
-    pIn.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    pIn.maxSets = 1;
-    pIn.poolSizeCount = 3;
-    pIn.pPoolSizes = sizes;
-    if (vkCreateDescriptorPool(engine->device, &pIn, nullptr, &engine->descriptorPool) != VK_SUCCESS) {
+    DescriptorPoolSize sizes[3] = {{DescriptorType::UniformBuffer, 1}, {DescriptorType::CombinedImageSampler, 4}, {DescriptorType::StorageBuffer, 1}};
+    DescriptorPoolDesc desc{sizes, 3, 1};
+    engine->globalDescriptorPool = engine->rhi->CreateDescriptorPool(desc, "Global_Descriptor_Pool");
+    if (engine->globalDescriptorPool == INVALID_HANDLE) {
         return false;
     }
-    vk_set_object_name(engine->device, (uint64_t)engine->descriptorPool, VK_OBJECT_TYPE_DESCRIPTOR_POOL, "Global_Descriptor_Pool");
 
-    VkDescriptorSetAllocateInfo ai{};
-    ai.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    ai.descriptorPool = engine->descriptorPool;
-    ai.descriptorSetCount = 1;
-    ai.pSetLayouts = &engine->descriptorSetLayout;
-    if (vkAllocateDescriptorSets(engine->device, &ai, &engine->descriptorSet) != VK_SUCCESS) {
+    DescriptorSetAllocateDesc ai{};
+    ai.pool = engine->globalDescriptorPool;
+    ai.setCount = 1;
+    ai.layouts = &engine->globalDescriptorLayout;
+    if (!engine->rhi->AllocateDescriptorSets(ai, &engine->descriptorSet)) {
         return false;
     }
-    vk_set_object_name(engine->device, (uint64_t)engine->descriptorSet, VK_OBJECT_TYPE_DESCRIPTOR_SET, "Global_Descriptor_Set");
+    VkDescriptorSet vkSet = ((VulkanRHI*)engine->rhi)->GetVkDescriptorSet(engine->descriptorSet);
+    vk_set_object_name(engine->device, (uint64_t)vkSet, VK_OBJECT_TYPE_DESCRIPTOR_SET, "Global_Descriptor_Set");
 
-    VkDescriptorBufferInfo bi{};
-    bi.buffer = ((VulkanRHI*)engine->rhi)->GetVkBuffer(engine->uniformBuffer);
+    DescriptorBufferInfo bi{};
+    bi.buffer = engine->uniformBuffer;
     bi.offset = 0;
     bi.range = sizeof(UBOData);
 
-    VkDescriptorBufferInfo materialBufferInfo{};
-    materialBufferInfo.buffer = ((VulkanRHI*)engine->rhi)->GetVkBuffer(engine->materialBuffer);
+    DescriptorBufferInfo materialBufferInfo{};
+    materialBufferInfo.buffer = engine->materialBuffer;
     materialBufferInfo.offset = 0;
     materialBufferInfo.range = VK_WHOLE_SIZE;
 
-    VkImageView vkEnvHdrImageView = ((VulkanRHI*)engine->rhi)->GetVkImageView(engine->envHdrImage);
-    VkSampler vkEnvHdrSampler = engine->envHdrSampler != INVALID_HANDLE ? ((VulkanRHI*)engine->rhi)->GetVkSampler(engine->envHdrSampler) : VK_NULL_HANDLE;
+    DescriptorImageInfo envInfo{};
+    TextureHandle tex = engine->envHdrImage != INVALID_HANDLE ? engine->envHdrImage : INVALID_HANDLE;
+    if (tex == INVALID_HANDLE)
+        tex = engine->ibl.irradianceMap != INVALID_HANDLE ? engine->ibl.irradianceMap : INVALID_HANDLE;
+    envInfo.texture = tex;
+    envInfo.imageView = INVALID_HANDLE;
+    SamplerHandle samp = engine->envHdrSampler != INVALID_HANDLE ? engine->envHdrSampler : INVALID_HANDLE;
+    if (samp == INVALID_HANDLE)
+        samp = engine->ibl.irradianceSampler != INVALID_HANDLE ? engine->ibl.irradianceSampler : INVALID_HANDLE;
+    envInfo.sampler = samp;
+    envInfo.imageView = INVALID_HANDLE;
+    envInfo.imageLayout = TextureLayout::ShaderReadOnlyOptimal;
 
-    if (vkEnvHdrImageView == VK_NULL_HANDLE || engine->envHdrSampler == INVALID_HANDLE) {
-        LOG_WARNING("engine", "init_descriptor_pool_and_sets: environment HDR resources not ready, initial descriptor update will use fallbacks.");
-    }
+    DescriptorImageInfo irrInfo{};
+    irrInfo.texture = engine->ibl.irradianceMap != INVALID_HANDLE ? engine->ibl.irradianceMap : engine->envHdrImage;
+    irrInfo.sampler = engine->ibl.irradianceSampler != INVALID_HANDLE ? engine->ibl.irradianceSampler : engine->envHdrSampler;
+    irrInfo.imageView = INVALID_HANDLE;
+    irrInfo.imageLayout = TextureLayout::ShaderReadOnlyOptimal;
 
-    VkDescriptorImageInfo envInfo{};
-    envInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    VkImageView irrView =
-        engine->ibl.irradianceMap != INVALID_HANDLE ? ((VulkanRHI*)engine->rhi)->GetVkImageView(engine->ibl.irradianceMap) : (VkImageView)VK_NULL_HANDLE;
-    VkSampler irrSamp =
-        engine->ibl.irradianceSampler != INVALID_HANDLE ? ((VulkanRHI*)engine->rhi)->GetVkSampler(engine->ibl.irradianceSampler) : (VkSampler)VK_NULL_HANDLE;
-    VkImageView prefView =
-        engine->ibl.prefilteredMap != INVALID_HANDLE ? ((VulkanRHI*)engine->rhi)->GetVkImageView(engine->ibl.prefilteredMap) : (VkImageView)VK_NULL_HANDLE;
-    VkSampler prefSamp =
-        engine->ibl.prefilteredSampler != INVALID_HANDLE ? ((VulkanRHI*)engine->rhi)->GetVkSampler(engine->ibl.prefilteredSampler) : (VkSampler)VK_NULL_HANDLE;
-    VkImageView lutView = engine->ibl.brdfLut != INVALID_HANDLE ? ((VulkanRHI*)engine->rhi)->GetVkImageView(engine->ibl.brdfLut) : (VkImageView)VK_NULL_HANDLE;
-    VkSampler lutSamp =
-        engine->ibl.brdfLutSampler != INVALID_HANDLE ? ((VulkanRHI*)engine->rhi)->GetVkSampler(engine->ibl.brdfLutSampler) : (VkSampler)VK_NULL_HANDLE;
+    DescriptorImageInfo prefInfo{};
+    prefInfo.texture = engine->ibl.prefilteredMap != INVALID_HANDLE ? engine->ibl.prefilteredMap : engine->envHdrImage;
+    prefInfo.sampler = engine->ibl.prefilteredSampler != INVALID_HANDLE ? engine->ibl.prefilteredSampler : engine->envHdrSampler;
+    prefInfo.imageView = INVALID_HANDLE;
+    prefInfo.imageLayout = TextureLayout::ShaderReadOnlyOptimal;
 
-    envInfo.imageView = vkEnvHdrImageView ? vkEnvHdrImageView : irrView;
-    envInfo.sampler = vkEnvHdrSampler ? vkEnvHdrSampler : irrSamp;
-    envInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    DescriptorImageInfo lutInfo{};
+    lutInfo.texture = engine->ibl.brdfLut != INVALID_HANDLE ? engine->ibl.brdfLut : engine->envHdrImage;
+    lutInfo.sampler = engine->ibl.brdfLutSampler != INVALID_HANDLE ? engine->ibl.brdfLutSampler : engine->envHdrSampler;
+    lutInfo.imageView = INVALID_HANDLE;
+    lutInfo.imageLayout = TextureLayout::ShaderReadOnlyOptimal;
 
-    VkDescriptorImageInfo irrInfo{};
-    irrInfo.imageView = irrView ? irrView : vkEnvHdrImageView;
-    irrInfo.sampler = irrSamp ? irrSamp : vkEnvHdrSampler;
-    irrInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-    VkDescriptorImageInfo prefInfo{};
-    prefInfo.imageView = prefView ? prefView : vkEnvHdrImageView;
-    prefInfo.sampler = prefSamp ? prefSamp : vkEnvHdrSampler;
-    prefInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-    VkDescriptorImageInfo lutInfo{};
-    lutInfo.imageView = lutView ? lutView : vkEnvHdrImageView;
-    lutInfo.sampler = lutSamp ? lutSamp : vkEnvHdrSampler;
-
-    // Safety: ensure no NULL handles are passed to vkUpdateDescriptorSets for required bindings
-    if (envInfo.imageView == VK_NULL_HANDLE || irrInfo.imageView == VK_NULL_HANDLE || prefInfo.imageView == VK_NULL_HANDLE ||
-        lutInfo.imageView == VK_NULL_HANDLE) {
-        LOG_ERROR("engine", "init_descriptor_pool_and_sets: one or more required images are NULL (spec violation). Skipping initial update.");
+    // Safety: ensure no invalid handles are passed for required bindings
+    if (envInfo.texture == INVALID_HANDLE || irrInfo.texture == INVALID_HANDLE || prefInfo.texture == INVALID_HANDLE || lutInfo.texture == INVALID_HANDLE) {
+        LOG_ERROR("engine", "init_descriptor_pool_and_sets: one or more required images are INVALID (spec violation). Skipping initial update.");
         return true; // We'll update later in vk_init_environment_texture
     }
 
-    VkWriteDescriptorSet writes[6] = {};
-    writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    WriteDescriptorSet writes[6] = {};
     writes[0].dstSet = engine->descriptorSet;
     writes[0].dstBinding = 0;
+    writes[0].dstArrayElement = 0;
     writes[0].descriptorCount = 1;
-    writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    writes[0].descriptorType = DescriptorType::UniformBuffer;
     writes[0].pBufferInfo = &bi;
+    writes[0].pImageInfo = nullptr;
 
-    writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     writes[1].dstSet = engine->descriptorSet;
     writes[1].dstBinding = 1;
+    writes[1].dstArrayElement = 0;
     writes[1].descriptorCount = 1;
-    writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writes[1].descriptorType = DescriptorType::CombinedImageSampler;
     writes[1].pImageInfo = &envInfo;
+    writes[1].pBufferInfo = nullptr;
 
-    writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     writes[2].dstSet = engine->descriptorSet;
     writes[2].dstBinding = 2;
+    writes[2].dstArrayElement = 0;
     writes[2].descriptorCount = 1;
-    writes[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writes[2].descriptorType = DescriptorType::CombinedImageSampler;
     writes[2].pImageInfo = &irrInfo;
+    writes[2].pBufferInfo = nullptr;
 
-    writes[3].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     writes[3].dstSet = engine->descriptorSet;
     writes[3].dstBinding = 3;
+    writes[3].dstArrayElement = 0;
     writes[3].descriptorCount = 1;
-    writes[3].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writes[3].descriptorType = DescriptorType::CombinedImageSampler;
     writes[3].pImageInfo = &prefInfo;
+    writes[3].pBufferInfo = nullptr;
 
-    writes[4].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     writes[4].dstSet = engine->descriptorSet;
     writes[4].dstBinding = 4;
+    writes[4].dstArrayElement = 0;
     writes[4].descriptorCount = 1;
-    writes[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writes[4].descriptorType = DescriptorType::CombinedImageSampler;
     writes[4].pImageInfo = &lutInfo;
+    writes[4].pBufferInfo = nullptr;
 
-    writes[5].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     writes[5].dstSet = engine->descriptorSet;
     writes[5].dstBinding = 5;
+    writes[5].dstArrayElement = 0;
     writes[5].descriptorCount = 1;
-    writes[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    writes[5].descriptorType = DescriptorType::StorageBuffer;
     writes[5].pBufferInfo = &materialBufferInfo;
+    writes[5].pImageInfo = nullptr;
 
-    vkUpdateDescriptorSets(engine->device, 6, writes, 0, nullptr);
+    engine->rhi->UpdateDescriptorSets(6, writes);
     return true;
 }
 
