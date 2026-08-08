@@ -21,7 +21,7 @@ echo "========================================="
 echo "   BENCHMARK CPU CACHE (perf stat)       "
 echo "========================================="
 set +e
-eval "$USE_XVFB ./scripts/interactive_runner.sh perf stat -e L1-dcache-load-misses,L1-dcache-loads $APP_BIN --no-vsync" >/dev/null 2>&1
+eval "$USE_XVFB ./scripts/interactive_runner.sh perf stat -e L1-dcache-load-misses,L1-dcache-loads $APP_BIN --no-vsync"
 cat "$TMP_DIR/runner_app.log" | grep -E "(L1-dcache|Performance counter stats)" -A 5 || echo "Erreur: perf stat output introuvable"
 set -e
 
