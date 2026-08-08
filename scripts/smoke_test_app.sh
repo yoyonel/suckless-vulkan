@@ -20,10 +20,10 @@ echo "Exécution du smoke test (timeout 2s) : $APP_BIN"
 set +e
 if [ "$USE_XVFB" = true ]; then
 	echo "Utilisation de xvfb-run..."
-	xvfb-run -a -s "-screen 0 1920x1080x24" timeout 2s "$APP_BIN" --no-vsync
+	xvfb-run -a -s "-screen 0 1920x1080x24" timeout -k 1s 2s "$APP_BIN" --no-vsync
 else
 	echo "Serveur X détecté, exécution directe..."
-	timeout 2s "$APP_BIN" --no-vsync
+	timeout -k 1s 2s "$APP_BIN" --no-vsync
 fi
 EXIT_CODE=$?
 set -e
