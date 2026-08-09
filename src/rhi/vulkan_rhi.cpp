@@ -141,6 +141,8 @@ bool VulkanRHI::Init() {
 }
 
 void VulkanRHI::Shutdown() {
+    delete m_mainCmdList;
+    m_mainCmdList = nullptr;
     cleanup_vulkan_engine(_engine);
 }
 

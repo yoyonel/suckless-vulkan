@@ -590,7 +590,7 @@ void vk_ibl_bake(VulkanEngine* engine) {
         cmdList2.Dispatch(IBL_IRM_SIZE / 32, IBL_IRM_SIZE / 32, 1);
     }
 
-    std::vector<VkImageView> views;
+    std::vector<ImageViewHandle> views;
     DescriptorPoolHandle poolHandle = INVALID_HANDLE;
 
     {
@@ -612,21 +612,10 @@ void vk_ibl_bake(VulkanEngine* engine) {
             std::vector<DescriptorSetHandle> sets(IBL_SPM_MIPS);
             if (engine->appState->rhi->AllocateDescriptorSets(ai, sets.data())) {
                 for (uint32_t i = 0; i < IBL_SPM_MIPS; ++i) {
-                    VkImageViewCreateInfo vi{
-                        VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-                        nullptr,
-                        0,
-                        ((VulkanRHI*)engine->appState->rhi)->GetVkImage(engine->ibl.prefilteredMap),
-                        VK_IMAGE_VIEW_TYPE_2D,
-                        VK_FORMAT_R16G16B16A16_SFLOAT,
-                        {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY},
-                        {VK_IMAGE_ASPECT_COLOR_BIT, i, 1, 0, 1}};
-                    VkImageView v;
-                    vkCreateImageView(engine->device, &vi, nullptr, &v);
-                    views.push_back(v);
+                    ImageViewHandle viewHandle = engine->appState->rhi->CreateImageView(engine->ibl.prefilteredMap, i, 1, 0, 1);
+                    views.push_back(viewHandle);
 
                     DescriptorImageInfo iI{engine->envHdrSampler, INVALID_HANDLE, engine->envHdrImage, TextureLayout::ShaderReadOnlyOptimal};
-                    ImageViewHandle viewHandle = engine->appState->rhi->CreateImageView(engine->ibl.prefilteredMap, i, 1, 0, 1);
                     DescriptorImageInfo oI{INVALID_HANDLE, viewHandle, INVALID_HANDLE, TextureLayout::General};
 
                     WriteDescriptorSet ws[2] = {};
@@ -674,8 +663,8 @@ void vk_ibl_bake(VulkanEngine* engine) {
     vk_end_label(engine->device, cb);
     end_single_time_commands(engine, cb);
 
-    for (auto* v : views)
-        vkDestroyImageView(engine->device, v, nullptr);
+    for (auto v : views)
+        engine->appState->rhi->DestroyImageView(v);
     if (poolHandle != INVALID_HANDLE)
         engine->appState->rhi->DestroyDescriptorPool(poolHandle);
 }
