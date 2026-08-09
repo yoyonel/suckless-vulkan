@@ -22,7 +22,7 @@ Ce document liste les chantiers restants (hors Render Graph) suite au refactorin
 
 ______________________________________________________________________
 
-## 2. Refactoring `main.cpp` (Complexité Cognitive)
+## 2. ~~Refactoring `main.cpp` (Complexité Cognitive)~~ [FAIT]
 
 ### Objectifs & Avantages (main.cpp)
 
