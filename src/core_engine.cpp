@@ -41,17 +41,17 @@ void core_engine_init(CoreEngine* core) {
     core->time.animationTimeSeconds = 0.0f;
     core->time.animationSpeed = 1.0f;
     core->time.animationPaused = false;
-    core->pauseKeyWasDown = false;
-    core->resetKeyWasDown = false;
-    core->speedUpKeyWasDown = false;
-    core->speedDownKeyWasDown = false;
-    core->fullscreenKeyWasDown = false;
-    core->escapeKeyWasDown = false;
+    core->inputTracking.pauseKeyWasDown = false;
+    core->inputTracking.resetKeyWasDown = false;
+    core->inputTracking.speedUpKeyWasDown = false;
+    core->inputTracking.speedDownKeyWasDown = false;
+    core->inputTracking.fullscreenKeyWasDown = false;
+    core->inputTracking.escapeKeyWasDown = false;
     core->window.isFullscreen = false;
-    core->cameraToggleKeyWasDown = false;
-    core->showEnvmapToggleKeyWasDown = false;
-    core->envPageUpKeyWasDown = false;
-    core->envPageDownKeyWasDown = false;
+    core->inputTracking.cameraToggleKeyWasDown = false;
+    core->inputTracking.showEnvmapToggleKeyWasDown = false;
+    core->inputTracking.envPageUpKeyWasDown = false;
+    core->inputTracking.envPageDownKeyWasDown = false;
     core->cameraEnabled = true;
     core->render.showEnvmap = true;
     core->render.envLod = 0.0f;
@@ -60,22 +60,22 @@ void core_engine_init(CoreEngine* core) {
     core->render.iblIntensity = 1.0f;
 
     for (int i = 0; i < 10; ++i) {
-        core->iblDebugDigitKeyWasDown[i] = false;
+        core->inputTracking.iblDebugDigitKeyWasDown[i] = false;
     }
 
-    core->iblDebugPrevKeyWasDown = false;
-    core->iblDebugNextKeyWasDown = false;
-    core->iblExportKeyWasDown = false;
-    core->iblDebugF6KeyWasDown = false;
-    core->cameraResetKeyWasDown = false;
-    core->postResetKeyWasDown = false;
-    core->postExposureAddKeyWasDown = false;
-    core->postExposureSubKeyWasDown = false;
+    core->inputTracking.iblDebugPrevKeyWasDown = false;
+    core->inputTracking.iblDebugNextKeyWasDown = false;
+    core->inputTracking.iblExportKeyWasDown = false;
+    core->inputTracking.iblDebugF6KeyWasDown = false;
+    core->inputTracking.cameraResetKeyWasDown = false;
+    core->inputTracking.postResetKeyWasDown = false;
+    core->inputTracking.postExposureAddKeyWasDown = false;
+    core->inputTracking.postExposureSubKeyWasDown = false;
 
     core->render.billboardMode = true;
-    core->billboardKeyWasDown = false;
+    core->inputTracking.billboardKeyWasDown = false;
     core->render.wireframeMode = false;
-    core->wireframeKeyWasDown = false;
+    core->inputTracking.wireframeKeyWasDown = false;
 
     core->render.exposure = 1.0f;
     core->render.saturation = 1.0f;

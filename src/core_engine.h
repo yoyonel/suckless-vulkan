@@ -82,6 +82,31 @@ struct WindowState {
     int windowedHeight{720};
 };
 
+struct InputTracker {
+    bool pauseKeyWasDown{false};
+    bool resetKeyWasDown{false};
+    bool speedUpKeyWasDown{false};
+    bool speedDownKeyWasDown{false};
+    bool fullscreenKeyWasDown{false};
+    bool escapeKeyWasDown{false};
+    bool cameraToggleKeyWasDown{false};
+    bool showEnvmapToggleKeyWasDown{false};
+    bool envPageUpKeyWasDown{false};
+    bool envPageDownKeyWasDown{false};
+    bool iblDebugDigitKeyWasDown[10]{false};
+    bool iblDebugPrevKeyWasDown{false};
+    bool iblDebugNextKeyWasDown{false};
+    bool iblExportKeyWasDown{false};
+    bool iblDebugF6KeyWasDown{false};
+    bool cameraResetKeyWasDown{false};
+    bool postResetKeyWasDown{false};
+    bool postExposureAddKeyWasDown{false};
+    bool postExposureSubKeyWasDown{false};
+    bool billboardKeyWasDown{false};
+    bool wireframeKeyWasDown{false};
+    bool vsyncKeyWasDown{false};
+};
+
 struct RenderSettings {
     bool billboardMode{true};
     bool wireframeMode{false};
@@ -109,31 +134,10 @@ struct CoreEngine {
 
     TimeState time;
     WindowState window;
+    InputTracker inputTracking;
 
-    bool pauseKeyWasDown;
-    bool resetKeyWasDown;
-    bool speedUpKeyWasDown;
-    bool speedDownKeyWasDown;
-    bool fullscreenKeyWasDown;
-    bool escapeKeyWasDown;
-    bool cameraToggleKeyWasDown;
-    bool showEnvmapToggleKeyWasDown;
-    bool envPageUpKeyWasDown;
-    bool envPageDownKeyWasDown;
     bool cameraEnabled;
     RenderSettings render;
-    bool iblDebugDigitKeyWasDown[10];
-    bool iblDebugPrevKeyWasDown;
-    bool iblDebugNextKeyWasDown;
-    bool iblExportKeyWasDown;
-    bool iblDebugF6KeyWasDown;
-    bool cameraResetKeyWasDown;
-    bool postResetKeyWasDown;
-    bool postExposureAddKeyWasDown;
-    bool postExposureSubKeyWasDown;
-
-    bool billboardKeyWasDown;
-    bool wireframeKeyWasDown;
 
     Camera camera;
     std::chrono::steady_clock::time_point lastFrameTimestamp;
@@ -145,7 +149,6 @@ struct CoreEngine {
     uint32_t instanceCount;
 
     bool vsync;
-    bool vsyncKeyWasDown;
 };
 
 void core_engine_init(CoreEngine* core);

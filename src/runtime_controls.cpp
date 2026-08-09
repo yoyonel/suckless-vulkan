@@ -82,19 +82,19 @@ bool runtime_toggle_fullscreen(EngineState* state, const WindowOps* ops) {
 }
 
 void runtime_update_controls(EngineState* state, const WindowOps* ops) {
-    state->currentInput.pausePressed = runtime_is_key_pressed_once(state->window, GLFW_KEY_P, &state->core.pauseKeyWasDown, ops);
-    state->currentInput.cameraResetPressed = runtime_is_key_pressed_once(state->window, GLFW_KEY_SPACE, &state->core.cameraResetKeyWasDown, ops);
-    state->currentInput.resetPressed = runtime_is_key_pressed_once(state->window, GLFW_KEY_R, &state->core.resetKeyWasDown, ops);
-    state->currentInput.speedUpPressed = runtime_is_key_pressed_once(state->window, GLFW_KEY_UP, &state->core.speedUpKeyWasDown, ops);
-    state->currentInput.speedDownPressed = runtime_is_key_pressed_once(state->window, GLFW_KEY_DOWN, &state->core.speedDownKeyWasDown, ops);
+    state->currentInput.pausePressed = runtime_is_key_pressed_once(state->window, GLFW_KEY_P, &state->core.inputTracking.pauseKeyWasDown, ops);
+    state->currentInput.cameraResetPressed = runtime_is_key_pressed_once(state->window, GLFW_KEY_SPACE, &state->core.inputTracking.cameraResetKeyWasDown, ops);
+    state->currentInput.resetPressed = runtime_is_key_pressed_once(state->window, GLFW_KEY_R, &state->core.inputTracking.resetKeyWasDown, ops);
+    state->currentInput.speedUpPressed = runtime_is_key_pressed_once(state->window, GLFW_KEY_UP, &state->core.inputTracking.speedUpKeyWasDown, ops);
+    state->currentInput.speedDownPressed = runtime_is_key_pressed_once(state->window, GLFW_KEY_DOWN, &state->core.inputTracking.speedDownKeyWasDown, ops);
 
-    if (runtime_is_key_pressed_once(state->window, GLFW_KEY_F11, &state->core.fullscreenKeyWasDown, ops)) {
+    if (runtime_is_key_pressed_once(state->window, GLFW_KEY_F11, &state->core.inputTracking.fullscreenKeyWasDown, ops)) {
         if (runtime_toggle_fullscreen(state, ops)) {
             state->core.lastFrameTimestamp = std::chrono::steady_clock::now();
         }
     }
 
-    if (runtime_is_key_pressed_once(state->window, GLFW_KEY_ESCAPE, &state->core.escapeKeyWasDown, ops)) {
+    if (runtime_is_key_pressed_once(state->window, GLFW_KEY_ESCAPE, &state->core.inputTracking.escapeKeyWasDown, ops)) {
         ops->set_window_should_close(state->window, GLFW_TRUE);
     }
 }
