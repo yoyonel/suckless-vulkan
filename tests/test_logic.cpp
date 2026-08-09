@@ -192,8 +192,8 @@ void test_runtime_controls(TestStats* stats) {
     VulkanEngine engine = {};
     engine.appState = &appState;
     appState.window = reinterpret_cast<GLFWwindow*>(0x2);
-    appState.core.animationSpeed = 1.0f;
-    appState.core.animationTimeSeconds = 3.0f;
+    appState.core.time.animationSpeed = 1.0f;
+    appState.core.time.animationTimeSeconds = 3.0f;
     appState.core.lastFrameTimestamp = std::chrono::steady_clock::now();
 
     fakeState.keyStates[GLFW_KEY_ESCAPE] = GLFW_PRESS;
@@ -206,7 +206,7 @@ void test_runtime_controls(TestStats* stats) {
 
     fakeState.keyStates[GLFW_KEY_F11] = GLFW_PRESS;
     UPDATE_CONTROLS();
-    check(stats, appState.core.isFullscreen, "F11 should switch to fullscreen");
+    check(stats, appState.core.window.isFullscreen, "F11 should switch to fullscreen");
     check(stats, fakeState.setWindowMonitorCallCount == 1, "Entering fullscreen should call set_window_monitor once");
     check(stats, fakeState.lastMonitor != nullptr, "Fullscreen should pass a monitor");
     check(stats, fakeState.lastW == 1920 && fakeState.lastH == 1080, "Fullscreen should use monitor resolution");
@@ -216,7 +216,7 @@ void test_runtime_controls(TestStats* stats) {
 
     fakeState.keyStates[GLFW_KEY_F11] = GLFW_PRESS;
     UPDATE_CONTROLS();
-    check(stats, !appState.core.isFullscreen, "Second F11 should return to window mode");
+    check(stats, !appState.core.window.isFullscreen, "Second F11 should return to window mode");
     check(stats, fakeState.setWindowMonitorCallCount == 2, "Windowed restore should call set_window_monitor");
     check(stats, fakeState.lastMonitor == nullptr, "Windowed restore should pass null monitor");
     check(stats, fakeState.lastX == fakeState.windowX && fakeState.lastY == fakeState.windowY, "Windowed restore should use saved position");
@@ -235,7 +235,7 @@ void test_runtime_controls(TestStats* stats) {
 
     fakeState.keyStates[GLFW_KEY_P] = GLFW_PRESS;
     UPDATE_CONTROLS();
-    check(stats, appState.core.animationPaused, "P should toggle pause on");
+    check(stats, appState.core.time.animationPaused, "P should toggle pause on");
     fakeState.keyStates[GLFW_KEY_P] = GLFW_RELEASE;
     UPDATE_CONTROLS();
 
@@ -248,24 +248,24 @@ void test_runtime_controls(TestStats* stats) {
 
     fakeState.keyStates[GLFW_KEY_UP] = GLFW_PRESS;
     UPDATE_CONTROLS();
-    check(stats, appState.core.animationSpeed > 1.2f, "Up should increase speed");
+    check(stats, appState.core.time.animationSpeed > 1.2f, "Up should increase speed");
     fakeState.keyStates[GLFW_KEY_UP] = GLFW_RELEASE;
     UPDATE_CONTROLS();
 
-    appState.core.animationSpeed = 0.05f;
+    appState.core.time.animationSpeed = 0.05f;
     fakeState.keyStates[GLFW_KEY_DOWN] = GLFW_PRESS;
     UPDATE_CONTROLS();
-    check(stats, appState.core.animationSpeed >= 0.1f, "Down should clamp speed to minimum");
+    check(stats, appState.core.time.animationSpeed >= 0.1f, "Down should clamp speed to minimum");
     fakeState.keyStates[GLFW_KEY_DOWN] = GLFW_RELEASE;
     UPDATE_CONTROLS();
 
-    appState.core.animationTimeSeconds = 9.0f;
-    appState.core.animationSpeed = 2.0f;
+    appState.core.time.animationTimeSeconds = 9.0f;
+    appState.core.time.animationSpeed = 2.0f;
     fakeState.keyStates[GLFW_KEY_R] = GLFW_PRESS;
     appState.core.lastFrameTimestamp -= std::chrono::milliseconds(16);
     UPDATE_CONTROLS();
-    check(stats, appState.core.animationTimeSeconds < 0.05f, "R should reset animation time");
-    check(stats, appState.core.animationSpeed == 1.0f, "R should restore default animation speed");
+    check(stats, appState.core.time.animationTimeSeconds < 0.05f, "R should reset animation time");
+    check(stats, appState.core.time.animationSpeed == 1.0f, "R should restore default animation speed");
 
     g_fake = nullptr;
 }

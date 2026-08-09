@@ -38,16 +38,16 @@ void arena_free(LinearArena* arena) {
 }
 
 void core_engine_init(CoreEngine* core) {
-    core->animationTimeSeconds = 0.0f;
-    core->animationSpeed = 1.0f;
-    core->animationPaused = false;
+    core->time.animationTimeSeconds = 0.0f;
+    core->time.animationSpeed = 1.0f;
+    core->time.animationPaused = false;
     core->pauseKeyWasDown = false;
     core->resetKeyWasDown = false;
     core->speedUpKeyWasDown = false;
     core->speedDownKeyWasDown = false;
     core->fullscreenKeyWasDown = false;
     core->escapeKeyWasDown = false;
-    core->isFullscreen = false;
+    core->window.isFullscreen = false;
     core->cameraToggleKeyWasDown = false;
     core->showEnvmapToggleKeyWasDown = false;
     core->envPageUpKeyWasDown = false;
@@ -86,7 +86,7 @@ void core_engine_init(CoreEngine* core) {
     core->render.wbTemp = 6500.0f;
     core->render.wbTint = 0.0f;
 
-    core->lastFrameDeltaSeconds = 0.0f;
+    core->time.lastFrameDeltaSeconds = 0.0f;
 
     camera_init(&core->camera);
     core->lastFrameTimestamp = std::chrono::steady_clock::now();
@@ -100,16 +100,16 @@ void core_engine_init(CoreEngine* core) {
 
 static void process_animation_inputs(CoreEngine* core, const CoreInput* input) {
     if (input->pausePressed)
-        core->animationPaused = !core->animationPaused;
+        core->time.animationPaused = !core->time.animationPaused;
     if (input->resetPressed) {
-        core->animationTimeSeconds = 0.0f;
-        core->animationSpeed = 1.0f;
+        core->time.animationTimeSeconds = 0.0f;
+        core->time.animationSpeed = 1.0f;
     }
     if (input->speedUpPressed)
-        core->animationSpeed *= 1.25f;
+        core->time.animationSpeed *= 1.25f;
     if (input->speedDownPressed) {
-        core->animationSpeed *= 0.8f;
-        core->animationSpeed = std::max(core->animationSpeed, 0.1f);
+        core->time.animationSpeed *= 0.8f;
+        core->time.animationSpeed = std::max(core->time.animationSpeed, 0.1f);
     }
 }
 
@@ -198,7 +198,7 @@ void core_engine_update(CoreEngine* core, const CoreInput* input, float maxFrame
     float deltaSeconds = std::chrono::duration<float>(now - core->lastFrameTimestamp).count();
     core->lastFrameTimestamp = now;
     deltaSeconds = std::clamp(deltaSeconds, 0.0f, maxFrameDeltaSeconds);
-    core->lastFrameDeltaSeconds = deltaSeconds;
+    core->time.lastFrameDeltaSeconds = deltaSeconds;
 
     process_animation_inputs(core, input);
     process_toggles_and_env_inputs(core, input);
@@ -207,8 +207,8 @@ void core_engine_update(CoreEngine* core, const CoreInput* input, float maxFrame
     process_postprocess_inputs(core, input, deltaSeconds);
 
     // Update simulation
-    if (!core->animationPaused) {
-        core->animationTimeSeconds += deltaSeconds * core->animationSpeed;
+    if (!core->time.animationPaused) {
+        core->time.animationTimeSeconds += deltaSeconds * core->time.animationSpeed;
     }
 
     camera_fixed_update(&core->camera, deltaSeconds);

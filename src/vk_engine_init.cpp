@@ -1185,8 +1185,8 @@ bool vk_init_vulkan_engine(VulkanEngine* engine) {
     glfwSetInputMode(engine->appState->window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
     // Some values still depend on window layout
-    glfwGetWindowPos(engine->appState->window, &engine->appState->core.windowedPosX, &engine->appState->core.windowedPosY);
-    glfwGetWindowSize(engine->appState->window, &engine->appState->core.windowedWidth, &engine->appState->core.windowedHeight);
+    glfwGetWindowPos(engine->appState->window, &engine->appState->core.window.windowedPosX, &engine->appState->core.window.windowedPosY);
+    glfwGetWindowSize(engine->appState->window, &engine->appState->core.window.windowedWidth, &engine->appState->core.window.windowedHeight);
     if (!vk_start_hdr_io_thread(engine)) {
         vk_cleanup_vulkan_engine(engine);
         return false;

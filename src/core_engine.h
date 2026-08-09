@@ -67,6 +67,21 @@ struct CoreInput {
     bool wireframePressed;
 };
 
+struct TimeState {
+    float animationTimeSeconds{0.0f};
+    float animationSpeed{1.0f};
+    bool animationPaused{false};
+    float lastFrameDeltaSeconds{0.0f};
+};
+
+struct WindowState {
+    bool isFullscreen{false};
+    int windowedPosX{0};
+    int windowedPosY{0};
+    int windowedWidth{1280};
+    int windowedHeight{720};
+};
+
 struct RenderSettings {
     bool billboardMode{true};
     bool wireframeMode{false};
@@ -92,16 +107,15 @@ struct RenderSettings {
 struct CoreEngine {
     IRHI* rhi;
 
-    float animationTimeSeconds;
-    float animationSpeed;
-    bool animationPaused;
+    TimeState time;
+    WindowState window;
+
     bool pauseKeyWasDown;
     bool resetKeyWasDown;
     bool speedUpKeyWasDown;
     bool speedDownKeyWasDown;
     bool fullscreenKeyWasDown;
     bool escapeKeyWasDown;
-    bool isFullscreen;
     bool cameraToggleKeyWasDown;
     bool showEnvmapToggleKeyWasDown;
     bool envPageUpKeyWasDown;
@@ -117,11 +131,6 @@ struct CoreEngine {
     bool postResetKeyWasDown;
     bool postExposureAddKeyWasDown;
     bool postExposureSubKeyWasDown;
-    int windowedPosX;
-    int windowedPosY;
-    int windowedWidth;
-    int windowedHeight;
-    float lastFrameDeltaSeconds;
 
     bool billboardKeyWasDown;
     bool wireframeKeyWasDown;

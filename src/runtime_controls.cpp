@@ -54,9 +54,9 @@ bool runtime_is_key_pressed_once(GLFWwindow* window, int key, bool* wasDown, con
 }
 
 bool runtime_toggle_fullscreen(EngineState* state, const WindowOps* ops) {
-    if (!state->core.isFullscreen) {
-        ops->get_window_pos(state->window, &state->core.windowedPosX, &state->core.windowedPosY);
-        ops->get_window_size(state->window, &state->core.windowedWidth, &state->core.windowedHeight);
+    if (!state->core.window.isFullscreen) {
+        ops->get_window_pos(state->window, &state->core.window.windowedPosX, &state->core.window.windowedPosY);
+        ops->get_window_size(state->window, &state->core.window.windowedWidth, &state->core.window.windowedHeight);
 
         GLFWmonitor* monitor = ops->get_primary_monitor();
         if (monitor == nullptr) {
@@ -69,14 +69,14 @@ bool runtime_toggle_fullscreen(EngineState* state, const WindowOps* ops) {
         }
 
         ops->set_window_monitor(state->window, monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
-        state->core.isFullscreen = true;
+        state->core.window.isFullscreen = true;
         LOG_INFO("runtime", "Mode fullscreen active");
         return true;
     }
 
-    ops->set_window_monitor(state->window, nullptr, state->core.windowedPosX, state->core.windowedPosY, state->core.windowedWidth, state->core.windowedHeight,
-                            0);
-    state->core.isFullscreen = false;
+    ops->set_window_monitor(state->window, nullptr, state->core.window.windowedPosX, state->core.window.windowedPosY, state->core.window.windowedWidth,
+                            state->core.window.windowedHeight, 0);
+    state->core.window.isFullscreen = false;
     LOG_INFO("runtime", "Mode fenetre active");
     return true;
 }

@@ -251,7 +251,7 @@ static bool test_integration_rendering() {
     bool b1 = verify_and_capture_frame(&engine, "test_billboard.png");
 
     // Capture 2: Icosphere
-    engine.appState->core.billboardMode = false;
+    engine.appState->core.render.billboardMode = false;
     if (!draw_frame(&engine)) {
         cleanup_vulkan_engine(&engine);
         return false;
@@ -259,8 +259,8 @@ static bool test_integration_rendering() {
     bool b2 = verify_and_capture_frame(&engine, "test_icosphere.png");
 
     // Capture 3: Billboard Wireframe (New)
-    engine.appState->core.billboardMode = true;
-    engine.appState->core.wireframeMode = true;
+    engine.appState->core.render.billboardMode = true;
+    engine.appState->core.render.wireframeMode = true;
     if (!draw_frame(&engine)) {
         cleanup_vulkan_engine(&engine);
         return false;
@@ -268,8 +268,8 @@ static bool test_integration_rendering() {
     bool b3 = verify_and_capture_frame(&engine, "test_wireframe_billboard.png");
 
     // Capture 4: Icosphere Wireframe
-    engine.appState->core.billboardMode = false;
-    engine.appState->core.wireframeMode = true;
+    engine.appState->core.render.billboardMode = false;
+    engine.appState->core.render.wireframeMode = true;
     if (!draw_frame(&engine)) {
         cleanup_vulkan_engine(&engine);
         return false;
@@ -283,8 +283,8 @@ static bool test_integration_rendering() {
     engine.appState->core.camera.yaw = -90.0f;
     engine.appState->core.camera.pitch = 0.0f;
     camera_update_vectors(&engine.appState->core.camera);
-    engine.appState->core.billboardMode = true;
-    engine.appState->core.wireframeMode = true;
+    engine.appState->core.render.billboardMode = true;
+    engine.appState->core.render.wireframeMode = true;
     if (!draw_frame(&engine)) {
         cleanup_vulkan_engine(&engine);
         return false;
