@@ -70,5 +70,5 @@ COPY .asan_ignorefile /work/.asan_ignorefile
 # volume-mounted files are owned by the host user, not root.
 RUN useradd --no-create-home --uid 1001 --shell /bin/bash ci
 
-USER ci
+USER 1001
 WORKDIR /work
