@@ -33,8 +33,10 @@ struct KTX2LevelIndex {
 };
 #pragma pack(pop)
 
+enum class KtxResult : uint8_t { Success, FileNotFound, InvalidHeader, ReadError, WriteError };
+
 // API Caveman KTX2
-bool ktx2_bake_hdr_to_file(const std::string& outPath, int width, int height, const float* pixels);
-float* ktx2_load_from_file(const std::string& inPath, int* outWidth, int* outHeight);
+KtxResult ktx2_bake_hdr_to_file(const std::string& outPath, int width, int height, const float* pixels);
+KtxResult ktx2_load_from_file(const std::string& inPath, int* outWidth, int* outHeight, std::vector<float>& outPixels);
 
 #endif // ASSET_KTX_H

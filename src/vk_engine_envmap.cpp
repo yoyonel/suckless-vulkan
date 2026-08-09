@@ -1,4 +1,6 @@
 #include "vk_engine_envmap.h"
+#include "asset_ktx.h"
+#include <sys/stat.h>
 
 #include "app_log.h"
 #include "rhi/vulkan_rhi.h"
@@ -359,11 +361,52 @@ bool init_environment_texture_from_pixels(VulkanEngine* engine, const float* pix
     return true;
 }
 
+namespace {
+bool load_hdr_with_ktx2_cache(const std::string& hdrPath, int* outWidth, int* outHeight, std::vector<float>& outPixels) {
+    std::string ktxPath = hdrPath + ".ktx2";
+
+    struct stat hdrStat;
+    struct stat ktxStat;
+    bool ktxValid = false;
+
+    if (stat(hdrPath.c_str(), &hdrStat) == 0) {
+        if (stat(ktxPath.c_str(), &ktxStat) == 0) {
+            if (ktxStat.st_mtime >= hdrStat.st_mtime) {
+                ktxValid = true;
+            }
+        }
+    }
+
+    if (ktxValid) {
+        if (ktx2_load_from_file(ktxPath, outWidth, outHeight, outPixels) == KtxResult::Success) {
+            LOG_INFO("engine", "[KTX Cache] Load fast-path: %s", ktxPath.c_str());
+            return true;
+        }
+    }
+
+    int channels;
+    float* pixels = stbi_loadf(hdrPath.c_str(), outWidth, outHeight, &channels, 4);
+    if (pixels && *outWidth > 0 && *outHeight > 0) {
+        size_t size = static_cast<size_t>(*outWidth) * static_cast<size_t>(*outHeight) * 4U;
+        outPixels.resize(size);
+        memcpy(outPixels.data(), pixels, size * sizeof(float));
+        stbi_image_free(pixels);
+
+        LOG_INFO("engine", "[KTX Cache] Baking %s...", ktxPath.c_str());
+        ktx2_bake_hdr_to_file(ktxPath, *outWidth, *outHeight, outPixels.data());
+        return true;
+    }
+
+    if (pixels)
+        stbi_image_free(pixels);
+    return false;
+}
+} // namespace
+
 bool init_environment_texture_from_path(VulkanEngine* engine, const std::string& hdrPath) {
     int width = 1;
     int height = 1;
-    int channels = 0;
-    float* loadedPixels = nullptr;
+    std::vector<float> loadedPixels;
     std::vector<float> fallbackPixels;
 
     if (hdrPath.empty()) {
@@ -372,16 +415,13 @@ bool init_environment_texture_from_path(VulkanEngine* engine, const std::string&
         return init_environment_texture_from_pixels(engine, fallbackPixels.data(), width, height, "fallback-1x1", true);
     }
 
-    loadedPixels = stbi_loadf(hdrPath.c_str(), &width, &height, &channels, 4);
-    if (loadedPixels == nullptr || width <= 0 || height <= 0) {
+    if (!load_hdr_with_ktx2_cache(hdrPath, &width, &height, loadedPixels) || width <= 0 || height <= 0) {
         LOG_WARNING("engine", "Echec du chargement HDR: %s, utilisation d'une texture fallback 1x1", hdrPath.c_str());
         fallbackPixels = {0.0f, 0.0f, 0.0f, 1.0f};
         return init_environment_texture_from_pixels(engine, fallbackPixels.data(), 1, 1, "fallback-1x1", true);
     }
 
-    const bool ok = init_environment_texture_from_pixels(engine, loadedPixels, width, height, hdrPath, false);
-    stbi_image_free(loadedPixels);
-    return ok;
+    return init_environment_texture_from_pixels(engine, loadedPixels.data(), width, height, hdrPath, false);
 }
 
 void request_environment_texture_async(VulkanEngine* engine, int newHdrIndex) {
@@ -435,25 +475,20 @@ void hdr_io_thread_main(VulkanEngine* engine) {
         }
 
         if (request.hdrIndex >= 0 && request.hdrIndex < static_cast<int>(engine->hdrFiles.size())) {
-            SVK_TRACY_ZONE_SCOPED("hdr_io_thread_decode_stbi");
+            SVK_TRACY_ZONE_SCOPED("hdr_io_thread_decode");
             const std::string hdrPath = engine->hdrFiles[static_cast<size_t>(request.hdrIndex)];
             int width = 0;
             int height = 0;
-            int channels = 0;
-            float* pixels = stbi_loadf(hdrPath.c_str(), &width, &height, &channels, 4);
-            if (pixels != nullptr && width > 0 && height > 0) {
+            std::vector<float> pixels;
+            if (load_hdr_with_ktx2_cache(hdrPath, &width, &height, pixels) && width > 0 && height > 0) {
                 request.width = static_cast<uint32_t>(width);
                 request.height = static_cast<uint32_t>(height);
                 request.channels = 4;
                 request.sourcePathOrLabel = hdrPath;
-                request.pixelData.resize(static_cast<size_t>(width) * static_cast<size_t>(height) * 4U);
-                memcpy(request.pixelData.data(), pixels, request.pixelData.size() * sizeof(float));
+                request.pixelData = std::move(pixels);
                 request.state = HdrLoadRequestState::Ready;
             } else {
                 request.state = HdrLoadRequestState::Failed;
-            }
-            if (pixels != nullptr) {
-                stbi_image_free(pixels);
             }
         } else {
             request.state = HdrLoadRequestState::Failed;

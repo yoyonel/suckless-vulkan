@@ -3,10 +3,10 @@
 #include <cstdio>
 #include <cstdlib>
 
-bool ktx2_bake_hdr_to_file(const std::string& outPath, int width, int height, const float* pixels) {
+KtxResult ktx2_bake_hdr_to_file(const std::string& outPath, int width, int height, const float* pixels) {
     FILE* f = fopen(outPath.c_str(), "wb");
     if (!f)
-        return false;
+        return KtxResult::WriteError;
 
     KTX2Header header;
     header.pixelWidth = width;
@@ -29,24 +29,23 @@ bool ktx2_bake_hdr_to_file(const std::string& outPath, int width, int height, co
     fwrite(pixels, 1, payloadSize, f);
 
     fclose(f);
-    return true;
+    return KtxResult::Success;
 }
 
-float* ktx2_load_from_file(const std::string& inPath, int* outWidth, int* outHeight) {
+KtxResult ktx2_load_from_file(const std::string& inPath, int* outWidth, int* outHeight, std::vector<float>& outPixels) {
     FILE* f = fopen(inPath.c_str(), "rb");
     if (!f)
-        return nullptr;
+        return KtxResult::FileNotFound;
 
     KTX2Header header;
     if (fread(&header, sizeof(KTX2Header), 1, f) != 1) {
         fclose(f);
-        return nullptr;
+        return KtxResult::ReadError;
     }
 
-    // Verif magic simpliste
-    if (header.identifier[1] != 0x4B || header.identifier[2] != 0x54) { // 'K', 'T'
+    if (header.identifier[1] != 0x4B || header.identifier[2] != 0x54) {
         fclose(f);
-        return nullptr;
+        return KtxResult::InvalidHeader;
     }
 
     *outWidth = static_cast<int>(header.pixelWidth);
@@ -55,18 +54,20 @@ float* ktx2_load_from_file(const std::string& inPath, int* outWidth, int* outHei
     KTX2LevelIndex levelIndex;
     if (fread(&levelIndex, sizeof(KTX2LevelIndex), 1, f) != 1) {
         fclose(f);
-        return nullptr;
+        return KtxResult::ReadError;
     }
 
     fseek(f, static_cast<long>(levelIndex.byteOffset), SEEK_SET);
 
-    float* data = (float*)malloc(levelIndex.byteLength);
-    if (fread(data, 1, levelIndex.byteLength, f) != levelIndex.byteLength) {
-        free(data);
+    size_t numFloats = levelIndex.byteLength / sizeof(float);
+    outPixels.resize(numFloats);
+
+    if (fread(outPixels.data(), 1, levelIndex.byteLength, f) != levelIndex.byteLength) {
+        outPixels.clear();
         fclose(f);
-        return nullptr;
+        return KtxResult::ReadError;
     }
 
     fclose(f);
-    return data;
+    return KtxResult::Success;
 }
