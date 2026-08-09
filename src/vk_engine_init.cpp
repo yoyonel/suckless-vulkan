@@ -788,8 +788,9 @@ bool create_icosphere_buffers(VulkanEngine* engine, const Icosphere& sphere) {
 
 bool create_instance_grid_buffers(VulkanEngine* engine, std::vector<glm::vec3>& instancePositions) {
     const size_t instanceCount = kMaterialInstanceCount;
-    engine->appState->core.instanceCount = static_cast<uint32_t>(instanceCount);
-    engine->appState->core.instancePositions = static_cast<glm::vec3*>(arena_alloc(&engine->appState->core.arena, instanceCount * sizeof(glm::vec3), 16));
+    engine->appState->core.scene.instanceCount = static_cast<uint32_t>(instanceCount);
+    engine->appState->core.scene.instancePositions =
+        static_cast<glm::vec3*>(arena_alloc(&engine->appState->core.scene.arena, instanceCount * sizeof(glm::vec3), 64));
     instancePositions.resize(instanceCount);
 
     for (uint32_t row = 0; row < kGridSize; ++row) {
@@ -797,7 +798,7 @@ bool create_instance_grid_buffers(VulkanEngine* engine, std::vector<glm::vec3>& 
             const size_t instanceIndex = (static_cast<size_t>(row) * static_cast<size_t>(kGridSize)) + static_cast<size_t>(col);
             const float x = (static_cast<float>(col) * kGridSpacing) - kGridOffset;
             const float y = -((static_cast<float>(row) * kGridSpacing) - kGridOffset);
-            engine->appState->core.instancePositions[instanceIndex] = {x, y, 0.0f};
+            engine->appState->core.scene.instancePositions[instanceIndex] = {x, y, 0.0f};
             instancePositions[instanceIndex] = {x, y, 0.0f};
         }
     }
@@ -811,11 +812,11 @@ bool create_instance_grid_buffers(VulkanEngine* engine, std::vector<glm::vec3>& 
 bool create_billboard_instance_buffer(VulkanEngine* engine, const std::vector<glm::vec3>& instancePositions) {
     const size_t instanceCount = instancePositions.size();
 
-    BillboardSoA* soa = &engine->appState->core.billboardSoA;
+    BillboardSoA* soa = &engine->appState->core.scene.billboardSoA;
     soa->count = static_cast<int>(instanceCount);
     soa->capacity = static_cast<int>(instanceCount);
-    soa->pos = static_cast<glm::vec4*>(arena_alloc(&engine->appState->core.arena, instanceCount * sizeof(glm::vec4), 16));
-    soa->materialIdx = static_cast<int*>(arena_alloc(&engine->appState->core.arena, instanceCount * sizeof(int), 4));
+    soa->pos = static_cast<glm::vec4*>(arena_alloc(&engine->appState->core.scene.arena, instanceCount * sizeof(glm::vec4), 64));
+    soa->materialIdx = static_cast<int*>(arena_alloc(&engine->appState->core.scene.arena, instanceCount * sizeof(int), 64));
 
     for (size_t i = 0; i < instanceCount; ++i) {
         soa->pos[i] = glm::vec4(instancePositions[i], 1.0f);

@@ -63,7 +63,7 @@ int main(int argc, char** argv) {
     }
 
     // Initialize Global Arenas
-    arena_init(&state.core.arena, CORE_ARENA_CAPACITY_BYTES);
+
     arena_init(&state.rhiArena, RHI_ARENA_CAPACITY_BYTES);
     core_engine_init(&state.core);
 
@@ -133,7 +133,7 @@ int main(int argc, char** argv) {
     glfwTerminate();
 
     arena_free(&state.rhiArena);
-    arena_free(&state.core.arena);
+    arena_free(&state.core.scene.arena);
 
     tracy_client_shutdown();
     return 0;

@@ -222,7 +222,7 @@ extern "C" IRHI* CreateRHI(EngineState*);
 extern "C" void DestroyRHI(IRHI*);
 static bool test_integration_rendering() {
     EngineState appState = {};
-    arena_init(&appState.core.arena, CORE_ARENA_CAPACITY_BYTES);
+
     arena_init(&appState.rhiArena, RHI_ARENA_CAPACITY_BYTES);
     core_engine_init(&appState.core);
 
@@ -329,7 +329,7 @@ static bool test_integration_rendering() {
     DestroyRHI(appState.rhi);
 
     arena_free(&appState.rhiArena);
-    arena_free(&appState.core.arena);
+    arena_free(&appState.core.scene.arena);
 
     glfwDestroyWindow(appState.window);
     glfwTerminate();

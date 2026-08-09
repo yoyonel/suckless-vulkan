@@ -79,10 +79,15 @@ bool vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recreateSw
 
     uboData.windowSize = glm::vec4(static_cast<float>(renderWidth), static_cast<float>(renderHeight), 0.0f, 0.0f);
 
-    if (engine->transformBufferMapped && core.instancePositions) {
+    if (engine->transformBufferMapped && core.scene.instancePositions) {
         glm::mat4* transforms = static_cast<glm::mat4*>(engine->transformBufferMapped);
-        for (uint32_t i = 0; i < core.instanceCount; ++i) {
-            transforms[i] = glm::translate(glm::mat4(1.0f), core.instancePositions[i]) * uboData.modelRotation;
+        const glm::vec3* __restrict positions = static_cast<const glm::vec3*>(__builtin_assume_aligned(core.scene.instancePositions, 64));
+        const glm::mat4 baseModelRot = uboData.modelRotation;
+        const uint32_t count = core.scene.instanceCount;
+
+        for (uint32_t i = 0; i < count; ++i) {
+            __builtin_prefetch(&positions[i + 8], 0, 1);
+            transforms[i] = glm::translate(glm::mat4(1.0f), positions[i]) * baseModelRot;
         }
     }
 
@@ -121,20 +126,22 @@ bool vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recreateSw
                 rhi->BeginDebugLabel("Render_Spheres_Instanced", 0.0f, 1.0f, 0.4f);
                 if (core.render.billboardMode) {
                     const glm::vec3 camPos = core.camera.position;
-                    BillboardSoA* soa = &core.billboardSoA;
+                    BillboardSoA* soa = &core.scene.billboardSoA;
 
-                    std::size_t savedOffset = core.arena.offset;
+                    std::size_t savedOffset = core.scene.arena.offset;
 
                     struct alignas(8) BillboardSortItem {
                         uint32_t distBits;
                         uint32_t index;
                     };
 
-                    BillboardSortItem* sortItems = static_cast<BillboardSortItem*>(arena_alloc(&core.arena, soa->count * sizeof(BillboardSortItem), 8));
+                    BillboardSortItem* sortItems = static_cast<BillboardSortItem*>(arena_alloc(&core.scene.arena, soa->count * sizeof(BillboardSortItem), 8));
 
                     // 1. Linear Gather: Calculate distances and pack indices
+                    const glm::vec4* __restrict posArray = static_cast<const glm::vec4*>(__builtin_assume_aligned(soa->pos, 64));
                     for (int i = 0; i < soa->count; ++i) {
-                        glm::vec3 da = glm::vec3(soa->pos[i]) - camPos;
+                        __builtin_prefetch(&posArray[i + 8], 0, 1);
+                        glm::vec3 da = glm::vec3(posArray[i]) - camPos;
                         float distSq = glm::dot(da, da);
                         std::memcpy(&sortItems[i].distBits, &distSq, sizeof(uint32_t));
                         sortItems[i].index = static_cast<uint32_t>(i);
@@ -146,14 +153,14 @@ bool vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recreateSw
                     });
 
                     // 3. Linear Scatter: Extract payload for Vulkan
-                    uint32_t* tempIndices = static_cast<uint32_t*>(arena_alloc(&core.arena, soa->count * sizeof(uint32_t), 4));
+                    uint32_t* tempIndices = static_cast<uint32_t*>(arena_alloc(&core.scene.arena, soa->count * sizeof(uint32_t), 4));
                     for (int i = 0; i < soa->count; ++i) {
                         tempIndices[i] = sortItems[i].index;
                     }
 
                     rhi->UpdateBillboardInstances(tempIndices, soa->count);
 
-                    core.arena.offset = savedOffset;
+                    core.scene.arena.offset = savedOffset;
 
                     rhi->BindPipeline(PipelineType::Billboard);
                     rhi->BindMeshBuffers(true);

@@ -70,8 +70,8 @@ struct CoreInput {
 struct TimeState {
     float animationTimeSeconds{0.0f};
     float animationSpeed{1.0f};
-    bool animationPaused{false};
     float lastFrameDeltaSeconds{0.0f};
+    bool animationPaused{false};
 };
 
 struct WindowState {
@@ -107,18 +107,17 @@ struct InputTracker {
     bool vsyncKeyWasDown{false};
 };
 
-struct RenderSettings {
-    bool billboardMode{true};
-    bool wireframeMode{false};
-    bool showEnvmap{true};
-    bool pbrEnabled{true};
-    bool iblEnabled{true};
+struct SceneData {
+    LinearArena arena;
+    BillboardSoA billboardSoA;
+    glm::vec3* instancePositions{nullptr};
+    uint32_t instanceCount{0};
+};
 
+struct RenderSettings {
     float envLod{0.0f};
     float iblIntensity{1.0f};
-    int iblDebugMode{0};
     float iblDebugScale{1.0f};
-
     float exposure{1.0f};
     float saturation{1.0f};
     float contrast{1.0f};
@@ -127,6 +126,12 @@ struct RenderSettings {
     float offset{0.0f};
     float wbTemp{0.0f};
     float wbTint{0.0f};
+    int iblDebugMode{0};
+    bool billboardMode{true};
+    bool wireframeMode{false};
+    bool showEnvmap{true};
+    bool pbrEnabled{true};
+    bool iblEnabled{true};
 };
 
 struct CoreEngine {
@@ -142,11 +147,7 @@ struct CoreEngine {
     Camera camera;
     std::chrono::steady_clock::time_point lastFrameTimestamp;
 
-    LinearArena arena;
-    BillboardSoA billboardSoA;
-
-    glm::vec3* instancePositions;
-    uint32_t instanceCount;
+    SceneData scene;
 
     bool vsync;
 };

@@ -91,11 +91,11 @@ void core_engine_init(CoreEngine* core) {
     camera_init(&core->camera);
     core->lastFrameTimestamp = std::chrono::steady_clock::now();
 
-    arena_init(&core->arena, CORE_ARENA_CAPACITY_BYTES);
-    core->billboardSoA.count = 0;
-    core->billboardSoA.capacity = 0;
-    core->billboardSoA.pos = nullptr;
-    core->billboardSoA.materialIdx = nullptr;
+    arena_init(&core->scene.arena, CORE_ARENA_CAPACITY_BYTES);
+    core->scene.billboardSoA.count = 0;
+    core->scene.billboardSoA.capacity = 0;
+    core->scene.billboardSoA.pos = nullptr;
+    core->scene.billboardSoA.materialIdx = nullptr;
 }
 
 static void process_animation_inputs(CoreEngine* core, const CoreInput* input) {
