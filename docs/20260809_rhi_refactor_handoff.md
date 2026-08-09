@@ -9,9 +9,8 @@ Nous sommes en cours de refactoring massif pour abstraire les appels Vulkan dire
 - **Phase 8.1 à 8.3 :** Migration des textures, des buffers, de la swapchain et du pipeline graphique vers des Handles (`TextureHandle`, `BufferHandle`).
 - **Phase 8.4 (IBL) :** Migration des ressources liées à l'Image Based Lighting (Irradiance, Prefiltered, BRDF LUT) et des textures HDR. Tout est géré via des `TextureHandle` et `SamplerHandle`.
 - **Phase 8.5 (Pipelines & Commandes) :** Abstraction complète de la tuyauterie (`VkPipeline`, `VkDescriptorSet`) et des commandes d'enregistrement (`vkCmdDraw`, `vkCmdDispatch`, `vkCmdPipelineBarrier`, `vkCmdBindDescriptorSets`, etc.) derrière `IRHI`. La logique métier est enfin agnostique !
-- **Phase 8.6 (Optimisation Mémoire & DOD - Itération 5) :** Benchmark Headless via Tracy (`just benchmark-tracy`). Éradication de toutes les allocations dynamiques (0 `malloc`) dans la hot-loop de rendu (utilisation de `__builtin_alloca`). Conversion du tri des Billboards (Scatter/Gather) vers un modèle DOD 100% linéaire (AoS contigu de 32 bytes). Preuve établie par le profiling que le RHI est purifié et que les L1 misses proviennent de l'I/O (`stb_image`).
-
-**Temps total investi (estimé) :** ~110 minutes effectives (itérations hachées en time-box de 3-10 minutes avec vérifications CI strictes).
+- **Phase 8.6 (Optimisation Mémoire & DOD) :** Benchmark Headless via Tracy (`just benchmark-tracy`). Éradication de toutes les allocations dynamiques (0 `malloc`) dans la hot-loop de rendu (utilisation de `__builtin_alloca`). Conversion du tri des Billboards (Scatter/Gather) vers un modèle DOD 100% linéaire (AoS contigu de 32 bytes). Preuve établie par le profiling que le RHI est purifié et que les L1 misses proviennent de l'I/O (`stb_image`).
+- **Phase 9 (Hot-Reload RHI & Flat Transform SSBO) :** Extraction totale du contexte métier dans `EngineState`, hébergé par l'exécutable (`main.cpp`). Découpage de l'API RHI en librairies dynamiques (`libvulkan_rhi.so`). Ajout de la touche F5 pour le **hot-reload dynamique** de la couche graphique. Migration de l'instancing de la géométrie via Storage Buffers (SSBO) diminuant les accès mémoire (L1 misses) de 10.6% au runtime.
 
 ## 2. Difficultés rencontrées et Dette Technique accumulée
 
@@ -27,29 +26,18 @@ Nous sommes en cours de refactoring massif pour abstraire les appels Vulkan dire
 1. **Gestion des Timeouts :**
    Les time-boxes (5 à 10 minutes max par sous-phase) ont été strictement respectées. Les commits ne sont effectués qu'après un `just test` (validation fonctionnelle) et un `just check` (validation statique).
 
-## 3. Planification des phases restantes (Timebox 5-10 minutes)
+## 3. Prochaines Étapes (Phase 10)
 
-Le code métier étant désormais totalement isolé de Vulkan, l'objectif de la Phase 9 est de moduler l'architecture pour permettre le changement de backend à chaud (Hot-Reload) et la compilation en librairie dynamique.
+L'architecture est maintenant complètement découplée, propre, "GPU-Driven ready", et supporte le rechargement à chaud (Hot-Reload). Nous pouvons reprendre le développement des fonctionnalités visuelles et l'optimisation des ressources :
 
-### Phase 9 : RHI Backend Dynamique & Hot-Reload (Estimation : 100 min)
+### Phase 10 : Évolution du Rendu & Optimisations (À venir)
 
-#### 9.1 Architecture DLL RHI (20 min)
-
-- **Tâche 1 (10 min) :** Modifier `CMakeLists.txt`. Isoler `VulkanRHI` et `NullRHI` en cibles `SHARED`. Vérifier la compilation (`just build`).
-- **Tâche 2 (10 min) :** Définir API C d'export (`extern "C" IRHI* CreateRHI()`, `DestroyRHI()`). Exposer symboles. Vérifier link (`just build`).
-
-#### 9.2 Chargement Dynamique Runtime (10 min)
-
-- **Itération 1 :** Implémenter classe `ModuleLoader` (wrappers OS). Refactor de l'initialisation du RHI dans le Core pour utiliser `dlopen`/`CreateRHI`. Vérification complète.
-
-#### 9.3 Préservation d'État (EngineState) (20 min)
-
-- **Itération 2 (10 min) :** Créer la structure globale `EngineState` (contexte non-graphique). Isoler et extraire l'état (inputs, caméra, etc.) hors du moteur graphique.
-- **Itération 3 (10 min) :** Propager `EngineState` dans la boucle principale (`draw_frame`, `update`). Fixer toutes les erreurs de compilation et tests (`just test`).
-
-#### 9.4 Logique Hot-Reload (10 min)
-
-- **Itération 4 :** Implémenter la touche F5 pour le rechargement. Écrire la logique complète : Teardown du RHI existant, rechargement DLL, ré-instanciation et reconstruction des ressources via `EngineState`. Vérifier visuellement en modifiant une couleur à chaud.
+1. **Option VRAM & Zero-Copy** :
+   Finaliser les options d'optimisation VRAM (cf. `docs/2026-08-09_options_optimisation_vram.md`), notamment l'Option C (Zero-Copy Staging Buffers via `VMA_MEMORY_USAGE_CPU_ONLY` ou KHR).
+1. **Raytracing / Compute Avancé** :
+   Introduire le pipeline Compute de Raytracing de Billboards ou optimiser les passes de luminance IBL.
+1. **Culling GPU** :
+   Grâce au `Flat Transform Buffer` (SSBO) déjà en place pour la grille, implémenter un Frustum Culling via Compute Shader et piloter le rendu via `vkCmdDrawIndexedIndirect`.
 
 ## 4. Contexte pour la reprise
 
