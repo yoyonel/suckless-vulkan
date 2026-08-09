@@ -36,21 +36,48 @@ struct FrameBufferData {
 
 static bool compare_images(const FrameBufferData& a, const FrameBufferData& b, int threshold, const char* name) {
     size_t diff_count = 0;
+    unsigned char* diff_pixels = new unsigned char[static_cast<size_t>(a.width) * static_cast<size_t>(a.height) * 4];
     for (int px = 0; px < a.width * a.height; ++px) {
         const int base = px * 4;
+        bool is_diff = false;
         for (int c = 0; c < 3; ++c) {
             if (std::abs((int)a.pixels[base + c] - (int)b.pixels[base + c]) > threshold) {
+                is_diff = true;
                 diff_count++;
             }
         }
+        if (is_diff) {
+            diff_pixels[base + 0] = 255;
+            diff_pixels[base + 1] = 0;
+            diff_pixels[base + 2] = 255; // Magenta for differences
+            diff_pixels[base + 3] = 255;
+        } else {
+            diff_pixels[base + 0] = a.pixels[base + 0] / 4; // Dimmed background
+            diff_pixels[base + 1] = a.pixels[base + 1] / 4;
+            diff_pixels[base + 2] = a.pixels[base + 2] / 4;
+            diff_pixels[base + 3] = 255;
+        }
     }
+    bool success = true;
     if (diff_count > 0) {
         float percent = (float)diff_count / (float)(a.width * a.height * 3) * 100.0f;
         LOG_WARNING("test", "Image mismatch for %s: %zu pixels differ (> %d tolerance) - %.2f%%", name, diff_count / 3, threshold, percent);
         // Allow up to 2.5% of pixels to differ (needed for cross-driver wireframe/AA parity)
-        return diff_count < static_cast<size_t>(static_cast<double>(a.width) * a.height * 3 * 0.025);
+        success = diff_count < static_cast<size_t>(static_cast<double>(a.width) * a.height * 3 * 0.025);
     }
-    return true;
+
+    if (!success) {
+        char path_out[256];
+        char path_diff[256];
+        snprintf(path_out, sizeof(path_out), "tests/failures/failed_%s", name);
+        snprintf(path_diff, sizeof(path_diff), "tests/failures/diff_%s", name);
+        stbi_write_png(path_out, a.width, a.height, 4, a.pixels, a.width * 4);
+        stbi_write_png(path_diff, a.width, a.height, 4, diff_pixels, a.width * 4);
+        LOG_WARNING("test", "Wrote failure outputs to %s and %s", path_out, path_diff);
+    }
+
+    delete[] diff_pixels;
+    return success;
 }
 
 static bool readback_frame(VulkanEngine* engine, const FrameBufferData& outFrame) {

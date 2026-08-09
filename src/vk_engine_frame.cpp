@@ -6,6 +6,7 @@
 #include "vk_engine_envmap.h"
 #include "vk_engine_runtime.h"
 
+#include "app_log.h"
 #include <algorithm>
 #include <chrono>
 #include <cstring>
@@ -117,34 +118,33 @@ bool vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recreateSw
 
                     std::size_t savedOffset = core.arena.offset;
 
-                    struct alignas(16) BillboardSortItem {
+                    struct alignas(8) BillboardSortItem {
                         uint32_t distBits;
-                        BillboardInstance inst;
+                        uint32_t index;
                     };
 
-                    BillboardSortItem* sortItems = static_cast<BillboardSortItem*>(arena_alloc(&core.arena, soa->count * sizeof(BillboardSortItem), 16));
+                    BillboardSortItem* sortItems = static_cast<BillboardSortItem*>(arena_alloc(&core.arena, soa->count * sizeof(BillboardSortItem), 8));
 
-                    // 1. Linear Gather: Calculate distances and pack data into contiguous AoS array
+                    // 1. Linear Gather: Calculate distances and pack indices
                     for (int i = 0; i < soa->count; ++i) {
-                        glm::vec3 da = soa->pos[i] - camPos;
+                        glm::vec3 da = glm::vec3(soa->pos[i]) - camPos;
                         float distSq = glm::dot(da, da);
                         std::memcpy(&sortItems[i].distBits, &distSq, sizeof(uint32_t));
-                        sortItems[i].inst.pos = soa->pos[i];
-                        sortItems[i].inst.materialIdx = soa->materialIdx[i];
+                        sortItems[i].index = static_cast<uint32_t>(i);
                     }
 
-                    // 2. Cache-Friendly In-Place Sort: Swap adjacent items (no random pointer chasing)
+                    // 2. Cache-Friendly In-Place Sort: Swap adjacent items
                     std::sort(sortItems, sortItems + soa->count, [](const BillboardSortItem& a, const BillboardSortItem& b) {
                         return a.distBits > b.distBits; // Positive floats sort correctly as uint32_t
                     });
 
                     // 3. Linear Scatter: Extract payload for Vulkan
-                    BillboardInstance* tempInstances = static_cast<BillboardInstance*>(arena_alloc(&core.arena, soa->count * sizeof(BillboardInstance), 16));
+                    uint32_t* tempIndices = static_cast<uint32_t*>(arena_alloc(&core.arena, soa->count * sizeof(uint32_t), 4));
                     for (int i = 0; i < soa->count; ++i) {
-                        tempInstances[i] = sortItems[i].inst;
+                        tempIndices[i] = sortItems[i].index;
                     }
 
-                    rhi->UpdateBillboardInstances(tempInstances, soa->count);
+                    rhi->UpdateBillboardInstances(tempIndices, soa->count);
 
                     core.arena.offset = savedOffset;
 

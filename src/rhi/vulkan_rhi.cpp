@@ -777,13 +777,7 @@ void VulkanRHI::BindGlobalDescriptor() {
 }
 
 void VulkanRHI::BindMeshBuffers(bool isBillboard) {
-    if (isBillboard) {
-        if (_engine->billboardBuffer != INVALID_HANDLE && _engine->billboardBuffer < m_buffers.size()) {
-            VkBuffer buffers[] = {m_buffers[_engine->billboardBuffer].buffer};
-            VkDeviceSize offsets[] = {0};
-            vkCmdBindVertexBuffers(_engine->commandBuffer, 1, 1, buffers, offsets);
-        }
-    } else {
+    if (!isBillboard) {
         if (_engine->vertexBuffer != INVALID_HANDLE && _engine->instanceBuffer != INVALID_HANDLE) {
             VkBuffer buffers[] = {m_buffers[_engine->vertexBuffer].buffer, m_buffers[_engine->instanceBuffer].buffer};
             VkDeviceSize offsets[] = {0, 0};
@@ -807,11 +801,11 @@ void VulkanRHI::PushDebugConstants(const void* data, uint32_t size) {
     vkCmdPushConstants(_engine->commandBuffer, GetVkPipelineLayout(_engine->debugPipelineLayout), VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, size, data);
 }
 
-void VulkanRHI::UpdateBillboardInstances(const struct BillboardInstance* instances, std::size_t count) {
+void VulkanRHI::UpdateBillboardInstances(const uint32_t* indices, std::size_t count) {
     if (_engine->billboardBuffer != INVALID_HANDLE && _engine->billboardBuffer < m_buffers.size()) {
         void* mapped = m_buffers[_engine->billboardBuffer].mappedData;
         if (mapped) {
-            memcpy(mapped, instances, count * sizeof(BillboardInstance));
+            memcpy(mapped, indices, count * sizeof(uint32_t));
         }
     }
 }
@@ -988,6 +982,7 @@ PipelineHandle VulkanRHI::CreateGraphicsPipeline(const GraphicsPipelineDesc& des
             case VertexFormat::Float3: attrs[i].format = VK_FORMAT_R32G32B32_SFLOAT; break;
             case VertexFormat::Float4: attrs[i].format = VK_FORMAT_R32G32B32A32_SFLOAT; break;
             case VertexFormat::Int1: attrs[i].format = VK_FORMAT_R32_SINT; break;
+            case VertexFormat::UInt1: attrs[i].format = VK_FORMAT_R32_UINT; break;
             default: attrs[i].format = VK_FORMAT_R32G32B32_SFLOAT; break;
         }
     }

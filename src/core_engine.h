@@ -22,15 +22,10 @@ void arena_init(LinearArena* arena, std::size_t capacity);
 void* arena_alloc(LinearArena* arena, std::size_t size, std::size_t align = 16);
 void arena_free(LinearArena* arena);
 
-struct BillboardInstance {
-    glm::vec3 pos;
-    int materialIdx;
-};
-
 struct BillboardSoA {
     int count;
     int capacity;
-    glm::vec3* pos;
+    glm::vec4* pos;
     int* materialIdx;
 };
 

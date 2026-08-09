@@ -203,6 +203,8 @@ struct VulkanEngine {
     void* tracyVkContext;
 
     BufferHandle billboardBuffer{INVALID_HANDLE};
+    BufferHandle billboardPosSSBO{INVALID_HANDLE};
+    BufferHandle billboardMatSSBO{INVALID_HANDLE};
     void* billboardMapped;
 
     IblResources ibl;

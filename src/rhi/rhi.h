@@ -96,7 +96,7 @@ enum class CullMode : uint8_t { None, Front, Back, FrontAndBack };
 enum class FrontFace : uint8_t { CounterClockwise, Clockwise };
 enum class CompareOp : uint8_t { Never, Less, Equal, LessOrEqual, Greater, NotEqual, GreaterOrEqual, Always };
 enum class Topology : uint8_t { TriangleList, LineList, PointList };
-enum class VertexFormat : uint8_t { Float1, Float2, Float3, Float4, Int1 };
+enum class VertexFormat : uint8_t { Float1, Float2, Float3, Float4, Int1, UInt1 };
 
 struct VertexInputBinding {
     uint32_t binding;
@@ -279,7 +279,7 @@ public:
     // Drawing
     virtual void Draw(uint32_t vertexCount, uint32_t instanceCount) = 0;
     virtual void DrawIndexed(uint32_t indexCount, uint32_t instanceCount) = 0;
-    virtual void UpdateBillboardInstances(const struct BillboardInstance* instances, std::size_t count) = 0;
+    virtual void UpdateBillboardInstances(const uint32_t* instances, std::size_t count) = 0;
     
     // Debug & Profiling
     virtual void PushDebugConstants(const void* data, uint32_t size) = 0;

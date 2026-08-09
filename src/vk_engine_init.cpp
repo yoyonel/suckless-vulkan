@@ -280,6 +280,8 @@ void cleanup_buffer_resources(VulkanEngine* engine) {
     engine->appState->rhi->DestroyBuffer(engine->uniformBuffer);
 
     engine->appState->rhi->DestroyBuffer(engine->billboardBuffer);
+    engine->appState->rhi->DestroyBuffer(engine->billboardPosSSBO);
+    engine->appState->rhi->DestroyBuffer(engine->billboardMatSSBO);
 
     engine->appState->rhi->DestroyBuffer(engine->materialBuffer);
 
@@ -607,7 +609,9 @@ bool init_descriptor_layout(VulkanEngine* engine) {
     std::vector<DescriptorSetLayoutBinding> bindings = {
         {0, DescriptorType::UniformBuffer, 1, ShaderStage::AllGraphics},     {1, DescriptorType::CombinedImageSampler, 1, ShaderStage::Fragment},
         {2, DescriptorType::CombinedImageSampler, 1, ShaderStage::Fragment}, {3, DescriptorType::CombinedImageSampler, 1, ShaderStage::Fragment},
-        {4, DescriptorType::CombinedImageSampler, 1, ShaderStage::Fragment}, {5, DescriptorType::StorageBuffer, 1, ShaderStage::Fragment}};
+        {4, DescriptorType::CombinedImageSampler, 1, ShaderStage::Fragment}, {5, DescriptorType::StorageBuffer, 1, ShaderStage::Fragment},
+        {6, DescriptorType::StorageBuffer, 1, ShaderStage::Vertex},          {7, DescriptorType::StorageBuffer, 1, ShaderStage::Vertex},
+        {8, DescriptorType::StorageBuffer, 1, ShaderStage::Vertex}};
     DescriptorLayoutDesc desc{bindings.data(), static_cast<uint32_t>(bindings.size())};
     engine->globalDescriptorLayout = engine->appState->rhi->CreateDescriptorLayout(desc, "Global_DescriptorSetLayout");
     return engine->globalDescriptorLayout != INVALID_HANDLE;
@@ -671,9 +675,6 @@ bool create_billboard_pipeline(VulkanEngine* engine) {
     if (bvm.empty() || bfm.empty())
         return false;
 
-    VertexInputBinding bindings[] = {{1, sizeof(BillboardInstance), true}};
-    VertexInputAttribute attrs[] = {{2, 1, VertexFormat::Float3, 0}, {3, 1, VertexFormat::Int1, sizeof(glm::vec3)}};
-
     GraphicsPipelineDesc desc{};
     desc.layout = engine->pipelineLayout;
     desc.renderPass = engine->renderPass;
@@ -684,10 +685,10 @@ bool create_billboard_pipeline(VulkanEngine* engine) {
     desc.cullMode = CullMode::None;
     desc.depthWriteEnable = false;
     desc.colorBlendEnable = true;
-    desc.vertexBindings = bindings;
-    desc.vertexBindingCount = 1;
-    desc.vertexAttributes = attrs;
-    desc.vertexAttributeCount = 2;
+    desc.vertexBindings = nullptr;
+    desc.vertexBindingCount = 0;
+    desc.vertexAttributes = nullptr;
+    desc.vertexAttributeCount = 0;
     desc.debugName = "Billboard_Graphics_Pipeline";
     engine->billboardPipeline = engine->appState->rhi->CreateGraphicsPipeline(desc);
     return engine->billboardPipeline != INVALID_HANDLE;
@@ -724,12 +725,6 @@ bool create_debug_pipelines(VulkanEngine* engine) {
     PipelineLayoutDesc plDesc{&engine->globalDescriptorLayout, 1, &dPushRange, 1};
     engine->debugPipelineLayout = engine->appState->rhi->CreatePipelineLayout(plDesc, "Debug_PipelineLayout");
 
-    VertexInputBinding bindings[] = {
-        {1, sizeof(BillboardInstance), true} // debug lines reuse billboard instance struct for simplicity in this engine? Wait, no. Debug has no vertex input!
-    };
-    // Let's omit vertex bindings for debug pipelines since it doesn't use them (it generates vertices in vertex shader or uses empty input)
-    VertexInputAttribute attrs[] = {{2, 1, VertexFormat::Float3, 0}, {3, 1, VertexFormat::Int1, sizeof(glm::vec3)}};
-
     GraphicsPipelineDesc desc{};
     desc.layout = engine->debugPipelineLayout;
     desc.renderPass = engine->renderPass;
@@ -737,10 +732,10 @@ bool create_debug_pipelines(VulkanEngine* engine) {
     desc.vertexShaderSize = dvm.size() * 4;
     desc.fragmentShaderCode = dfm.data();
     desc.fragmentShaderSize = dfm.size() * 4;
-    desc.vertexBindings = bindings;
-    desc.vertexBindingCount = 1;
-    desc.vertexAttributes = attrs;
-    desc.vertexAttributeCount = 2;
+    desc.vertexBindings = nullptr;
+    desc.vertexBindingCount = 0;
+    desc.vertexAttributes = nullptr;
+    desc.vertexAttributeCount = 0;
 
     desc.topology = Topology::LineList;
     desc.polygonMode = PolygonMode::Line;
@@ -811,17 +806,19 @@ bool create_billboard_instance_buffer(VulkanEngine* engine, const std::vector<gl
     BillboardSoA* soa = &engine->appState->core.billboardSoA;
     soa->count = static_cast<int>(instanceCount);
     soa->capacity = static_cast<int>(instanceCount);
-    soa->pos = static_cast<glm::vec3*>(arena_alloc(&engine->appState->core.arena, instanceCount * sizeof(glm::vec3), 16));
+    soa->pos = static_cast<glm::vec4*>(arena_alloc(&engine->appState->core.arena, instanceCount * sizeof(glm::vec4), 16));
     soa->materialIdx = static_cast<int*>(arena_alloc(&engine->appState->core.arena, instanceCount * sizeof(int), 4));
 
     for (size_t i = 0; i < instanceCount; ++i) {
-        soa->pos[i] = instancePositions[i];
+        soa->pos[i] = glm::vec4(instancePositions[i], 1.0f);
         soa->materialIdx[i] = static_cast<int>(i);
     }
 
-    engine->billboardBuffer =
-        engine->appState->rhi->CreateBuffer(instanceCount * sizeof(BillboardInstance), BufferUsage::Vertex, nullptr, "Billboard_Instance_Buffer");
-    return engine->billboardBuffer != INVALID_HANDLE;
+    engine->billboardBuffer = engine->appState->rhi->CreateBuffer(instanceCount * sizeof(uint32_t), BufferUsage::Storage, nullptr, "Billboard_Index_SSBO");
+    engine->billboardPosSSBO = engine->appState->rhi->CreateBuffer(instanceCount * sizeof(glm::vec4), BufferUsage::Storage, soa->pos, "Billboard_Pos_SSBO");
+    engine->billboardMatSSBO = engine->appState->rhi->CreateBuffer(instanceCount * sizeof(int), BufferUsage::Storage, soa->materialIdx, "Billboard_Mat_SSBO");
+
+    return engine->billboardBuffer != INVALID_HANDLE && engine->billboardPosSSBO != INVALID_HANDLE && engine->billboardMatSSBO != INVALID_HANDLE;
 }
 
 bool create_material_ssbo(VulkanEngine* engine) {
@@ -873,7 +870,7 @@ bool init_buffers(VulkanEngine* engine) {
 }
 
 bool init_descriptor_pool_and_sets(VulkanEngine* engine) {
-    DescriptorPoolSize sizes[3] = {{DescriptorType::UniformBuffer, 1}, {DescriptorType::CombinedImageSampler, 4}, {DescriptorType::StorageBuffer, 1}};
+    DescriptorPoolSize sizes[3] = {{DescriptorType::UniformBuffer, 1}, {DescriptorType::CombinedImageSampler, 4}, {DescriptorType::StorageBuffer, 4}};
     DescriptorPoolDesc desc{sizes, 3, 1};
     engine->globalDescriptorPool = engine->appState->rhi->CreateDescriptorPool(desc, "Global_Descriptor_Pool");
     if (engine->globalDescriptorPool == INVALID_HANDLE) {
@@ -937,7 +934,22 @@ bool init_descriptor_pool_and_sets(VulkanEngine* engine) {
         return true; // We'll update later in vk_init_environment_texture
     }
 
-    WriteDescriptorSet writes[6] = {};
+    DescriptorBufferInfo bbPosInfo{};
+    bbPosInfo.buffer = engine->billboardPosSSBO;
+    bbPosInfo.offset = 0;
+    bbPosInfo.range = VK_WHOLE_SIZE;
+
+    DescriptorBufferInfo bbMatInfo{};
+    bbMatInfo.buffer = engine->billboardMatSSBO;
+    bbMatInfo.offset = 0;
+    bbMatInfo.range = VK_WHOLE_SIZE;
+
+    DescriptorBufferInfo bbIndexInfo{};
+    bbIndexInfo.buffer = engine->billboardBuffer;
+    bbIndexInfo.offset = 0;
+    bbIndexInfo.range = VK_WHOLE_SIZE;
+
+    WriteDescriptorSet writes[9] = {};
     writes[0].dstSet = engine->descriptorSet;
     writes[0].dstBinding = 0;
     writes[0].dstArrayElement = 0;
@@ -986,7 +998,31 @@ bool init_descriptor_pool_and_sets(VulkanEngine* engine) {
     writes[5].pBufferInfo = &materialBufferInfo;
     writes[5].pImageInfo = nullptr;
 
-    engine->appState->rhi->UpdateDescriptorSets(6, writes);
+    writes[6].dstSet = engine->descriptorSet;
+    writes[6].dstBinding = 6;
+    writes[6].dstArrayElement = 0;
+    writes[6].descriptorCount = 1;
+    writes[6].descriptorType = DescriptorType::StorageBuffer;
+    writes[6].pBufferInfo = &bbPosInfo;
+    writes[6].pImageInfo = nullptr;
+
+    writes[7].dstSet = engine->descriptorSet;
+    writes[7].dstBinding = 7;
+    writes[7].dstArrayElement = 0;
+    writes[7].descriptorCount = 1;
+    writes[7].descriptorType = DescriptorType::StorageBuffer;
+    writes[7].pBufferInfo = &bbMatInfo;
+    writes[7].pImageInfo = nullptr;
+
+    writes[8].dstSet = engine->descriptorSet;
+    writes[8].dstBinding = 8;
+    writes[8].dstArrayElement = 0;
+    writes[8].descriptorCount = 1;
+    writes[8].descriptorType = DescriptorType::StorageBuffer;
+    writes[8].pBufferInfo = &bbIndexInfo;
+    writes[8].pImageInfo = nullptr;
+
+    engine->appState->rhi->UpdateDescriptorSets(9, writes);
     return true;
 }
 

@@ -65,7 +65,7 @@ class NullRHI : public IRHI {
     void BindMeshBuffers(bool /*isBillboard*/) override {}
     void Draw(uint32_t /*vertexCount*/, uint32_t /*instanceCount*/) override {}
     void DrawIndexed(uint32_t /*indexCount*/, uint32_t /*instanceCount*/) override {}
-    void UpdateBillboardInstances(const struct BillboardInstance* /*instances*/, std::size_t /*count*/) override {}
+    void UpdateBillboardInstances(const uint32_t* /*indices*/, std::size_t /*count*/) override {}
     void PushDebugConstants(const void* /*data*/, uint32_t /*size*/) override {}
     void BeginDebugLabel(const char* /*name*/, float /*r*/, float /*g*/, float /*b*/) override {}
     void EndDebugLabel() override {}

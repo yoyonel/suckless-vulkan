@@ -41,3 +41,4 @@ heaptrack.*
 # Logs
 *.log
 *.ktx2
+tests/failures/

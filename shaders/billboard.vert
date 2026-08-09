@@ -16,8 +16,15 @@ layout(binding = 0) uniform UniformBufferObject {
 }
 ubo;
 
-layout(location = 2) in vec3 instanceOffset;
-layout(location = 3) in int instanceMaterialIdx;
+layout(std430, set = 0, binding = 6) readonly buffer PosBuffer {
+    vec4 instanceOffsets[];
+};
+layout(std430, set = 0, binding = 7) readonly buffer MatBuffer {
+    int instanceMaterials[];
+};
+layout(std430, set = 0, binding = 8) readonly buffer IndexBuffer {
+    uint sortedIndices[];
+};
 
 layout(location = 0) out vec3 outWorldPos;
 layout(location = 1) out vec3 outSphereCenter;
@@ -30,9 +37,10 @@ void main() {
 
     vec2 pos = quadPos[gl_VertexIndex % 6];
 
-    outSphereCenter = instanceOffset;
+    uint inInstanceIdx = sortedIndices[gl_InstanceIndex];
+    outSphereCenter = instanceOffsets[inInstanceIdx].xyz;
     outSphereRadius = 1.0;
-    outMaterialIdx = instanceMaterialIdx;
+    outMaterialIdx = instanceMaterials[inInstanceIdx];
 
     vec4 clipPos;
     computeBillboardSphere(pos, outSphereCenter, outSphereRadius, ubo.view, ubo.proj, clipPos, outWorldPos);
