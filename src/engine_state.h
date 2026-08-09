@@ -7,6 +7,8 @@
 struct GLFWwindow;
 class IRHI;
 
+constexpr std::size_t RHI_ARENA_CAPACITY_BYTES = 2ULL * 1024ULL * 1024ULL;
+
 struct EngineState {
     bool useNullRHI{false};
     GLFWwindow* window{nullptr};
@@ -14,6 +16,7 @@ struct EngineState {
     CoreEngine core{};
     ModuleLoader rhiModule;
     IRHI* rhi{nullptr};
+    LinearArena rhiArena{};
 };
 
 #endif

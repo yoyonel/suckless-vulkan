@@ -5,17 +5,26 @@
 #include <cstring>
 
 #include "vk_engine.h"
+#include <new>
+
 extern "C" {
     __attribute__((visibility("default"))) IRHI* CreateRHI(EngineState* state) {
-        VulkanEngine* engine = new VulkanEngine();
+        state->rhiArena.offset = 0; // Reset arena on load
+        
+        void* engineMem = arena_alloc(&state->rhiArena, sizeof(VulkanEngine), alignof(VulkanEngine));
+        VulkanEngine* engine = new (engineMem) VulkanEngine();
         engine->appState = state;
-        return new VulkanRHI(engine);
+        
+        void* rhiMem = arena_alloc(&state->rhiArena, sizeof(VulkanRHI), alignof(VulkanRHI));
+        return new (rhiMem) VulkanRHI(engine);
     }
+    
     __attribute__((visibility("default"))) void DestroyRHI(IRHI* rhi) {
         VulkanRHI* vkRhi = static_cast<VulkanRHI*>(rhi);
         VulkanEngine* engine = vkRhi->_engine;
-        delete vkRhi;
-        delete engine;
+        vkRhi->~VulkanRHI();
+        engine->~VulkanEngine();
+        // Memory is explicitly left in the arena; reclaimed on next CreateRHI or shutdown.
     }
 }
 

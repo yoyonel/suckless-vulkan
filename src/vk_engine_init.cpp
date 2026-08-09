@@ -1048,8 +1048,8 @@ bool vk_init_vulkan_engine(VulkanEngine* engine) {
     SVK_TRACY_ZONE_SCOPED("vk_init_vulkan_engine");
     LOG_INFO("app", "Starting engine initialization...");
     LOG_INFO("vulkan", "Vulkan Debug Callback initialized (High Sensitivity)");
+
     LOG_INFO("app", "init_core...");
-    core_engine_init(&engine->appState->core);
     if (!init_core(engine)) {
         LOG_ERROR("app", "init_core failed");
         return false;

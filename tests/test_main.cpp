@@ -192,8 +192,12 @@ static bool verify_and_capture_frame(VulkanEngine* engine, const char* filename)
 }
 
 extern "C" IRHI* CreateRHI(EngineState*);
+extern "C" void DestroyRHI(IRHI*);
 static bool test_integration_rendering() {
     EngineState appState = {};
+    arena_init(&appState.core.arena, CORE_ARENA_CAPACITY_BYTES);
+    arena_init(&appState.rhiArena, RHI_ARENA_CAPACITY_BYTES);
+    core_engine_init(&appState.core);
 
     if (glfwInit() != GLFW_TRUE) {
         return false;
@@ -294,6 +298,12 @@ static bool test_integration_rendering() {
     vk_scroll_callback(engine.appState->window, 0, 1.0); // scroll
 
     cleanup_vulkan_engine(&engine);
+    appState.rhi->Shutdown();
+    DestroyRHI(appState.rhi);
+
+    arena_free(&appState.rhiArena);
+    arena_free(&appState.core.arena);
+
     glfwDestroyWindow(appState.window);
     glfwTerminate();
     return b1 && b2 && b3 && b4 && b5;

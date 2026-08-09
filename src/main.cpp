@@ -62,6 +62,11 @@ int main(int argc, char** argv) {
         return -1;
     }
 
+    // Initialize Global Arenas
+    arena_init(&state.core.arena, CORE_ARENA_CAPACITY_BYTES);
+    arena_init(&state.rhiArena, RHI_ARENA_CAPACITY_BYTES);
+    core_engine_init(&state.core);
+
     if (glfwInit() != GLFW_TRUE) {
         return -1;
     }
@@ -126,6 +131,10 @@ int main(int argc, char** argv) {
     state.rhiModule.Unload();
     glfwDestroyWindow(state.window);
     glfwTerminate();
+
+    arena_free(&state.rhiArena);
+    arena_free(&state.core.arena);
+
     tracy_client_shutdown();
     return 0;
 }
