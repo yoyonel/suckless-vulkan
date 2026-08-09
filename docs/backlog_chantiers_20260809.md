@@ -39,3 +39,23 @@ ______________________________________________________________________
 - **Tests Unitaires :** Isoler les gestionnaires d'inputs et la boucle d'application via injection de dépendances.
 - **Tests d'Intégration :** Lancer `LogicTests` et `SmokeTestApp`.
 - **Benchmark :** Mesurer le L1/L2 Cache Miss de la boucle principale avec `perf stat` avant/après refacto pour assurer aucune régression.
+
+______________________________________________________________________
+
+## 3. Refonte de la CI/CD (ISO Local/CI) [TODO]
+
+### Objectifs & Avantages (CI/CD)
+
+- **Fiabilité Absolue :** Actuellement, la CI masque certaines erreurs (notamment les memory leaks ASan qui retournent un code 0 via `scripts/ci/run_ci_asan.sh`). L'objectif est d'avoir une CI 100% ISO avec l'environnement local.
+- **Fail-Fast :** S'assurer que toute régression ou fuite de mémoire casse immédiatement le build sur GitHub Actions.
+
+### Risques Encourus (CI/CD)
+
+- **Faux Positifs (Flakiness) :** Risque que la CI pète à cause de fuites internes des drivers Vulkan ou du container headless.
+- **Blocage de l'équipe :** Une CI trop stricte sans configuration appropriée (`.asan_ignorefile` bien rempli) empêchera les PR de passer.
+
+### Stratégie de Validation (CI/CD)
+
+- **Sanitizers stricts :** Remplacer `lsan_options="exitcode=0"` par `exitcode=1` dans les scripts CI.
+- **Suppressions ciblées :** Remplir minutieusement `.asan_ignorefile` avec les stacktraces exactes des fuites de drivers (Mesa, llvmpipe, etc.) plutôt que d'ignorer tout en bloc.
+- **Tests comparatifs :** Introduire volontairement une fuite de mémoire (comme l'oubli de delete) dans une PR de test et s'assurer que la CI passe au rouge.
