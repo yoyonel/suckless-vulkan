@@ -23,6 +23,7 @@ set(APP_SHARED_SOURCES
     src/stb_image_impl.cpp
     src/stb_image_write_impl.cpp
     src/material_loader.cpp
+    src/asset_ktx.cpp
     ext/cjson/cJSON.c)
 
 set(VULKAN_APP_SOURCES
