@@ -50,6 +50,7 @@ class NullRHI : public IRHI {
     bool BeginFrame() override {
         return true;
     }
+    class IRenderCommandList* GetMainCommandList() override { return nullptr; }
     void EndFrame() override {}
     SwapchainStatus SubmitAndPresent(uint32_t /*imageIndex*/) override { return SwapchainStatus::Ok; }
     void BeginRenderPass() override {}
@@ -60,11 +61,11 @@ class NullRHI : public IRHI {
     void CmdDraw(CommandBufferHandle /*cb*/, uint32_t /*vertexCount*/, uint32_t /*instanceCount*/, uint32_t /*firstVertex*/, uint32_t /*firstInstance*/) override {}
     void CmdDrawIndexed(CommandBufferHandle /*cb*/, uint32_t /*indexCount*/, uint32_t /*instanceCount*/, uint32_t /*firstIndex*/, int32_t /*vertexOffset*/, uint32_t /*firstInstance*/) override {}
     void CmdDispatch(CommandBufferHandle /*cb*/, uint32_t /*x*/, uint32_t /*y*/, uint32_t /*z*/) override {}
-    void BindPipeline(PipelineType /*type*/) override {}
-    void BindGlobalDescriptor() override {}
-    void BindMeshBuffers(bool /*isBillboard*/) override {}
-    void Draw(uint32_t /*vertexCount*/, uint32_t /*instanceCount*/) override {}
-    void DrawIndexed(uint32_t /*indexCount*/, uint32_t /*instanceCount*/) override {}
+    PipelineHandle GetPipeline(PipelineType /*type*/) const override { return INVALID_HANDLE; }
+    void BindGlobalDescriptor(class IRenderCommandList* /*cmdList*/) override {}
+    void BindMeshBuffers(class IRenderCommandList* /*cmdList*/, bool /*isBillboard*/) override {}
+    
+    
     void UpdateBillboardInstances(const uint32_t* /*indices*/, std::size_t /*count*/) override {}
     void PushDebugConstants(const void* /*data*/, uint32_t /*size*/) override {}
     void BeginDebugLabel(const char* /*name*/, float /*r*/, float /*g*/, float /*b*/) override {}

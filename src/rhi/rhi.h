@@ -258,6 +258,7 @@ public:
     virtual SwapchainStatus AcquireNextImage(uint32_t* imageIndex) = 0;
     virtual void UpdateUBO(const struct UBOData& data) = 0;
     virtual bool BeginFrame() = 0;
+    virtual class IRenderCommandList* GetMainCommandList() = 0;
     virtual void EndFrame() = 0;
     virtual SwapchainStatus SubmitAndPresent(uint32_t imageIndex) = 0;
 
@@ -271,14 +272,11 @@ public:
     virtual void CmdDrawIndexed(CommandBufferHandle cb, uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex, int32_t vertexOffset, uint32_t firstInstance) = 0;
     virtual void CmdDispatch(CommandBufferHandle cb, uint32_t groupCountX, uint32_t groupCountY, uint32_t groupCountZ) = 0;
 
-    // Binding
-    virtual void BindPipeline(PipelineType type) = 0;
-    virtual void BindGlobalDescriptor() = 0; // Binds the main uniform/material descriptor
-    virtual void BindMeshBuffers(bool isBillboard) = 0;
+    // Binding (High-level helpers)
+    virtual PipelineHandle GetPipeline(PipelineType type) const = 0;
+    virtual void BindGlobalDescriptor(class IRenderCommandList* cmdList) = 0;
+    virtual void BindMeshBuffers(class IRenderCommandList* cmdList, bool isBillboard) = 0;
 
-    // Drawing
-    virtual void Draw(uint32_t vertexCount, uint32_t instanceCount) = 0;
-    virtual void DrawIndexed(uint32_t indexCount, uint32_t instanceCount) = 0;
     virtual void UpdateBillboardInstances(const uint32_t* instances, std::size_t count) = 0;
     
     // Debug & Profiling

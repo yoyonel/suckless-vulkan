@@ -135,12 +135,14 @@ class MockRHI : public IRHI {
                         uint32_t /*firstInstance*/) override {}
     void CmdDispatch(CommandBufferHandle /*cb*/, uint32_t /*groupCountX*/, uint32_t /*groupCountY*/, uint32_t /*groupCountZ*/) override {}
 
-    void BindPipeline(PipelineType /*type*/) override {}
-    void BindGlobalDescriptor() override {}
-    void BindMeshBuffers(bool /*isBillboard*/) override {}
-
-    void Draw(uint32_t /*vertexCount*/, uint32_t /*instanceCount*/) override {}
-    void DrawIndexed(uint32_t /*indexCount*/, uint32_t /*instanceCount*/) override {}
+    PipelineHandle GetPipeline(PipelineType /*type*/) const override {
+        return INVALID_HANDLE;
+    }
+    void BindGlobalDescriptor(class IRenderCommandList* /*cmdList*/) override {}
+    void BindMeshBuffers(class IRenderCommandList* /*cmdList*/, bool /*isBillboard*/) override {}
+    class IRenderCommandList* GetMainCommandList() override {
+        return nullptr;
+    }
     void UpdateBillboardInstances(const uint32_t* /*instances*/, std::size_t /*count*/) override {}
 
     void PushDebugConstants(const void* /*data*/, uint32_t /*size*/) override {}

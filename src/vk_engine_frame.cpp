@@ -1,4 +1,5 @@
 #include "vk_engine_frame.h"
+#include "rhi/command_list.h"
 
 #include "runtime_controls.h"
 #include "tracy_client.h"
@@ -99,6 +100,8 @@ bool vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recreateSw
             return false;
         }
 
+        IRenderCommandList* cmdList = rhi->GetMainCommandList();
+
         rhi->CollectProfiling();
 
         {
@@ -107,16 +110,16 @@ bool vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recreateSw
             rhi->BeginDebugLabel("Render_Frame_Graphics", 1.0f, 0.5f, 0.0f);
 
             rhi->BeginDebugLabel("RenderPass_Begin_And_Bindings", 1.0f, 0.8f, 0.2f);
-            rhi->BeginRenderPass();
-            rhi->BindGlobalDescriptor();
+            cmdList->BeginRenderPass();
+            rhi->BindGlobalDescriptor(cmdList);
             rhi->EndDebugLabel();
 
             {
                 SVK_RHI_GPU_ZONE(gpuSkyboxZone, rhi, "GPU Skybox");
                 rhi->BeginDebugLabel("Render_Skybox_EnvMap", 0.2f, 0.5f, 1.0f);
                 if (core.render.showEnvmap) {
-                    rhi->BindPipeline(PipelineType::Skybox);
-                    rhi->Draw(3, 1);
+                    cmdList->BindPipeline(rhi->GetPipeline(PipelineType::Skybox));
+                    cmdList->Draw(3, 1, 0, 0);
                 }
                 rhi->EndDebugLabel();
             }
@@ -162,13 +165,13 @@ bool vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recreateSw
 
                     core.scene.arena.offset = savedOffset;
 
-                    rhi->BindPipeline(PipelineType::Billboard);
-                    rhi->BindMeshBuffers(true);
-                    rhi->Draw(6, static_cast<uint32_t>(soa->count));
+                    cmdList->BindPipeline(rhi->GetPipeline(PipelineType::Billboard));
+                    rhi->BindMeshBuffers(cmdList, true);
+                    cmdList->Draw(6, static_cast<uint32_t>(soa->count), 0, 0);
                 } else {
-                    rhi->BindPipeline(core.render.wireframeMode ? PipelineType::Wireframe : PipelineType::Graphics);
-                    rhi->BindMeshBuffers(false);
-                    rhi->DrawIndexed(engine->indexCount, kGridSize * kGridSize);
+                    cmdList->BindPipeline(rhi->GetPipeline(core.render.wireframeMode ? PipelineType::Wireframe : PipelineType::Graphics));
+                    rhi->BindMeshBuffers(cmdList, false);
+                    cmdList->DrawIndexed(engine->indexCount, kGridSize * kGridSize, 0, 0, 0);
                 }
 
                 if (core.render.wireframeMode && core.render.billboardMode) {
@@ -176,30 +179,30 @@ bool vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recreateSw
                     dp.model = glm::mat4(1.0f);
                     dp.radius = 1.0f;
 
-                    rhi->BindPipeline(PipelineType::DebugTriangle);
+                    cmdList->BindPipeline(rhi->GetPipeline(PipelineType::DebugTriangle));
                     dp.color = glm::vec4(1.0f, 1.0f, 1.0f, 0.1f);
                     dp.mode = 1;
                     dp.stippled = 2;
-                    rhi->PushDebugConstants(&dp, sizeof(DebugPushConstant));
-                    rhi->Draw(6, kGridSize * kGridSize);
+                    cmdList->PushConstants(engine->debugPipelineLayout.get(), ShaderStage::Vertex | ShaderStage::Fragment, 0, sizeof(DebugPushConstant), &dp);
+                    cmdList->Draw(6, kGridSize * kGridSize, 0, 0);
 
-                    rhi->BindPipeline(PipelineType::DebugLine);
+                    cmdList->BindPipeline(rhi->GetPipeline(PipelineType::DebugLine));
                     dp.color = glm::vec4(0.0f, 1.0f, 0.0f, 1.0f);
                     dp.mode = 1;
                     dp.stippled = 0;
-                    rhi->PushDebugConstants(&dp, sizeof(DebugPushConstant));
-                    rhi->Draw(8, kGridSize * kGridSize);
+                    cmdList->PushConstants(engine->debugPipelineLayout.get(), ShaderStage::Vertex | ShaderStage::Fragment, 0, sizeof(DebugPushConstant), &dp);
+                    cmdList->Draw(8, kGridSize * kGridSize, 0, 0);
 
                     dp.color = glm::vec4(1.0f, 1.0f, 0.0f, 0.5f);
                     dp.mode = 0;
                     dp.stippled = 1;
-                    rhi->PushDebugConstants(&dp, sizeof(DebugPushConstant));
-                    rhi->Draw(24, kGridSize * kGridSize);
+                    cmdList->PushConstants(engine->debugPipelineLayout.get(), ShaderStage::Vertex | ShaderStage::Fragment, 0, sizeof(DebugPushConstant), &dp);
+                    cmdList->Draw(24, kGridSize * kGridSize, 0, 0);
                 }
                 rhi->EndDebugLabel();
             }
 
-            rhi->EndRenderPass();
+            cmdList->EndRenderPass();
             rhi->EndDebugLabel();
         }
 

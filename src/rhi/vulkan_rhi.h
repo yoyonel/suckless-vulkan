@@ -56,6 +56,7 @@ public:
     VkPipeline GetVkPipeline(PipelineHandle handle) const;
 
     bool BeginFrame() override;
+    class IRenderCommandList* GetMainCommandList() override;
     void EndFrame() override;
 
     SwapchainStatus AcquireNextImage(uint32_t* imageIndex) override;
@@ -67,6 +68,8 @@ public:
     void CmdBindPipeline(CommandBufferHandle cb, PipelineHandle pipeline, bool isCompute = false) override;
     void CmdBindDescriptorSets(CommandBufferHandle cb, PipelineLayoutHandle layout, uint32_t firstSet, uint32_t count, const DescriptorSetHandle* sets, bool isCompute = false) override;
     void CmdPushConstants(CommandBufferHandle cb, PipelineLayoutHandle layout, ShaderStage stage, uint32_t offset, uint32_t size, const void* values) override;
+    void CmdBindVertexBuffers(void* cmdBuffer, uint32_t firstBinding, uint32_t bindingCount, const BufferHandle* buffers, const uint64_t* offsets);
+    void CmdBindIndexBuffer(void* cmdBuffer, BufferHandle buffer, uint64_t offset, uint32_t indexType);
     void CmdDraw(CommandBufferHandle cb, uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex, uint32_t firstInstance) override;
     void CmdDrawIndexed(CommandBufferHandle cb, uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex, int32_t vertexOffset, uint32_t firstInstance) override;
     void CmdDispatch(CommandBufferHandle cb, uint32_t groupCountX, uint32_t groupCountY, uint32_t groupCountZ) override;
@@ -77,12 +80,12 @@ public:
     void CmdCopyBufferToImage(VkCommandBuffer cb, VkBuffer srcBuffer, VkImage dstImage, VkImageLayout dstImageLayout, uint32_t regionCount, const VkBufferImageCopy* pRegions);
     void CmdBlitImage(VkCommandBuffer cb, VkImage srcImage, VkImageLayout srcImageLayout, VkImage dstImage, VkImageLayout dstImageLayout, uint32_t regionCount, const VkImageBlit* pRegions, VkFilter filter);
 
-    void BindPipeline(PipelineType type) override;
-    void BindGlobalDescriptor() override;
-    void BindMeshBuffers(bool isBillboard) override;
+    PipelineHandle GetPipeline(PipelineType type) const override;
+    void BindGlobalDescriptor(class IRenderCommandList* cmdList) override;
+    void BindMeshBuffers(class IRenderCommandList* cmdList, bool isBillboard) override;
 
-    void Draw(uint32_t vertexCount, uint32_t instanceCount) override;
-    void DrawIndexed(uint32_t indexCount, uint32_t instanceCount) override;
+    
+    
     void UpdateBillboardInstances(const uint32_t* indices, std::size_t count) override;
     
     void PushDebugConstants(const void* data, uint32_t size) override;
@@ -151,6 +154,7 @@ private:
 
 public:
     struct VulkanEngine* _engine;
+    class VulkanCommandList* m_mainCmdList{nullptr};
 };
 
 #endif

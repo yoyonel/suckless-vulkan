@@ -6,11 +6,11 @@ VulkanCommandList::VulkanCommandList(VulkanRHI* rhi, VkCommandBuffer cmdBuffer)
 }
 
 void VulkanCommandList::BeginRenderPass() {
-    // Will be implemented in Pass 3/4
+    m_rhi->BeginRenderPass();
 }
 
 void VulkanCommandList::EndRenderPass() {
-    // Will be implemented in Pass 3/4
+    m_rhi->EndRenderPass();
 }
 
 void VulkanCommandList::BindPipeline(PipelineHandle pipeline, bool isCompute) {
@@ -25,12 +25,12 @@ void VulkanCommandList::PushConstants(PipelineLayoutHandle layout, ShaderStage s
     m_rhi->CmdPushConstants((CommandBufferHandle)m_cmdBuffer, layout, stage, offset, size, values);
 }
 
-void VulkanCommandList::BindVertexBuffers(uint32_t /*firstBinding*/, uint32_t /*bindingCount*/, const BufferHandle* /*buffers*/, const uint64_t* /*offsets*/) {
-    // Need implementation inside VulkanRHI, but we won't need this for IBL Pass.
+void VulkanCommandList::BindVertexBuffers(uint32_t firstBinding, uint32_t bindingCount, const BufferHandle* buffers, const uint64_t* offsets) {
+    m_rhi->CmdBindVertexBuffers(m_cmdBuffer, firstBinding, bindingCount, buffers, offsets);
 }
 
-void VulkanCommandList::BindIndexBuffer(BufferHandle /*buffer*/, uint64_t /*offset*/, uint32_t /*indexType*/) {
-    // Need implementation inside VulkanRHI, but we won't need this for IBL Pass.
+void VulkanCommandList::BindIndexBuffer(BufferHandle buffer, uint64_t offset, uint32_t indexType) {
+    m_rhi->CmdBindIndexBuffer(m_cmdBuffer, buffer, offset, indexType);
 }
 
 void VulkanCommandList::Draw(uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex, uint32_t firstInstance) {

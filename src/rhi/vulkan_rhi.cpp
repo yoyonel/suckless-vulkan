@@ -1,3 +1,4 @@
+#include "vulkan_command_list.h"
 #include "vulkan_rhi.h"
 #include <string>
 #include "../vk_engine.h"
@@ -703,7 +704,20 @@ bool VulkanRHI::BeginFrame() {
     }
     VkCommandBufferBeginInfo bi{};
     bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    return vkBeginCommandBuffer(_engine->commandBuffer, &bi) == VK_SUCCESS;
+    bool res = (vkBeginCommandBuffer(_engine->commandBuffer, &bi) == VK_SUCCESS);
+    if (!res) return false;
+    
+    if (m_mainCmdList == nullptr) {
+        m_mainCmdList = new VulkanCommandList(this, _engine->commandBuffer);
+    } else {
+        delete m_mainCmdList;
+        m_mainCmdList = new VulkanCommandList(this, _engine->commandBuffer);
+    }
+    return true;
+}
+
+IRenderCommandList* VulkanRHI::GetMainCommandList() {
+    return m_mainCmdList;
 }
 
 void VulkanRHI::EndFrame() {
@@ -744,58 +758,36 @@ void VulkanRHI::EndRenderPass() {
     vkCmdEndRenderPass(_engine->commandBuffer);
 }
 
-void VulkanRHI::BindPipeline(PipelineType type) {
-    PipelineHandle pipeline = INVALID_HANDLE;
+PipelineHandle VulkanRHI::GetPipeline(PipelineType type) const {
     switch (type) {
-    case PipelineType::Graphics:
-        pipeline = _engine->graphicsPipeline;
-        break;
-    case PipelineType::Billboard:
-        pipeline = _engine->billboardPipeline;
-        break;
-    case PipelineType::Wireframe:
-        pipeline = _engine->wireframePipeline;
-        break;
-    case PipelineType::DebugLine:
-        pipeline = _engine->debugLinePipeline;
-        break;
-    case PipelineType::DebugTriangle:
-        pipeline = _engine->debugTrianglePipeline;
-        break;
-    case PipelineType::Skybox:
-        pipeline = _engine->skyboxPipeline;
-        break;
-    }
-    if (pipeline != INVALID_HANDLE) {
-        vkCmdBindPipeline(_engine->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, GetVkPipeline(pipeline));
+    case PipelineType::Graphics: return _engine->graphicsPipeline;
+    case PipelineType::Billboard: return _engine->billboardPipeline;
+    case PipelineType::Wireframe: return _engine->wireframePipeline;
+    case PipelineType::DebugLine: return _engine->debugLinePipeline;
+    case PipelineType::DebugTriangle: return _engine->debugTrianglePipeline;
+    case PipelineType::Skybox: return _engine->skyboxPipeline;
+    default: return INVALID_HANDLE;
     }
 }
 
-void VulkanRHI::BindGlobalDescriptor() {
-    VkDescriptorSet vkSet = GetVkDescriptorSet(_engine->descriptorSet);
-    vkCmdBindDescriptorSets(_engine->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, GetVkPipelineLayout(_engine->pipelineLayout), 0, 1, &vkSet, 0, nullptr);
+void VulkanRHI::BindGlobalDescriptor(IRenderCommandList* cmdList) {
+    DescriptorSetHandle set = _engine->descriptorSet;
+    cmdList->BindDescriptorSets(_engine->pipelineLayout, 0, 1, &set, false);
 }
 
-void VulkanRHI::BindMeshBuffers(bool isBillboard) {
+void VulkanRHI::BindMeshBuffers(IRenderCommandList* cmdList, bool isBillboard) {
     if (!isBillboard) {
         if (_engine->vertexBuffer != INVALID_HANDLE) {
-            VkBuffer buffers[] = {m_buffers[_engine->vertexBuffer].buffer};
-            VkDeviceSize offsets[] = {0};
-            vkCmdBindVertexBuffers(_engine->commandBuffer, 0, 1, buffers, offsets);
+            BufferHandle buffers[] = {_engine->vertexBuffer};
+            uint64_t offsets[] = {0};
+            cmdList->BindVertexBuffers(0, 1, buffers, offsets);
         }
         if (_engine->indexBuffer != INVALID_HANDLE) {
-            vkCmdBindIndexBuffer(_engine->commandBuffer, m_buffers[_engine->indexBuffer].buffer, 0, VK_INDEX_TYPE_UINT32);
+            cmdList->BindIndexBuffer(_engine->indexBuffer, 0, VK_INDEX_TYPE_UINT32);
         }
     }
 }
 
-void VulkanRHI::Draw(uint32_t vertexCount, uint32_t instanceCount) {
-    vkCmdDraw(_engine->commandBuffer, vertexCount, instanceCount, 0, 0);
-}
-
-void VulkanRHI::DrawIndexed(uint32_t indexCount, uint32_t instanceCount) {
-    vkCmdDrawIndexed(_engine->commandBuffer, indexCount, instanceCount, 0, 0, 0);
-}
 
 void VulkanRHI::PushDebugConstants(const void* data, uint32_t size) {
     vkCmdPushConstants(_engine->commandBuffer, GetVkPipelineLayout(_engine->debugPipelineLayout), VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, size, data);
@@ -1139,4 +1131,16 @@ void VulkanRHI::CmdCopyBufferToImage(VkCommandBuffer cb, VkBuffer srcBuffer, VkI
 void VulkanRHI::CmdBlitImage(VkCommandBuffer cb, VkImage srcImage, VkImageLayout srcImageLayout, VkImage dstImage, VkImageLayout dstImageLayout, uint32_t regionCount, const VkImageBlit* pRegions, VkFilter filter) {
     (void)this;
     vkCmdBlitImage(cb, srcImage, srcImageLayout, dstImage, dstImageLayout, regionCount, pRegions, filter);
+}
+
+void VulkanRHI::CmdBindVertexBuffers(void* cmdBuffer, uint32_t firstBinding, uint32_t bindingCount, const BufferHandle* buffers, const uint64_t* offsets) {
+    std::vector<VkBuffer> vkBuffers(bindingCount);
+    for (uint32_t i = 0; i < bindingCount; ++i) {
+        vkBuffers[i] = m_buffers[buffers[i]].buffer;
+    }
+    vkCmdBindVertexBuffers((VkCommandBuffer)cmdBuffer, firstBinding, bindingCount, vkBuffers.data(), offsets);
+}
+
+void VulkanRHI::CmdBindIndexBuffer(void* cmdBuffer, BufferHandle buffer, uint64_t offset, uint32_t indexType) {
+    vkCmdBindIndexBuffer((VkCommandBuffer)cmdBuffer, m_buffers[buffer].buffer, offset, (VkIndexType)indexType);
 }
