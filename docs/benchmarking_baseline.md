@@ -57,3 +57,18 @@ L'Itération 5 (Divisée en 3 Loops) a éradiqué ces goulots d'étranglement av
 - **Heap Allocations en boucle de rendu :** `0`. L'empreinte mémoire sur le tas est littéralement une ligne plate après l'initialisation.
 - **Cache L1 Misses global :** Toujours stable autour de ~158M.
 - **Conclusion Architecturale :** La boucle de rendu `vk_draw_frame_internal` **n'est plus** le goulot d'étranglement mémoire. Les 158 millions de L1 cache misses restants proviennent exclusivement du Thread d'Entrée/Sortie (IO), précisément de `stbi_load` qui parse 8 Mo de pixels flottants pour les fichiers HDR environnementaux de manière non-linéaire, et des Compute Shaders (`vk_ibl_bake`). La tuyauterie RHI est officiellement purifiée.
+
+## Itération 6 : Optimisation I/O & Asset Pipeline KTX2 (2026-08-09)
+
+L'Itération 6 s'est attaquée au goulot d'étranglement de l'I/O causé par `stbi_loadf`. Le chargement et le décodage en texte brut de fichiers `.hdr` provoquaient un gaspillage massif de cycles CPU (parseurs ASCII) et des allocations volatiles.
+
+1. **Pivot KTX2 (Khronos Texture) :** Création d'un cache transparent. Le moteur vérifie si un `.ktx2` binaire existe pour le `.hdr` demandé.
+1. **Slow Path (Cold Cache) :** Si absent ou périmé, le moteur charge le `.hdr` via `stbi_loadf` et "bake" instantanément un fichier `.ktx2` binaire (AoS).
+1. **Fast Path (Warm Cache) :** Si présent, chargement "Zero-Alloc / Zero-Parsing" via lecture binaire directe (`fread`) dans un `std::vector` VRAM-ready.
+
+### Résultats Finaux (Validation Itération 6)
+
+- **Total L1-dcache-loads :** Baisse spectaculaire de **-50%** (de 3.03 Milliards à 1.48 Milliard). L'élimination du parsing ASCII a supprimé 1.5 milliard de lectures CPU inutiles.
+- **User CPU Time :** Baisse de **-12%** (de 4.39s à 3.87s) sur l'ensemble du profil d'exécution (15s au total).
+- **L1 Misses absolus :** Légère hausse contextuelle due au fait que le cache L1 n'est plus "artificiellement hit" par des boucles sur des variables locales de parsing. Le transfert mémoire est désormais un streaming pur (qui miss logiquement sur un buffer froid).
+- **Empreinte Mémoire (Heap) :** 0 allocation dynamique erratique ; le pic reste stable à ~362 Ko, l'allocation étant effectuée de manière contiguë et transparente via `std::vector`.

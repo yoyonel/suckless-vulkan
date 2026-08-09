@@ -44,7 +44,10 @@ Le chargement combine maintenant une etape async (IO/decode CPU) et une etape GP
 
 - Scan de tous les `.hdr` presents dans `assets/textures/hdr`.
 - Selection de l'envmap active par index (`currentHdrIndex`), avec preference pour `env.hdr` si present.
-- Decode float HDR via `stb_image` (`stbi_loadf`).
+- Le moteur utilise un **Pipeline de Cache KTX2 Transparent** (`load_hdr_with_ktx2_cache`) :
+  - Vérifie la présence et le timestamp (`stat`) d'un `.ktx2` associé au `.hdr`.
+  - **Fast Path :** Si le `.ktx2` est valide, lecture binaire raw "Zero-Alloc" / "Zero-Parsing" du format `VK_FORMAT_R32G32B32A32_SFLOAT`.
+  - **Slow Path :** Sinon, fallback sur `stbi_loadf`, baking instantané sur disque en `.ktx2`, puis lecture.
 - Upload via staging buffer CPU -> image Vulkan (`VK_FORMAT_R32G32B32A32_SFLOAT`).
 - Generation de mips par blit si support du format (sinon mip chain reduite a 1).
 - Creation de `VkImageView` + `VkSampler` et binding descriptor.
@@ -108,8 +111,8 @@ Etat: implemente.
 
 - Thread IO (`hdrIoThread`) actif pendant la vie du moteur.
 - Requetes `PageUp/PageDown` coalescees (on garde la derniere demande utile).
-- Decode `stbi_loadf` execute hors thread render.
-- Resultat transfere au thread render via `hdrReadyQueue` puis upload GPU + descriptor update.
+- Chargement `KTX2` (ou decode `stbi_loadf` via le cache) execute hors thread render.
+- Resultat stocké en mémoire contiguë (`std::vector<float>`) transfere au thread render via `hdrLoadQueue` puis upload GPU + descriptor update.
 
 ## Phase C: Upload GPU non bloquant
 
