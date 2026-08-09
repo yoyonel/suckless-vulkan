@@ -2,6 +2,7 @@
 
 set(RHI_VULKAN_SOURCES
     src/rhi/vulkan_rhi.cpp
+    src/rhi/vulkan_command_list.cpp
     src/vk_engine.cpp
     src/vk_engine_frame.cpp
     src/vk_engine_envmap.cpp
