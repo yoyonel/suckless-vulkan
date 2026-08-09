@@ -15,10 +15,10 @@ if [[ "$CI" == "true" ]] || [[ -z "$DISPLAY" ]]; then
 	export VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json
 fi
 
-# Force une limite de mémoire virtuelle très basse (200MB)
-ulimit -v 200000
+# Force une limite de mémoire virtuelle très basse (100MB)
+ulimit -v 100000
 
-echo "Exécution OOM Test (limite 200MB, timeout 3s) : $APP_BIN"
+echo "Exécution OOM Test (limite 100MB, timeout 3s) : $APP_BIN"
 
 set +e
 if [ "$USE_XVFB" = true ]; then
