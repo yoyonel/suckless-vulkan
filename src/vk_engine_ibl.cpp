@@ -243,21 +243,22 @@ std::vector<uint32_t> read_shader_file(const char* path) {
 
 static bool init_ibl_resources(VulkanEngine* engine) {
     {
-        engine->ibl.irradianceMap =
-            engine->appState->rhi->CreateTexture(IBL_IRM_SIZE, IBL_IRM_SIZE, TextureFormat::RGBA16_SFLOAT, TextureUsage::Storage, 1, "IBL_IrradianceMap");
-        if (engine->ibl.irradianceMap == INVALID_HANDLE)
+        engine->ibl.irradianceMap.Reset(engine->appState->rhi, engine->appState->rhi->CreateTexture(IBL_IRM_SIZE, IBL_IRM_SIZE, TextureFormat::RGBA16_SFLOAT,
+                                                                                                    TextureUsage::Storage, 1, "IBL_IrradianceMap"));
+        if (!engine->ibl.irradianceMap.is_valid())
             return false;
     }
     {
-        engine->ibl.prefilteredMap = engine->appState->rhi->CreateTexture(IBL_SPM_SIZE, IBL_SPM_SIZE, TextureFormat::RGBA16_SFLOAT, TextureUsage::Storage,
-                                                                          IBL_SPM_MIPS, "IBL_PrefilteredMap");
-        if (engine->ibl.prefilteredMap == INVALID_HANDLE)
+        engine->ibl.prefilteredMap.Reset(engine->appState->rhi,
+                                         engine->appState->rhi->CreateTexture(IBL_SPM_SIZE, IBL_SPM_SIZE, TextureFormat::RGBA16_SFLOAT, TextureUsage::Storage,
+                                                                              IBL_SPM_MIPS, "IBL_PrefilteredMap"));
+        if (!engine->ibl.prefilteredMap.is_valid())
             return false;
     }
     {
-        engine->ibl.brdfLut =
-            engine->appState->rhi->CreateTexture(IBL_BRDF_SIZE, IBL_BRDF_SIZE, TextureFormat::RG16_SFLOAT, TextureUsage::Storage, 1, "IBL_BrdfLut");
-        if (engine->ibl.brdfLut == INVALID_HANDLE)
+        engine->ibl.brdfLut.Reset(engine->appState->rhi, engine->appState->rhi->CreateTexture(IBL_BRDF_SIZE, IBL_BRDF_SIZE, TextureFormat::RG16_SFLOAT,
+                                                                                              TextureUsage::Storage, 1, "IBL_BrdfLut"));
+        if (!engine->ibl.brdfLut.is_valid())
             return false;
     }
     {
@@ -278,46 +279,48 @@ static bool init_ibl_resources(VulkanEngine* engine) {
 }
 
 static bool init_ibl_pipelines(VulkanEngine* engine) {
-    engine->ibl.irradianceSampler = engine->appState->rhi->CreateSampler(1, true, "IBL_IrrSampler");
-    engine->ibl.prefilteredSampler = engine->appState->rhi->CreateSampler(13, true, "IBL_PrefSampler"); // maxLod 12 means 13 levels
-    engine->ibl.brdfLutSampler = engine->appState->rhi->CreateSampler(1, true, "IBL_BrdfSampler");
-    if (engine->ibl.irradianceSampler == INVALID_HANDLE || engine->ibl.prefilteredSampler == INVALID_HANDLE || engine->ibl.brdfLutSampler == INVALID_HANDLE)
+    engine->ibl.irradianceSampler.Reset(engine->appState->rhi, engine->appState->rhi->CreateSampler(1, true, "IBL_IrrSampler"));
+    engine->ibl.prefilteredSampler.Reset(engine->appState->rhi, engine->appState->rhi->CreateSampler(13, true, "IBL_PrefSampler")); // maxLod 12 means 13 levels
+    engine->ibl.brdfLutSampler.Reset(engine->appState->rhi, engine->appState->rhi->CreateSampler(1, true, "IBL_BrdfSampler"));
+    if (!engine->ibl.irradianceSampler.is_valid() || !engine->ibl.prefilteredSampler.is_valid() || !engine->ibl.brdfLutSampler.is_valid())
         return false;
 
     {
         DescriptorSetLayoutBinding b[2] = {{0, DescriptorType::CombinedImageSampler, 1, ShaderStage::Compute},
                                            {1, DescriptorType::StorageImage, 1, ShaderStage::Compute}};
         DescriptorLayoutDesc desc1{b, 2};
-        engine->ibl.iblDescriptorSetLayout = engine->appState->rhi->CreateDescriptorLayout(desc1);
-        if (engine->ibl.iblDescriptorSetLayout == INVALID_HANDLE)
+        engine->ibl.iblDescriptorSetLayout.Reset(engine->appState->rhi, engine->appState->rhi->CreateDescriptorLayout(desc1));
+        if (!engine->ibl.iblDescriptorSetLayout.is_valid())
             return false;
 
         b[1] = {1, DescriptorType::StorageBuffer, 1, ShaderStage::Compute};
         DescriptorLayoutDesc desc2{b, 2};
-        engine->ibl.lum1DescriptorSetLayout = engine->appState->rhi->CreateDescriptorLayout(desc2);
-        if (engine->ibl.lum1DescriptorSetLayout == INVALID_HANDLE)
+        engine->ibl.lum1DescriptorSetLayout.Reset(engine->appState->rhi, engine->appState->rhi->CreateDescriptorLayout(desc2));
+        if (!engine->ibl.lum1DescriptorSetLayout.is_valid())
             return false;
 
         DescriptorSetLayoutBinding b2[2] = {{0, DescriptorType::StorageBuffer, 1, ShaderStage::Compute},
                                             {1, DescriptorType::StorageBuffer, 1, ShaderStage::Compute}};
         DescriptorLayoutDesc desc3{b2, 2};
-        engine->ibl.lum2DescriptorSetLayout = engine->appState->rhi->CreateDescriptorLayout(desc3);
-        if (engine->ibl.lum2DescriptorSetLayout == INVALID_HANDLE)
+        engine->ibl.lum2DescriptorSetLayout.Reset(engine->appState->rhi, engine->appState->rhi->CreateDescriptorLayout(desc3));
+        if (!engine->ibl.lum2DescriptorSetLayout.is_valid())
             return false;
     }
     {
         PushConstantRange r{ShaderStage::Compute, 0, 64};
-        PipelineLayoutDesc plDesc1{&engine->ibl.iblDescriptorSetLayout, 1, &r, 1};
-        engine->ibl.iblPipelineLayout = engine->appState->rhi->CreatePipelineLayout(plDesc1, "IBL_BaseLayout");
+        DescriptorLayoutHandle l1[] = {engine->ibl.iblDescriptorSetLayout};
+        PipelineLayoutDesc plDesc1{l1, 1, &r, 1};
+        engine->ibl.iblPipelineLayout.Reset(engine->appState->rhi, engine->appState->rhi->CreatePipelineLayout(plDesc1, "IBL_BaseLayout"));
 
-        PipelineLayoutDesc plDesc2{&engine->ibl.lum1DescriptorSetLayout, 1, &r, 1};
-        engine->ibl.lum1PipelineLayout = engine->appState->rhi->CreatePipelineLayout(plDesc2, "IBL_Lum1Layout");
+        DescriptorLayoutHandle l2[] = {engine->ibl.lum1DescriptorSetLayout};
+        PipelineLayoutDesc plDesc2{l2, 1, &r, 1};
+        engine->ibl.lum1PipelineLayout.Reset(engine->appState->rhi, engine->appState->rhi->CreatePipelineLayout(plDesc2, "IBL_Lum1Layout"));
 
-        PipelineLayoutDesc plDesc3{&engine->ibl.lum2DescriptorSetLayout, 1, &r, 1};
-        engine->ibl.lum2PipelineLayout = engine->appState->rhi->CreatePipelineLayout(plDesc3, "IBL_Lum2Layout");
+        DescriptorLayoutHandle l3[] = {engine->ibl.lum2DescriptorSetLayout};
+        PipelineLayoutDesc plDesc3{l3, 1, &r, 1};
+        engine->ibl.lum2PipelineLayout.Reset(engine->appState->rhi, engine->appState->rhi->CreatePipelineLayout(plDesc3, "IBL_Lum2Layout"));
 
-        if (engine->ibl.iblPipelineLayout == INVALID_HANDLE || engine->ibl.lum1PipelineLayout == INVALID_HANDLE ||
-            engine->ibl.lum2PipelineLayout == INVALID_HANDLE)
+        if (!engine->ibl.iblPipelineLayout.is_valid() || !engine->ibl.lum1PipelineLayout.is_valid() || !engine->ibl.lum2PipelineLayout.is_valid())
             return false;
     }
     {
@@ -333,7 +336,7 @@ static bool init_ibl_pipelines(VulkanEngine* engine) {
         struct PipeDesc {
             const std::vector<uint32_t>& shader;
             PipelineLayoutHandle layout;
-            PipelineHandle* outPipeline;
+            rhi::PipelinePtr* outPipeline;
             const char* debugName;
         };
         PipeDesc descs[] = {{lumPass1Shader, engine->ibl.lum1PipelineLayout, &engine->ibl.lum1Pipeline, "IBL_Lum1"},
@@ -344,7 +347,7 @@ static bool init_ibl_pipelines(VulkanEngine* engine) {
 
         for (const auto& d : descs) {
             ComputePipelineDesc cpDesc{d.layout, d.shader.data(), d.shader.size() * 4, "main", d.debugName};
-            *(d.outPipeline) = engine->appState->rhi->CreateComputePipeline(cpDesc);
+            d.outPipeline->Reset(engine->appState->rhi, engine->appState->rhi->CreateComputePipeline(cpDesc));
             if (*(d.outPipeline) == INVALID_HANDLE)
                 return false;
         }
@@ -361,8 +364,8 @@ bool init_ibl(VulkanEngine* engine) {
     {
         DescriptorPoolSize sizes[3] = {{DescriptorType::CombinedImageSampler, 10}, {DescriptorType::StorageImage, 20}, {DescriptorType::StorageBuffer, 20}};
         DescriptorPoolDesc desc{sizes, 3, 10};
-        engine->ibl.computeDescriptorPool = engine->appState->rhi->CreateDescriptorPool(desc);
-        if (engine->ibl.computeDescriptorPool == INVALID_HANDLE)
+        engine->ibl.computeDescriptorPool.Reset(engine->appState->rhi, engine->appState->rhi->CreateDescriptorPool(desc));
+        if (!engine->ibl.computeDescriptorPool.is_valid())
             return false;
 
         DescriptorLayoutHandle layouts[5] = {engine->ibl.lum1DescriptorSetLayout, engine->ibl.lum2DescriptorSetLayout, engine->ibl.iblDescriptorSetLayout,
@@ -390,26 +393,8 @@ bool init_ibl(VulkanEngine* engine) {
 void cleanup_ibl(VulkanEngine* engine) {
     if (engine->device == VK_NULL_HANDLE)
         return;
-    engine->appState->rhi->DestroySampler(engine->ibl.irradianceSampler);
-    engine->appState->rhi->DestroySampler(engine->ibl.prefilteredSampler);
-    engine->appState->rhi->DestroySampler(engine->ibl.brdfLutSampler);
-    engine->appState->rhi->DestroyTexture(engine->ibl.irradianceMap);
-    engine->appState->rhi->DestroyTexture(engine->ibl.prefilteredMap);
-    engine->appState->rhi->DestroyTexture(engine->ibl.brdfLut);
     vmaDestroyBuffer(engine->allocator, engine->ibl.lumGroupSumsBuffer, engine->ibl.lumGroupSumsAllocation);
     vmaDestroyBuffer(engine->allocator, engine->ibl.lumMeanBuffer, engine->ibl.lumMeanAllocation);
-    engine->appState->rhi->DestroyPipeline(engine->ibl.lum1Pipeline);
-    engine->appState->rhi->DestroyPipeline(engine->ibl.lum2Pipeline);
-    engine->appState->rhi->DestroyPipeline(engine->ibl.irmapPipeline);
-    engine->appState->rhi->DestroyPipeline(engine->ibl.spmapPipeline);
-    engine->appState->rhi->DestroyPipeline(engine->ibl.brdfLutPipeline);
-    engine->appState->rhi->DestroyPipelineLayout(engine->ibl.iblPipelineLayout);
-    engine->appState->rhi->DestroyPipelineLayout(engine->ibl.lum1PipelineLayout);
-    engine->appState->rhi->DestroyPipelineLayout(engine->ibl.lum2PipelineLayout);
-    engine->appState->rhi->DestroyDescriptorLayout(engine->ibl.iblDescriptorSetLayout);
-    engine->appState->rhi->DestroyDescriptorLayout(engine->ibl.lum1DescriptorSetLayout);
-    engine->appState->rhi->DestroyDescriptorLayout(engine->ibl.lum2DescriptorSetLayout);
-    engine->appState->rhi->DestroyDescriptorPool(engine->ibl.computeDescriptorPool);
     LOG_INFO("ibl", "IBL resources cleaned up");
 }
 
@@ -420,10 +405,9 @@ void vk_ibl_bake(VulkanEngine* engine) {
         return;
     }
     VkImageView vkEnvHdrImageView = ((VulkanRHI*)engine->appState->rhi)->GetVkImageView(engine->envHdrImage);
-    VkSampler vkEnvHdrSampler =
-        engine->envHdrSampler != INVALID_HANDLE ? ((VulkanRHI*)engine->appState->rhi)->GetVkSampler(engine->envHdrSampler) : VK_NULL_HANDLE;
+    VkSampler vkEnvHdrSampler = engine->envHdrSampler.is_valid() ? ((VulkanRHI*)engine->appState->rhi)->GetVkSampler(engine->envHdrSampler) : VK_NULL_HANDLE;
 
-    if (engine->envHdrImage == INVALID_HANDLE || vkEnvHdrImageView == VK_NULL_HANDLE) {
+    if (!engine->envHdrImage.is_valid() || vkEnvHdrImageView == VK_NULL_HANDLE) {
         LOG_WARNING("ibl", "vk_ibl_bake: envHdr resources not ready, skipping bake.");
         return;
     }

@@ -1,3 +1,5 @@
+
+
 #include "vk_engine_init.h"
 #include "app_log.h"
 #include "camera.h"
@@ -246,17 +248,7 @@ void cleanup_swapchain_targets(VulkanEngine* engine) {
 }
 
 void cleanup_swapchain_dependent_resources(VulkanEngine* engine) {
-    engine->appState->rhi->DestroyPipeline(engine->graphicsPipeline);
-    engine->appState->rhi->DestroyPipeline(engine->skyboxPipeline);
-    engine->appState->rhi->DestroyPipeline(engine->billboardPipeline);
-    engine->appState->rhi->DestroyPipeline(engine->wireframePipeline);
-    engine->appState->rhi->DestroyPipeline(engine->debugLinePipeline);
-    engine->appState->rhi->DestroyPipeline(engine->debugTrianglePipeline);
-    engine->appState->rhi->DestroyPipelineLayout(engine->pipelineLayout);
-    engine->appState->rhi->DestroyPipelineLayout(engine->debugPipelineLayout);
-    if (engine->depthImage != INVALID_HANDLE) {
-        engine->appState->rhi->DestroyTexture(engine->depthImage);
-        engine->depthImage = INVALID_HANDLE;
+    if (engine->depthImage.is_valid()) {
     }
     cleanup_swapchain_targets(engine);
     destroy_device_handle(engine->device, engine->renderPass, vkDestroyRenderPass);
@@ -270,27 +262,14 @@ void cleanup_sync_objects(VulkanEngine* engine) {
     destroy_device_handle(engine->device, engine->inFlightFence, vkDestroyFence);
 }
 
-void cleanup_descriptor_resources(VulkanEngine* engine) {
-    engine->appState->rhi->DestroyDescriptorPool(engine->globalDescriptorPool);
-    engine->appState->rhi->DestroyDescriptorLayout(engine->globalDescriptorLayout);
-}
+void cleanup_descriptor_resources(VulkanEngine* /*engine*/) {}
 
 void cleanup_buffer_resources(VulkanEngine* engine) {
     engine->appState->rhi->UnmapBuffer(engine->uniformBuffer);
-    engine->appState->rhi->DestroyBuffer(engine->uniformBuffer);
-
-    engine->appState->rhi->DestroyBuffer(engine->billboardBuffer);
-    engine->appState->rhi->DestroyBuffer(engine->billboardPosSSBO);
-    engine->appState->rhi->DestroyBuffer(engine->billboardMatSSBO);
-
-    engine->appState->rhi->DestroyBuffer(engine->materialBuffer);
 
     if (engine->transformBufferMapped) {
         engine->appState->rhi->UnmapBuffer(engine->transformBuffer);
     }
-    engine->appState->rhi->DestroyBuffer(engine->transformBuffer);
-    engine->appState->rhi->DestroyBuffer(engine->vertexBuffer);
-    engine->appState->rhi->DestroyBuffer(engine->indexBuffer);
 
     vk_cleanup_environment_resources(engine);
 }
@@ -300,7 +279,57 @@ void cleanup_render_resources(VulkanEngine* engine) {
     destroy_device_handle(engine->device, engine->commandPool, vkDestroyCommandPool);
 }
 
+void cleanup_raii_resources(VulkanEngine* engine) {
+    engine->globalDescriptorPool.Reset();
+    engine->ibl.computeDescriptorPool.Reset();
+
+    engine->depthImage.Reset();
+    engine->envHdrImage.Reset();
+    engine->envHdrSampler.Reset();
+
+    engine->ibl.irradianceMap.Reset();
+    engine->ibl.irradianceSampler.Reset();
+    engine->ibl.prefilteredMap.Reset();
+    engine->ibl.prefilteredSampler.Reset();
+    engine->ibl.brdfLut.Reset();
+    engine->ibl.brdfLutSampler.Reset();
+
+    engine->graphicsPipeline.Reset();
+    engine->billboardPipeline.Reset();
+    engine->wireframePipeline.Reset();
+    engine->debugLinePipeline.Reset();
+    engine->debugTrianglePipeline.Reset();
+    engine->skyboxPipeline.Reset();
+
+    engine->ibl.irmapPipeline.Reset();
+    engine->ibl.spmapPipeline.Reset();
+    engine->ibl.brdfLutPipeline.Reset();
+    engine->ibl.lum1Pipeline.Reset();
+    engine->ibl.lum2Pipeline.Reset();
+
+    engine->pipelineLayout.Reset();
+    engine->debugPipelineLayout.Reset();
+    engine->ibl.iblPipelineLayout.Reset();
+    engine->ibl.lum1PipelineLayout.Reset();
+    engine->ibl.lum2PipelineLayout.Reset();
+
+    engine->globalDescriptorLayout.Reset();
+    engine->ibl.iblDescriptorSetLayout.Reset();
+    engine->ibl.lum1DescriptorSetLayout.Reset();
+    engine->ibl.lum2DescriptorSetLayout.Reset();
+
+    engine->vertexBuffer.Reset();
+    engine->indexBuffer.Reset();
+    engine->transformBuffer.Reset();
+    engine->materialBuffer.Reset();
+    engine->uniformBuffer.Reset();
+    engine->billboardBuffer.Reset();
+    engine->billboardPosSSBO.Reset();
+    engine->billboardMatSSBO.Reset();
+}
+
 void cleanup_core_resources(VulkanEngine* engine) {
+    cleanup_raii_resources(engine);
     if (engine->allocator != VK_NULL_HANDLE) {
         vmaDestroyAllocator(engine->allocator);
         engine->allocator = VK_NULL_HANDLE;
@@ -546,10 +575,11 @@ bool init_swapchain(VulkanEngine* engine) {
         return false;
     }
 
-    engine->depthImage = engine->appState->rhi->CreateTexture(engine->swapchainExtent.width, engine->swapchainExtent.height, TextureFormat::Depth,
-                                                              TextureUsage::DepthAttachment, 1, "Depth_Buffer_Image");
+    engine->depthImage.Reset(engine->appState->rhi,
+                             engine->appState->rhi->CreateTexture(engine->swapchainExtent.width, engine->swapchainExtent.height, TextureFormat::Depth,
+                                                                  TextureUsage::DepthAttachment, 1, "Depth_Buffer_Image"));
 
-    return engine->depthImage != INVALID_HANDLE;
+    return engine->depthImage.is_valid();
 }
 
 bool init_render_pass(VulkanEngine* engine) {
@@ -616,8 +646,8 @@ bool init_descriptor_layout(VulkanEngine* engine) {
         {6, DescriptorType::StorageBuffer, 1, ShaderStage::Vertex},          {7, DescriptorType::StorageBuffer, 1, ShaderStage::Vertex},
         {8, DescriptorType::StorageBuffer, 1, ShaderStage::Vertex},          {9, DescriptorType::StorageBuffer, 1, ShaderStage::Vertex}};
     DescriptorLayoutDesc desc{bindings.data(), static_cast<uint32_t>(bindings.size())};
-    engine->globalDescriptorLayout = engine->appState->rhi->CreateDescriptorLayout(desc, "Global_DescriptorSetLayout");
-    return engine->globalDescriptorLayout != INVALID_HANDLE;
+    engine->globalDescriptorLayout.Reset(engine->appState->rhi, engine->appState->rhi->CreateDescriptorLayout(desc, "Global_DescriptorSetLayout"));
+    return engine->globalDescriptorLayout.is_valid();
 }
 
 std::vector<uint32_t> load_shader(const char* path) {
@@ -652,8 +682,8 @@ bool create_main_graphics_pipeline(VulkanEngine* engine, const std::vector<uint3
     desc.vertexAttributeCount = 2;
     desc.topology = Topology::TriangleList;
     desc.debugName = "Main_Graphics_Pipeline";
-    engine->graphicsPipeline = engine->appState->rhi->CreateGraphicsPipeline(desc);
-    return engine->graphicsPipeline != INVALID_HANDLE;
+    engine->graphicsPipeline.Reset(engine->appState->rhi, engine->appState->rhi->CreateGraphicsPipeline(desc));
+    return engine->graphicsPipeline.is_valid();
 }
 
 bool create_skybox_pipeline(VulkanEngine* engine, const std::vector<uint32_t>& vsm, const std::vector<uint32_t>& fsm) {
@@ -668,8 +698,8 @@ bool create_skybox_pipeline(VulkanEngine* engine, const std::vector<uint32_t>& v
     desc.depthWriteEnable = false;
     desc.depthCompareOp = CompareOp::LessOrEqual;
     desc.debugName = "Skybox_Graphics_Pipeline";
-    engine->skyboxPipeline = engine->appState->rhi->CreateGraphicsPipeline(desc);
-    return engine->skyboxPipeline != INVALID_HANDLE;
+    engine->skyboxPipeline.Reset(engine->appState->rhi, engine->appState->rhi->CreateGraphicsPipeline(desc));
+    return engine->skyboxPipeline.is_valid();
 }
 
 bool create_billboard_pipeline(VulkanEngine* engine) {
@@ -693,8 +723,8 @@ bool create_billboard_pipeline(VulkanEngine* engine) {
     desc.vertexAttributes = nullptr;
     desc.vertexAttributeCount = 0;
     desc.debugName = "Billboard_Graphics_Pipeline";
-    engine->billboardPipeline = engine->appState->rhi->CreateGraphicsPipeline(desc);
-    return engine->billboardPipeline != INVALID_HANDLE;
+    engine->billboardPipeline.Reset(engine->appState->rhi, engine->appState->rhi->CreateGraphicsPipeline(desc));
+    return engine->billboardPipeline.is_valid();
 }
 
 bool create_wireframe_pipeline(VulkanEngine* engine, const std::vector<uint32_t>& vsm, const std::vector<uint32_t>& fsm) {
@@ -713,8 +743,8 @@ bool create_wireframe_pipeline(VulkanEngine* engine, const std::vector<uint32_t>
     desc.vertexAttributeCount = 2;
     desc.polygonMode = PolygonMode::Line;
     desc.debugName = "Wireframe_Pipeline";
-    engine->wireframePipeline = engine->appState->rhi->CreateGraphicsPipeline(desc);
-    return engine->wireframePipeline != INVALID_HANDLE;
+    engine->wireframePipeline.Reset(engine->appState->rhi, engine->appState->rhi->CreateGraphicsPipeline(desc));
+    return engine->wireframePipeline.is_valid();
 }
 
 bool create_debug_pipelines(VulkanEngine* engine) {
@@ -724,8 +754,9 @@ bool create_debug_pipelines(VulkanEngine* engine) {
         return false;
 
     PushConstantRange dPushRange{ShaderStage::Vertex | ShaderStage::Fragment, 0, sizeof(DebugPushConstant)};
-    PipelineLayoutDesc plDesc{&engine->globalDescriptorLayout, 1, &dPushRange, 1};
-    engine->debugPipelineLayout = engine->appState->rhi->CreatePipelineLayout(plDesc, "Debug_PipelineLayout");
+    DescriptorLayoutHandle d[] = {engine->globalDescriptorLayout};
+    PipelineLayoutDesc plDesc{d, 1, &dPushRange, 1};
+    engine->debugPipelineLayout.Reset(engine->appState->rhi, engine->appState->rhi->CreatePipelineLayout(plDesc, "Debug_PipelineLayout"));
 
     GraphicsPipelineDesc desc{};
     desc.layout = engine->debugPipelineLayout;
@@ -744,19 +775,20 @@ bool create_debug_pipelines(VulkanEngine* engine) {
     desc.cullMode = CullMode::None;
     desc.depthWriteEnable = false;
     desc.debugName = "Debug_Line_Pipeline";
-    engine->debugLinePipeline = engine->appState->rhi->CreateGraphicsPipeline(desc);
+    engine->debugLinePipeline.Reset(engine->appState->rhi, engine->appState->rhi->CreateGraphicsPipeline(desc));
 
     desc.topology = Topology::TriangleList;
     desc.polygonMode = PolygonMode::Fill;
     desc.colorBlendEnable = true;
     desc.debugName = "Debug_Triangle_Pipeline";
-    engine->debugTrianglePipeline = engine->appState->rhi->CreateGraphicsPipeline(desc);
-    return engine->debugLinePipeline != INVALID_HANDLE && engine->debugTrianglePipeline != INVALID_HANDLE;
+    engine->debugTrianglePipeline.Reset(engine->appState->rhi, engine->appState->rhi->CreateGraphicsPipeline(desc));
+    return engine->debugLinePipeline.is_valid() && engine->debugTrianglePipeline.is_valid();
 }
 
 bool init_pipeline(VulkanEngine* engine) {
-    PipelineLayoutDesc plDesc{&engine->globalDescriptorLayout, 1, nullptr, 0};
-    engine->pipelineLayout = engine->appState->rhi->CreatePipelineLayout(plDesc, "Main_Pipeline_Layout");
+    DescriptorLayoutHandle d[] = {engine->globalDescriptorLayout};
+    PipelineLayoutDesc plDesc{d, 1, nullptr, 0};
+    engine->pipelineLayout.Reset(engine->appState->rhi, engine->appState->rhi->CreatePipelineLayout(plDesc, "Main_Pipeline_Layout"));
 
     auto vsm = load_shader("shaders/vert.spv");
     auto fsm = load_shader("shaders/frag.spv");
@@ -776,14 +808,14 @@ bool init_pipeline(VulkanEngine* engine) {
 }
 
 bool create_icosphere_buffers(VulkanEngine* engine, const Icosphere& sphere) {
-    engine->vertexBuffer =
-        engine->appState->rhi->CreateBuffer(sphere.vertices.size() * sizeof(Vertex), BufferUsage::Vertex, sphere.vertices.data(), "Icosphere_Vertex_Buffer");
-    if (engine->vertexBuffer == INVALID_HANDLE)
+    engine->vertexBuffer.Reset(engine->appState->rhi, engine->appState->rhi->CreateBuffer(sphere.vertices.size() * sizeof(Vertex), BufferUsage::Vertex,
+                                                                                          sphere.vertices.data(), "Icosphere_Vertex_Buffer"));
+    if (!engine->vertexBuffer.is_valid())
         return false;
 
-    engine->indexBuffer =
-        engine->appState->rhi->CreateBuffer(sphere.indices.size() * sizeof(uint32_t), BufferUsage::Index, sphere.indices.data(), "Icosphere_Index_Buffer");
-    return engine->indexBuffer != INVALID_HANDLE;
+    engine->indexBuffer.Reset(engine->appState->rhi, engine->appState->rhi->CreateBuffer(sphere.indices.size() * sizeof(uint32_t), BufferUsage::Index,
+                                                                                         sphere.indices.data(), "Icosphere_Index_Buffer"));
+    return engine->indexBuffer.is_valid();
 }
 
 bool create_instance_grid_buffers(VulkanEngine* engine, std::vector<glm::vec3>& instancePositions) {
@@ -802,11 +834,12 @@ bool create_instance_grid_buffers(VulkanEngine* engine, std::vector<glm::vec3>& 
             instancePositions[instanceIndex] = {x, y, 0.0f};
         }
     }
-    engine->transformBuffer = engine->appState->rhi->CreateBuffer(instanceCount * sizeof(glm::mat4), BufferUsage::Storage, nullptr, "Flat_Transform_SSBO");
-    if (engine->transformBuffer != INVALID_HANDLE) {
+    engine->transformBuffer.Reset(engine->appState->rhi,
+                                  engine->appState->rhi->CreateBuffer(instanceCount * sizeof(glm::mat4), BufferUsage::Storage, nullptr, "Flat_Transform_SSBO"));
+    if (engine->transformBuffer.is_valid()) {
         engine->transformBufferMapped = engine->appState->rhi->MapBuffer(engine->transformBuffer);
     }
-    return engine->transformBuffer != INVALID_HANDLE;
+    return engine->transformBuffer.is_valid();
 }
 
 bool create_billboard_instance_buffer(VulkanEngine* engine, const std::vector<glm::vec3>& instancePositions) {
@@ -823,11 +856,14 @@ bool create_billboard_instance_buffer(VulkanEngine* engine, const std::vector<gl
         soa->materialIdx[i] = static_cast<int>(i);
     }
 
-    engine->billboardBuffer = engine->appState->rhi->CreateBuffer(instanceCount * sizeof(uint32_t), BufferUsage::Storage, nullptr, "Billboard_Index_SSBO");
-    engine->billboardPosSSBO = engine->appState->rhi->CreateBuffer(instanceCount * sizeof(glm::vec4), BufferUsage::Storage, soa->pos, "Billboard_Pos_SSBO");
-    engine->billboardMatSSBO = engine->appState->rhi->CreateBuffer(instanceCount * sizeof(int), BufferUsage::Storage, soa->materialIdx, "Billboard_Mat_SSBO");
+    engine->billboardBuffer.Reset(engine->appState->rhi,
+                                  engine->appState->rhi->CreateBuffer(instanceCount * sizeof(uint32_t), BufferUsage::Storage, nullptr, "Billboard_Index_SSBO"));
+    engine->billboardPosSSBO.Reset(
+        engine->appState->rhi, engine->appState->rhi->CreateBuffer(instanceCount * sizeof(glm::vec4), BufferUsage::Storage, soa->pos, "Billboard_Pos_SSBO"));
+    engine->billboardMatSSBO.Reset(
+        engine->appState->rhi, engine->appState->rhi->CreateBuffer(instanceCount * sizeof(int), BufferUsage::Storage, soa->materialIdx, "Billboard_Mat_SSBO"));
 
-    return engine->billboardBuffer != INVALID_HANDLE && engine->billboardPosSSBO != INVALID_HANDLE && engine->billboardMatSSBO != INVALID_HANDLE;
+    return engine->billboardBuffer.is_valid() && engine->billboardPosSSBO.is_valid() && engine->billboardMatSSBO.is_valid();
 }
 
 bool create_material_ssbo(VulkanEngine* engine) {
@@ -838,16 +874,14 @@ bool create_material_ssbo(VulkanEngine* engine) {
     if (materials.empty()) {
         return true;
     }
-    engine->materialBuffer =
-        engine->appState->rhi->CreateBuffer(materials.size() * sizeof(MaterialGpu), BufferUsage::Storage, materials.data(), "PBR_Materials_SSBO");
-    return engine->materialBuffer != INVALID_HANDLE;
+    engine->materialBuffer.Reset(engine->appState->rhi, engine->appState->rhi->CreateBuffer(materials.size() * sizeof(MaterialGpu), BufferUsage::Storage,
+                                                                                            materials.data(), "PBR_Materials_SSBO"));
+    return engine->materialBuffer.is_valid();
 }
 
 bool create_global_uniform_buffer(VulkanEngine* engine) {
-    engine->uniformBuffer = engine->appState->rhi->CreateBuffer(sizeof(UBOData), BufferUsage::Uniform,
-                                                                nullptr, // We don't have initial data, we will map it
-                                                                "Global_MVP_UBO");
-    if (engine->uniformBuffer == INVALID_HANDLE)
+    engine->uniformBuffer.Reset(engine->appState->rhi, engine->appState->rhi->CreateBuffer(sizeof(UBOData), BufferUsage::Uniform, nullptr, "Global_MVP_UBO"));
+    if (!engine->uniformBuffer.is_valid())
         return false;
     engine->uniformBufferMapped = engine->appState->rhi->MapBuffer(engine->uniformBuffer);
     return engine->uniformBufferMapped != nullptr;
@@ -881,15 +915,16 @@ bool init_buffers(VulkanEngine* engine) {
 bool init_descriptor_pool_and_sets(VulkanEngine* engine) {
     DescriptorPoolSize sizes[3] = {{DescriptorType::UniformBuffer, 1}, {DescriptorType::CombinedImageSampler, 4}, {DescriptorType::StorageBuffer, 5}};
     DescriptorPoolDesc desc{sizes, 3, 1};
-    engine->globalDescriptorPool = engine->appState->rhi->CreateDescriptorPool(desc, "Global_Descriptor_Pool");
-    if (engine->globalDescriptorPool == INVALID_HANDLE) {
+    engine->globalDescriptorPool.Reset(engine->appState->rhi, engine->appState->rhi->CreateDescriptorPool(desc, "Global_Descriptor_Pool"));
+    if (!engine->globalDescriptorPool.is_valid()) {
         return false;
     }
 
     DescriptorSetAllocateDesc ai{};
     ai.pool = engine->globalDescriptorPool;
     ai.setCount = 1;
-    ai.layouts = &engine->globalDescriptorLayout;
+    DescriptorLayoutHandle layoutHandle = engine->globalDescriptorLayout;
+    ai.layouts = &layoutHandle;
     if (!engine->appState->rhi->AllocateDescriptorSets(ai, &engine->descriptorSet)) {
         return false;
     }
@@ -907,33 +942,33 @@ bool init_descriptor_pool_and_sets(VulkanEngine* engine) {
     materialBufferInfo.range = VK_WHOLE_SIZE;
 
     DescriptorImageInfo envInfo{};
-    TextureHandle tex = engine->envHdrImage != INVALID_HANDLE ? engine->envHdrImage : INVALID_HANDLE;
+    TextureHandle tex = engine->envHdrImage.is_valid() ? engine->envHdrImage : INVALID_HANDLE;
     if (tex == INVALID_HANDLE)
-        tex = engine->ibl.irradianceMap != INVALID_HANDLE ? engine->ibl.irradianceMap : INVALID_HANDLE;
+        tex = engine->ibl.irradianceMap.is_valid() ? engine->ibl.irradianceMap : INVALID_HANDLE;
     envInfo.texture = tex;
     envInfo.imageView = INVALID_HANDLE;
-    SamplerHandle samp = engine->envHdrSampler != INVALID_HANDLE ? engine->envHdrSampler : INVALID_HANDLE;
+    SamplerHandle samp = engine->envHdrSampler.is_valid() ? engine->envHdrSampler : INVALID_HANDLE;
     if (samp == INVALID_HANDLE)
-        samp = engine->ibl.irradianceSampler != INVALID_HANDLE ? engine->ibl.irradianceSampler : INVALID_HANDLE;
+        samp = engine->ibl.irradianceSampler.is_valid() ? engine->ibl.irradianceSampler : INVALID_HANDLE;
     envInfo.sampler = samp;
     envInfo.imageView = INVALID_HANDLE;
     envInfo.imageLayout = TextureLayout::ShaderReadOnlyOptimal;
 
     DescriptorImageInfo irrInfo{};
-    irrInfo.texture = engine->ibl.irradianceMap != INVALID_HANDLE ? engine->ibl.irradianceMap : engine->envHdrImage;
-    irrInfo.sampler = engine->ibl.irradianceSampler != INVALID_HANDLE ? engine->ibl.irradianceSampler : engine->envHdrSampler;
+    irrInfo.texture = engine->ibl.irradianceMap.is_valid() ? engine->ibl.irradianceMap : engine->envHdrImage;
+    irrInfo.sampler = engine->ibl.irradianceSampler.is_valid() ? engine->ibl.irradianceSampler : engine->envHdrSampler;
     irrInfo.imageView = INVALID_HANDLE;
     irrInfo.imageLayout = TextureLayout::ShaderReadOnlyOptimal;
 
     DescriptorImageInfo prefInfo{};
-    prefInfo.texture = engine->ibl.prefilteredMap != INVALID_HANDLE ? engine->ibl.prefilteredMap : engine->envHdrImage;
-    prefInfo.sampler = engine->ibl.prefilteredSampler != INVALID_HANDLE ? engine->ibl.prefilteredSampler : engine->envHdrSampler;
+    prefInfo.texture = engine->ibl.prefilteredMap.is_valid() ? engine->ibl.prefilteredMap : engine->envHdrImage;
+    prefInfo.sampler = engine->ibl.prefilteredSampler.is_valid() ? engine->ibl.prefilteredSampler : engine->envHdrSampler;
     prefInfo.imageView = INVALID_HANDLE;
     prefInfo.imageLayout = TextureLayout::ShaderReadOnlyOptimal;
 
     DescriptorImageInfo lutInfo{};
-    lutInfo.texture = engine->ibl.brdfLut != INVALID_HANDLE ? engine->ibl.brdfLut : engine->envHdrImage;
-    lutInfo.sampler = engine->ibl.brdfLutSampler != INVALID_HANDLE ? engine->ibl.brdfLutSampler : engine->envHdrSampler;
+    lutInfo.texture = engine->ibl.brdfLut.is_valid() ? engine->ibl.brdfLut : engine->envHdrImage;
+    lutInfo.sampler = engine->ibl.brdfLutSampler.is_valid() ? engine->ibl.brdfLutSampler : engine->envHdrSampler;
     lutInfo.imageView = INVALID_HANDLE;
     lutInfo.imageLayout = TextureLayout::ShaderReadOnlyOptimal;
 

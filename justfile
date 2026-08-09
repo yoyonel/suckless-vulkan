@@ -587,3 +587,8 @@ docs-uv-build:
 # Fait les deux d'un coup
 check-docs: format-docs lint-docs
     @echo "Documentation propre et validée ! ✨"
+
+# Run performance benchmark using perf on unit_tests
+perf-benchmark: build
+    @echo "--- 🚀 Running Perf Benchmark ---"
+    perf stat -e L1-dcache-load-misses,L1-dcache-loads ./build/unit_tests > /dev/null

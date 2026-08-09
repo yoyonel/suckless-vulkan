@@ -19,6 +19,7 @@
 #include "engine_state.h"
 #include "module_loader.h"
 #include "rhi/rhi.h"
+#include "rhi/rhi_ptr.h"
 
 // Configuration de GLM pour Vulkan
 #define GLM_FORCE_RADIANS
@@ -49,14 +50,14 @@ struct HdrLoadRequest {
 
 // Phase IBL-0: Synchronous Bake Resources
 struct IblResources {
-    TextureHandle irradianceMap{INVALID_HANDLE};
-    SamplerHandle irradianceSampler{INVALID_HANDLE};
+    rhi::TexturePtr irradianceMap;
+    rhi::SamplerPtr irradianceSampler;
 
-    TextureHandle prefilteredMap{INVALID_HANDLE};
-    SamplerHandle prefilteredSampler{INVALID_HANDLE};
+    rhi::TexturePtr prefilteredMap;
+    rhi::SamplerPtr prefilteredSampler;
 
-    TextureHandle brdfLut{INVALID_HANDLE};
-    SamplerHandle brdfLutSampler{INVALID_HANDLE};
+    rhi::TexturePtr brdfLut;
+    rhi::SamplerPtr brdfLutSampler;
 
     // Internal Compute Resources (Luminance Reduction)
     VkBuffer lumGroupSumsBuffer;
@@ -65,19 +66,19 @@ struct IblResources {
     VmaAllocation lumMeanAllocation;
 
     // Compute Pipelines
-    PipelineHandle irmapPipeline{INVALID_HANDLE};
-    PipelineHandle spmapPipeline{INVALID_HANDLE};
-    PipelineHandle brdfLutPipeline{INVALID_HANDLE};
-    PipelineHandle lum1Pipeline{INVALID_HANDLE};
-    PipelineHandle lum2Pipeline{INVALID_HANDLE};
+    rhi::PipelinePtr irmapPipeline;
+    rhi::PipelinePtr spmapPipeline;
+    rhi::PipelinePtr brdfLutPipeline;
+    rhi::PipelinePtr lum1Pipeline;
+    rhi::PipelinePtr lum2Pipeline;
 
-    PipelineLayoutHandle iblPipelineLayout{INVALID_HANDLE};
-    PipelineLayoutHandle lum1PipelineLayout{INVALID_HANDLE};
-    PipelineLayoutHandle lum2PipelineLayout{INVALID_HANDLE};
-    DescriptorLayoutHandle iblDescriptorSetLayout{INVALID_HANDLE};
-    DescriptorLayoutHandle lum1DescriptorSetLayout{INVALID_HANDLE};
-    DescriptorLayoutHandle lum2DescriptorSetLayout{INVALID_HANDLE};
-    DescriptorPoolHandle computeDescriptorPool{INVALID_HANDLE};
+    rhi::PipelineLayoutPtr iblPipelineLayout;
+    rhi::PipelineLayoutPtr lum1PipelineLayout;
+    rhi::PipelineLayoutPtr lum2PipelineLayout;
+    rhi::DescriptorLayoutPtr iblDescriptorSetLayout;
+    rhi::DescriptorLayoutPtr lum1DescriptorSetLayout;
+    rhi::DescriptorLayoutPtr lum2DescriptorSetLayout;
+    rhi::DescriptorPoolPtr computeDescriptorPool;
 
     // Descriptor sets for individual compute passes
     DescriptorSetHandle lum1DescriptorSet{INVALID_HANDLE};
@@ -142,42 +143,42 @@ struct VulkanEngine {
     VkFramebuffer swapchainFramebuffers[MAX_SWAPCHAIN_IMAGES];
 
     VkRenderPass renderPass;
-    TextureHandle depthImage;
+    rhi::TexturePtr depthImage;
     VkFormat depthFormat;
 
     // NOUVEAU : Le Layout de notre descripteur
-    DescriptorLayoutHandle globalDescriptorLayout{INVALID_HANDLE};
+    rhi::DescriptorLayoutPtr globalDescriptorLayout;
 
-    PipelineLayoutHandle pipelineLayout{INVALID_HANDLE};
-    PipelineLayoutHandle debugPipelineLayout{INVALID_HANDLE};
-    PipelineHandle graphicsPipeline{INVALID_HANDLE};
-    PipelineHandle billboardPipeline{INVALID_HANDLE};
-    PipelineHandle wireframePipeline{INVALID_HANDLE};
-    PipelineHandle debugLinePipeline{INVALID_HANDLE};
-    PipelineHandle debugTrianglePipeline{INVALID_HANDLE};
-    PipelineHandle skyboxPipeline{INVALID_HANDLE};
+    rhi::PipelineLayoutPtr pipelineLayout;
+    rhi::PipelineLayoutPtr debugPipelineLayout;
+    rhi::PipelinePtr graphicsPipeline;
+    rhi::PipelinePtr billboardPipeline;
+    rhi::PipelinePtr wireframePipeline;
+    rhi::PipelinePtr debugLinePipeline;
+    rhi::PipelinePtr debugTrianglePipeline;
+    rhi::PipelinePtr skyboxPipeline;
 
-    BufferHandle vertexBuffer{INVALID_HANDLE};
-    BufferHandle indexBuffer{INVALID_HANDLE};
+    rhi::BufferPtr vertexBuffer;
+    rhi::BufferPtr indexBuffer;
     uint32_t indexCount;
 
     // Instancing : Flat Transform Buffer (SSBO)
-    BufferHandle transformBuffer{INVALID_HANDLE};
+    rhi::BufferPtr transformBuffer;
     void* transformBufferMapped{nullptr};
 
     // Buffer (SSBO) pour stocker les 100 matériaux PBR
-    BufferHandle materialBuffer;
+    rhi::BufferPtr materialBuffer;
 
     // Notre Uniform Buffer et son mapping persistant
-    BufferHandle uniformBuffer;
+    rhi::BufferPtr uniformBuffer;
     void* uniformBufferMapped;
 
     // NOUVEAU : Le pool et le set de descripteurs
-    DescriptorPoolHandle globalDescriptorPool{INVALID_HANDLE};
+    rhi::DescriptorPoolPtr globalDescriptorPool;
     DescriptorSetHandle descriptorSet{INVALID_HANDLE};
 
-    TextureHandle envHdrImage;
-    SamplerHandle envHdrSampler;
+    rhi::TexturePtr envHdrImage;
+    rhi::SamplerPtr envHdrSampler;
     uint32_t envHdrMipLevels;
     uint32_t envHdrWidth;
     uint32_t envHdrHeight;
@@ -203,9 +204,9 @@ struct VulkanEngine {
     uint32_t lastRenderedImageIndex;
     void* tracyVkContext;
 
-    BufferHandle billboardBuffer{INVALID_HANDLE};
-    BufferHandle billboardPosSSBO{INVALID_HANDLE};
-    BufferHandle billboardMatSSBO{INVALID_HANDLE};
+    rhi::BufferPtr billboardBuffer;
+    rhi::BufferPtr billboardPosSSBO;
+    rhi::BufferPtr billboardMatSSBO;
     void* billboardMapped;
 
     IblResources ibl;

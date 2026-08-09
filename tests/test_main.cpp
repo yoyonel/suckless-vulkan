@@ -9,18 +9,7 @@
 #include <cstdlib>
 #include <string>
 
-// On réduit au silence les warnings de la lib tierce pour le compilateur
-#if defined(__GNUC__) || defined(__clang__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
-#pragma GCC diagnostic ignored "-Wunused-function"
-#endif
-
 #include <stb/stb_image_write.h>
-
-#if defined(__GNUC__) || defined(__clang__)
-#pragma GCC diagnostic pop
-#endif
 
 #include <cmath>
 #include <cstring>

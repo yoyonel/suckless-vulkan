@@ -17,21 +17,21 @@ static void update_envmap_descriptor_set(VulkanEngine* engine) {
 
     DescriptorImageInfo irrInfo{};
     irrInfo.imageLayout = TextureLayout::ShaderReadOnlyOptimal;
-    irrInfo.texture = engine->ibl.irradianceMap != INVALID_HANDLE ? engine->ibl.irradianceMap : engine->envHdrImage;
+    irrInfo.texture = engine->ibl.irradianceMap.is_valid() ? engine->ibl.irradianceMap : engine->envHdrImage;
     irrInfo.imageView = INVALID_HANDLE;
-    irrInfo.sampler = engine->ibl.irradianceSampler != INVALID_HANDLE ? engine->ibl.irradianceSampler : engine->envHdrSampler;
+    irrInfo.sampler = engine->ibl.irradianceSampler.is_valid() ? engine->ibl.irradianceSampler : engine->envHdrSampler;
 
     DescriptorImageInfo prefInfo{};
     prefInfo.imageLayout = TextureLayout::ShaderReadOnlyOptimal;
-    prefInfo.texture = engine->ibl.prefilteredMap != INVALID_HANDLE ? engine->ibl.prefilteredMap : engine->envHdrImage;
+    prefInfo.texture = engine->ibl.prefilteredMap.is_valid() ? engine->ibl.prefilteredMap : engine->envHdrImage;
     prefInfo.imageView = INVALID_HANDLE;
-    prefInfo.sampler = engine->ibl.prefilteredSampler != INVALID_HANDLE ? engine->ibl.prefilteredSampler : engine->envHdrSampler;
+    prefInfo.sampler = engine->ibl.prefilteredSampler.is_valid() ? engine->ibl.prefilteredSampler : engine->envHdrSampler;
 
     DescriptorImageInfo lutInfo{};
     lutInfo.imageLayout = TextureLayout::ShaderReadOnlyOptimal;
-    lutInfo.texture = engine->ibl.brdfLut != INVALID_HANDLE ? engine->ibl.brdfLut : engine->envHdrImage;
+    lutInfo.texture = engine->ibl.brdfLut.is_valid() ? engine->ibl.brdfLut : engine->envHdrImage;
     lutInfo.imageView = INVALID_HANDLE;
-    lutInfo.sampler = engine->ibl.brdfLutSampler != INVALID_HANDLE ? engine->ibl.brdfLutSampler : engine->envHdrSampler;
+    lutInfo.sampler = engine->ibl.brdfLutSampler.is_valid() ? engine->ibl.brdfLutSampler : engine->envHdrSampler;
 
     WriteDescriptorSet writes[4] = {};
 
@@ -79,17 +79,7 @@ static void update_envmap_descriptor_set(VulkanEngine* engine) {
 #include <string>
 #include <vector>
 
-#if defined(__GNUC__) || defined(__clang__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
-#pragma GCC diagnostic ignored "-Wunused-function"
-#endif
-
 #include <stb/stb_image.h>
-
-#if defined(__GNUC__) || defined(__clang__)
-#pragma GCC diagnostic pop
-#endif
 
 #ifdef TRACY_ENABLE
 #include <tracy/TracyC.h>
@@ -270,9 +260,10 @@ bool init_environment_texture_from_staging(VulkanEngine* engine, VkBuffer stagin
     engine->envHdrWidth = static_cast<uint32_t>(width);
     engine->envHdrHeight = static_cast<uint32_t>(height);
 
-    engine->envHdrImage = engine->appState->rhi->CreateTexture(engine->envHdrWidth, engine->envHdrHeight, TextureFormat::RGBA32_SFLOAT, TextureUsage::Sampled,
-                                                               engine->envHdrMipLevels, "EnvHDR_Image");
-    if (engine->envHdrImage == INVALID_HANDLE) {
+    engine->envHdrImage.Reset(engine->appState->rhi,
+                              engine->appState->rhi->CreateTexture(engine->envHdrWidth, engine->envHdrHeight, TextureFormat::RGBA32_SFLOAT,
+                                                                   TextureUsage::Sampled, engine->envHdrMipLevels, "EnvHDR_Image"));
+    if (!engine->envHdrImage.is_valid()) {
         return false;
     }
 
@@ -307,8 +298,8 @@ bool init_environment_texture_from_staging(VulkanEngine* engine, VkBuffer stagin
         return false;
     }
 
-    engine->envHdrSampler = engine->appState->rhi->CreateSampler(engine->envHdrMipLevels, "EnvHDR_Sampler");
-    if (engine->envHdrSampler == INVALID_HANDLE) {
+    engine->envHdrSampler.Reset(engine->appState->rhi, engine->appState->rhi->CreateSampler(engine->envHdrMipLevels, "EnvHDR_Sampler"));
+    if (!engine->envHdrSampler.is_valid()) {
         return false;
     }
 
@@ -529,13 +520,11 @@ void vk_cleanup_environment_resources(VulkanEngine* engine) {
         return;
     }
 
-    if (engine->envHdrSampler != INVALID_HANDLE) {
-        engine->appState->rhi->DestroySampler(engine->envHdrSampler);
-        engine->envHdrSampler = INVALID_HANDLE;
+    if (engine->envHdrSampler.is_valid()) {
+        engine->envHdrSampler.Reset();
     }
-    if (engine->envHdrImage != INVALID_HANDLE) {
-        engine->appState->rhi->DestroyTexture(engine->envHdrImage);
-        engine->envHdrImage = INVALID_HANDLE;
+    if (engine->envHdrImage.is_valid()) {
+        engine->envHdrImage.Reset();
     }
 
     engine->envHdrMipLevels = 0;

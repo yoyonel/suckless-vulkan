@@ -8,9 +8,132 @@
     vk_handle_runtime_input(&engine, &ops);                                                                                                                    \
     vk_update_camera_key_state(&engine, &ops);                                                                                                                 \
     core_engine_update(&appState.core, &appState.currentInput, 0.16f);
+#include "rhi/rhi_ptr.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+
+// Mock minimal pour IRHI
+
+class MockRHI : public IRHI {
+
+  public:
+    int destroyedBuffers = 0;
+    int destroyedTextures = 0;
+
+    bool Init() override {
+        return true;
+    }
+    void Shutdown() override {}
+    bool DrawFrame() override {
+        return true;
+    }
+    void HandleInputs(const WindowOps* /*ops*/) override {}
+
+    BufferHandle CreateBuffer(std::size_t /*size*/, BufferUsage /*usage*/, const void* /*initialData*/, const char* /*name*/) override {
+        return 1;
+    }
+    void DestroyBuffer(BufferHandle /*handle*/) override {
+        destroyedBuffers++;
+    }
+    void* MapBuffer(BufferHandle /*handle*/) override {
+        return nullptr;
+    }
+    void UnmapBuffer(BufferHandle /*handle*/) override {}
+
+    TextureHandle CreateTexture(uint32_t /*width*/, uint32_t /*height*/, TextureFormat /*format*/, TextureUsage /*usage*/, uint32_t /*mipLevels*/,
+                                const char* /*name*/) override {
+        return 2;
+    }
+    void DestroyTexture(TextureHandle /*handle*/) override {
+        destroyedTextures++;
+    }
+
+    ImageViewHandle CreateImageView(TextureHandle /*texture*/, uint32_t /*baseMipLevel*/, uint32_t /*levelCount*/, uint32_t /*baseArrayLayer*/,
+                                    uint32_t /*layerCount*/) override {
+        return 3;
+    }
+    void DestroyImageView(ImageViewHandle /*handle*/) override {}
+
+    SamplerHandle CreateSampler(uint32_t /*mipLevels*/, bool /*clampToEdge*/, const char* /*name*/) override {
+        return 4;
+    }
+    void DestroySampler(SamplerHandle /*handle*/) override {}
+
+    DescriptorLayoutHandle CreateDescriptorLayout(const DescriptorLayoutDesc& /*desc*/, const char* /*name*/) override {
+        return 5;
+    }
+    void DestroyDescriptorLayout(DescriptorLayoutHandle /*handle*/) override {}
+
+    DescriptorPoolHandle CreateDescriptorPool(const DescriptorPoolDesc& /*desc*/, const char* /*name*/) override {
+        return 6;
+    }
+    void DestroyDescriptorPool(DescriptorPoolHandle /*handle*/) override {}
+
+    bool AllocateDescriptorSets(const DescriptorSetAllocateDesc& /*desc*/, DescriptorSetHandle* /*outSets*/) override {
+        return true;
+    }
+    void UpdateDescriptorSets(uint32_t /*writeCount*/, const WriteDescriptorSet* /*pDescriptorWrites*/) override {}
+
+    PipelineLayoutHandle CreatePipelineLayout(const PipelineLayoutDesc& /*desc*/, const char* /*name*/) override {
+        return 7;
+    }
+    void DestroyPipelineLayout(PipelineLayoutHandle /*handle*/) override {}
+
+    PipelineHandle CreateComputePipeline(const ComputePipelineDesc& /*desc*/) override {
+        return 8;
+    }
+    PipelineHandle CreateGraphicsPipeline(const GraphicsPipelineDesc& /*desc*/) override {
+        return 9;
+    }
+    void DestroyPipeline(PipelineHandle /*handle*/) override {}
+
+    SwapchainStatus AcquireNextImage(uint32_t* /*imageIndex*/) override {
+        return SwapchainStatus::Ok;
+    }
+    void UpdateUBO(const UBOData& /*data*/) override {}
+    bool BeginFrame() override {
+        return true;
+    }
+    void EndFrame() override {}
+    SwapchainStatus SubmitAndPresent(uint32_t /*imageIndex*/) override {
+        return SwapchainStatus::Ok;
+    }
+
+    void BeginRenderPass() override {}
+    void EndRenderPass() override {}
+    void CmdBindPipeline(CommandBufferHandle /*cb*/, PipelineHandle /*pipeline*/, bool /*isCompute*/) override {}
+    void CmdBindDescriptorSets(CommandBufferHandle /*cb*/, PipelineLayoutHandle /*layout*/, uint32_t /*firstSet*/, uint32_t /*count*/,
+                               const DescriptorSetHandle* /*sets*/, bool /*isCompute*/) override {}
+    void CmdPushConstants(CommandBufferHandle /*cb*/, PipelineLayoutHandle /*layout*/, ShaderStage /*stage*/, uint32_t /*offset*/, uint32_t /*size*/,
+                          const void* /*values*/) override {}
+    void CmdDraw(CommandBufferHandle /*cb*/, uint32_t /*vertexCount*/, uint32_t /*instanceCount*/, uint32_t /*firstVertex*/,
+                 uint32_t /*firstInstance*/) override {}
+    void CmdDrawIndexed(CommandBufferHandle /*cb*/, uint32_t /*indexCount*/, uint32_t /*instanceCount*/, uint32_t /*firstIndex*/, int32_t /*vertexOffset*/,
+                        uint32_t /*firstInstance*/) override {}
+    void CmdDispatch(CommandBufferHandle /*cb*/, uint32_t /*groupCountX*/, uint32_t /*groupCountY*/, uint32_t /*groupCountZ*/) override {}
+
+    void BindPipeline(PipelineType /*type*/) override {}
+    void BindGlobalDescriptor() override {}
+    void BindMeshBuffers(bool /*isBillboard*/) override {}
+
+    void Draw(uint32_t /*vertexCount*/, uint32_t /*instanceCount*/) override {}
+    void DrawIndexed(uint32_t /*indexCount*/, uint32_t /*instanceCount*/) override {}
+    void UpdateBillboardInstances(const uint32_t* /*instances*/, std::size_t /*count*/) override {}
+
+    void PushDebugConstants(const void* /*data*/, uint32_t /*size*/) override {}
+    void BeginDebugLabel(const char* /*name*/, float /*r*/, float /*g*/, float /*b*/) override {}
+    void EndDebugLabel() override {}
+    void CollectProfiling() override {}
+    void GetResolution(uint32_t* /*width*/, uint32_t* /*height*/) const override {}
+
+    void* GetOpaqueTracyContext() const override {
+        return nullptr;
+    }
+    void* GetOpaqueCommandBuffer() const override { // NOLINT
+        return nullptr;
+    }
+};
 
 // Mocks for vk_engine_runtime.cpp dependencies not linked in logic_tests
 void vk_adjust_env_lod(VulkanEngine* engine, float step) {
@@ -438,6 +561,26 @@ void test_vk_engine_runtime(TestStats* stats) {
     g_fake = nullptr;
 }
 
+void test_rhi_ptr(TestStats* stats) {
+    MockRHI mock;
+
+    {
+        rhi::BufferPtr buf(&mock, 42);
+        check(stats, buf.get() == 42, "BufferPtr contains correct handle");
+        check(stats, mock.destroyedBuffers == 0, "Buffer not destroyed yet");
+    }
+    check(stats, mock.destroyedBuffers == 1, "Buffer destroyed at end of scope");
+
+    {
+        rhi::TexturePtr tex(&mock, 100);
+        rhi::TexturePtr tex2 = std::move(tex);
+        check(stats, !tex.is_valid(), "Moved-from handle is invalid"); // NOLINT(bugprone-use-after-move)
+        check(stats, tex2.get() == 100, "Moved-to handle is valid");
+        check(stats, mock.destroyedTextures == 0, "Texture not destroyed on move");
+    }
+    check(stats, mock.destroyedTextures == 1, "Texture destroyed at end of scope after move");
+}
+
 } // namespace
 
 int main() {
@@ -446,6 +589,7 @@ int main() {
     test_logging(&stats);
     test_runtime_controls(&stats);
     test_vk_engine_runtime(&stats);
+    test_rhi_ptr(&stats);
 
     if (stats.failed != 0) {
         LOG_ERROR("test", "logic tests failed: %d failed / %d passed", stats.failed, stats.passed);
