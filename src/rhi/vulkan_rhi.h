@@ -65,14 +65,6 @@ public:
 
     void BeginRenderPass() override;
     void EndRenderPass() override;
-    void CmdBindPipeline(CommandBufferHandle cb, PipelineHandle pipeline, bool isCompute = false) override;
-    void CmdBindDescriptorSets(CommandBufferHandle cb, PipelineLayoutHandle layout, uint32_t firstSet, uint32_t count, const DescriptorSetHandle* sets, bool isCompute = false) override;
-    void CmdPushConstants(CommandBufferHandle cb, PipelineLayoutHandle layout, ShaderStage stage, uint32_t offset, uint32_t size, const void* values) override;
-    void CmdBindVertexBuffers(void* cmdBuffer, uint32_t firstBinding, uint32_t bindingCount, const BufferHandle* buffers, const uint64_t* offsets);
-    void CmdBindIndexBuffer(void* cmdBuffer, BufferHandle buffer, uint64_t offset, uint32_t indexType);
-    void CmdDraw(CommandBufferHandle cb, uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex, uint32_t firstInstance) override;
-    void CmdDrawIndexed(CommandBufferHandle cb, uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex, int32_t vertexOffset, uint32_t firstInstance) override;
-    void CmdDispatch(CommandBufferHandle cb, uint32_t groupCountX, uint32_t groupCountY, uint32_t groupCountZ) override;
 
     // Direct Vulkan commands wrapper for IBL/EnvMap
     void CmdPipelineBarrier(VkCommandBuffer cb, VkPipelineStageFlags srcStageMask, VkPipelineStageFlags dstStageMask, VkDependencyFlags dependencyFlags, uint32_t memoryBarrierCount, const VkMemoryBarrier* pMemoryBarriers, uint32_t bufferMemoryBarrierCount, const VkBufferMemoryBarrier* pBufferMemoryBarriers, uint32_t imageMemoryBarrierCount, const VkImageMemoryBarrier* pImageMemoryBarriers);

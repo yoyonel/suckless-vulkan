@@ -1089,32 +1089,7 @@ PipelineHandle VulkanRHI::CreateGraphicsPipeline(const GraphicsPipelineDesc& des
     return handle;
 }
 
-void VulkanRHI::CmdBindPipeline(CommandBufferHandle cb, PipelineHandle pipeline, bool isCompute) {
-    vkCmdBindPipeline((VkCommandBuffer)cb, isCompute ? VK_PIPELINE_BIND_POINT_COMPUTE : VK_PIPELINE_BIND_POINT_GRAPHICS, GetVkPipeline(pipeline));
-}
-void VulkanRHI::CmdBindDescriptorSets(CommandBufferHandle cb, PipelineLayoutHandle layout, uint32_t firstSet, uint32_t count, const DescriptorSetHandle* sets, bool isCompute) {
-    if (count == 0 || sets == nullptr) return;
-    VkDescriptorSet* vkSets = static_cast<VkDescriptorSet*>(__builtin_alloca(count * sizeof(VkDescriptorSet)));
-    for(uint32_t i=0; i<count; ++i) vkSets[i] = GetVkDescriptorSet(sets[i]);
-    vkCmdBindDescriptorSets((VkCommandBuffer)cb, isCompute ? VK_PIPELINE_BIND_POINT_COMPUTE : VK_PIPELINE_BIND_POINT_GRAPHICS, GetVkPipelineLayout(layout), firstSet, count, vkSets, 0, nullptr);
-}
-void VulkanRHI::CmdPushConstants(CommandBufferHandle cb, PipelineLayoutHandle layout, ShaderStage stage, uint32_t offset, uint32_t size, const void* values) {
-    VkShaderStageFlags flags = 0;
-    if ((uint32_t)stage & (uint32_t)ShaderStage::Vertex) flags |= VK_SHADER_STAGE_VERTEX_BIT;
-    if ((uint32_t)stage & (uint32_t)ShaderStage::Fragment) flags |= VK_SHADER_STAGE_FRAGMENT_BIT;
-    if ((uint32_t)stage & (uint32_t)ShaderStage::Compute) flags |= VK_SHADER_STAGE_COMPUTE_BIT;
-    vkCmdPushConstants((VkCommandBuffer)cb, GetVkPipelineLayout(layout), flags, offset, size, values);
-}
-void VulkanRHI::CmdDraw(CommandBufferHandle cb, uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex, uint32_t firstInstance) {
-    vkCmdDraw((VkCommandBuffer)cb, vertexCount, instanceCount, firstVertex, firstInstance);
-}
-void VulkanRHI::CmdDrawIndexed(CommandBufferHandle cb, uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex, int32_t vertexOffset, uint32_t firstInstance) {
-    vkCmdDrawIndexed((VkCommandBuffer)cb, indexCount, instanceCount, firstIndex, vertexOffset, firstInstance);
-}
 
-void VulkanRHI::CmdDispatch(CommandBufferHandle cb, uint32_t groupCountX, uint32_t groupCountY, uint32_t groupCountZ) {
-    vkCmdDispatch((VkCommandBuffer)cb, groupCountX, groupCountY, groupCountZ);
-}
 
 void VulkanRHI::CmdPipelineBarrier(VkCommandBuffer cb, VkPipelineStageFlags srcStageMask, VkPipelineStageFlags dstStageMask, VkDependencyFlags dependencyFlags, uint32_t memoryBarrierCount, const VkMemoryBarrier* pMemoryBarriers, uint32_t bufferMemoryBarrierCount, const VkBufferMemoryBarrier* pBufferMemoryBarriers, uint32_t imageMemoryBarrierCount, const VkImageMemoryBarrier* pImageMemoryBarriers) {
     (void)this;
@@ -1133,14 +1108,3 @@ void VulkanRHI::CmdBlitImage(VkCommandBuffer cb, VkImage srcImage, VkImageLayout
     vkCmdBlitImage(cb, srcImage, srcImageLayout, dstImage, dstImageLayout, regionCount, pRegions, filter);
 }
 
-void VulkanRHI::CmdBindVertexBuffers(void* cmdBuffer, uint32_t firstBinding, uint32_t bindingCount, const BufferHandle* buffers, const uint64_t* offsets) {
-    std::vector<VkBuffer> vkBuffers(bindingCount);
-    for (uint32_t i = 0; i < bindingCount; ++i) {
-        vkBuffers[i] = m_buffers[buffers[i]].buffer;
-    }
-    vkCmdBindVertexBuffers((VkCommandBuffer)cmdBuffer, firstBinding, bindingCount, vkBuffers.data(), offsets);
-}
-
-void VulkanRHI::CmdBindIndexBuffer(void* cmdBuffer, BufferHandle buffer, uint64_t offset, uint32_t indexType) {
-    vkCmdBindIndexBuffer((VkCommandBuffer)cmdBuffer, m_buffers[buffer].buffer, offset, (VkIndexType)indexType);
-}

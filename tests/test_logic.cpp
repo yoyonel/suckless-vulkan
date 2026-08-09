@@ -124,16 +124,6 @@ class MockRHI : public IRHI {
 
     void BeginRenderPass() override {}
     void EndRenderPass() override {}
-    void CmdBindPipeline(CommandBufferHandle /*cb*/, PipelineHandle /*pipeline*/, bool /*isCompute*/) override {}
-    void CmdBindDescriptorSets(CommandBufferHandle /*cb*/, PipelineLayoutHandle /*layout*/, uint32_t /*firstSet*/, uint32_t /*count*/,
-                               const DescriptorSetHandle* /*sets*/, bool /*isCompute*/) override {}
-    void CmdPushConstants(CommandBufferHandle /*cb*/, PipelineLayoutHandle /*layout*/, ShaderStage /*stage*/, uint32_t /*offset*/, uint32_t /*size*/,
-                          const void* /*values*/) override {}
-    void CmdDraw(CommandBufferHandle /*cb*/, uint32_t /*vertexCount*/, uint32_t /*instanceCount*/, uint32_t /*firstVertex*/,
-                 uint32_t /*firstInstance*/) override {}
-    void CmdDrawIndexed(CommandBufferHandle /*cb*/, uint32_t /*indexCount*/, uint32_t /*instanceCount*/, uint32_t /*firstIndex*/, int32_t /*vertexOffset*/,
-                        uint32_t /*firstInstance*/) override {}
-    void CmdDispatch(CommandBufferHandle /*cb*/, uint32_t /*groupCountX*/, uint32_t /*groupCountY*/, uint32_t /*groupCountZ*/) override {}
 
     PipelineHandle GetPipeline(PipelineType /*type*/) const override {
         return INVALID_HANDLE;

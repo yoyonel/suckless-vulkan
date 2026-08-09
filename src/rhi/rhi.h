@@ -265,12 +265,6 @@ public:
     // Render pass
     virtual void BeginRenderPass() = 0;
     virtual void EndRenderPass() = 0;
-    virtual void CmdBindPipeline(CommandBufferHandle cb, PipelineHandle pipeline, bool isCompute = false) = 0;
-    virtual void CmdBindDescriptorSets(CommandBufferHandle cb, PipelineLayoutHandle layout, uint32_t firstSet, uint32_t count, const DescriptorSetHandle* sets, bool isCompute = false) = 0;
-    virtual void CmdPushConstants(CommandBufferHandle cb, PipelineLayoutHandle layout, ShaderStage stage, uint32_t offset, uint32_t size, const void* values) = 0;
-    virtual void CmdDraw(CommandBufferHandle cb, uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex, uint32_t firstInstance) = 0;
-    virtual void CmdDrawIndexed(CommandBufferHandle cb, uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex, int32_t vertexOffset, uint32_t firstInstance) = 0;
-    virtual void CmdDispatch(CommandBufferHandle cb, uint32_t groupCountX, uint32_t groupCountY, uint32_t groupCountZ) = 0;
 
     // Binding (High-level helpers)
     virtual PipelineHandle GetPipeline(PipelineType type) const = 0;

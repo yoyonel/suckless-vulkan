@@ -1,3 +1,4 @@
+#include <vector>
 #include "vulkan_command_list.h"
 #include "vulkan_rhi.h"
 
@@ -18,19 +19,31 @@ void VulkanCommandList::BindPipeline(PipelineHandle pipeline, bool isCompute) {
 }
 
 void VulkanCommandList::BindDescriptorSets(PipelineLayoutHandle layout, uint32_t firstSet, uint32_t count, const DescriptorSetHandle* sets, bool isCompute) {
-    m_rhi->CmdBindDescriptorSets((CommandBufferHandle)m_cmdBuffer, layout, firstSet, count, sets, isCompute);
+    std::vector<VkDescriptorSet> vkSets(count);
+    for (uint32_t i = 0; i < count; ++i) {
+        vkSets[i] = m_rhi->GetVkDescriptorSet(sets[i]);
+    }
+    vkCmdBindDescriptorSets(m_cmdBuffer, isCompute ? VK_PIPELINE_BIND_POINT_COMPUTE : VK_PIPELINE_BIND_POINT_GRAPHICS, m_rhi->GetVkPipelineLayout(layout), firstSet, count, vkSets.data(), 0, nullptr);
 }
 
 void VulkanCommandList::PushConstants(PipelineLayoutHandle layout, ShaderStage stage, uint32_t offset, uint32_t size, const void* values) {
-    m_rhi->CmdPushConstants((CommandBufferHandle)m_cmdBuffer, layout, stage, offset, size, values);
+    VkShaderStageFlags vkStage = 0;
+    if (static_cast<uint32_t>(stage) & static_cast<uint32_t>(ShaderStage::Vertex)) vkStage |= VK_SHADER_STAGE_VERTEX_BIT;
+    if (static_cast<uint32_t>(stage) & static_cast<uint32_t>(ShaderStage::Fragment)) vkStage |= VK_SHADER_STAGE_FRAGMENT_BIT;
+    if (static_cast<uint32_t>(stage) & static_cast<uint32_t>(ShaderStage::Compute)) vkStage |= VK_SHADER_STAGE_COMPUTE_BIT;
+    vkCmdPushConstants(m_cmdBuffer, m_rhi->GetVkPipelineLayout(layout), vkStage, offset, size, values);
 }
 
 void VulkanCommandList::BindVertexBuffers(uint32_t firstBinding, uint32_t bindingCount, const BufferHandle* buffers, const uint64_t* offsets) {
-    m_rhi->CmdBindVertexBuffers(m_cmdBuffer, firstBinding, bindingCount, buffers, offsets);
+    std::vector<VkBuffer> vkBuffers(bindingCount);
+    for (uint32_t i = 0; i < bindingCount; ++i) {
+        vkBuffers[i] = m_rhi->GetVkBuffer(buffers[i]);
+    }
+    vkCmdBindVertexBuffers(m_cmdBuffer, firstBinding, bindingCount, vkBuffers.data(), offsets);
 }
 
 void VulkanCommandList::BindIndexBuffer(BufferHandle buffer, uint64_t offset, uint32_t indexType) {
-    m_rhi->CmdBindIndexBuffer(m_cmdBuffer, buffer, offset, indexType);
+    vkCmdBindIndexBuffer(m_cmdBuffer, m_rhi->GetVkBuffer(buffer), offset, (VkIndexType)indexType);
 }
 
 void VulkanCommandList::Draw(uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex, uint32_t firstInstance) {

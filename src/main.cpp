@@ -33,73 +33,79 @@ bool handle_rhi_reload(EngineState* state, const std::string& libName, CreateRHI
     return true;
 }
 
-int main(int argc, char** argv) {
-    EngineState state = {};
-
-    // 1. Initial Default (Disabled by default to match OGL behavior/preferences)
-    state.core.vsync = false;
-
-    // 2. Environment Variable Override
+bool parse_arguments(int argc, char** argv, EngineState* state) {
+    state->core.vsync = false;
     const char* vsyncEnv = std::getenv("SVK_VSYNC");
     if (vsyncEnv != nullptr) {
-        state.core.vsync = (std::string(vsyncEnv) != "0");
+        state->core.vsync = (std::string(vsyncEnv) != "0");
     }
-
-    // 3. CLI Argument Override (Highest priority)
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
-        if (arg == "--no-vsync") {
-            state.core.vsync = false;
-        } else if (arg == "--vsync") {
-            state.core.vsync = true;
-        } else if (arg == "--nullrhi") {
-            state.useNullRHI = true;
-        }
+        if (arg == "--no-vsync")
+            state->core.vsync = false;
+        else if (arg == "--vsync")
+            state->core.vsync = true;
+        else if (arg == "--nullrhi")
+            state->useNullRHI = true;
     }
+    return true;
+}
+
+bool init_glfw(EngineState* state) {
+    if (glfwInit() != GLFW_TRUE)
+        return false;
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+    state->window = glfwCreateWindow(1024, 768, "Vulkan - Icosphere Full GPU", NULL, NULL);
+    return state->window != nullptr;
+}
+
+bool load_initial_rhi(EngineState* state, std::string& libName, CreateRHIFunc& createFunc, DestroyRHIFunc& destroyFunc) {
+    libName = state->useNullRHI ? "libnull_rhi.so" : "libvulkan_rhi.so";
+    if (!state->rhiModule.Load(libName)) {
+        LOG_CRITICAL("app", "Failed to load RHI module %s", libName.c_str());
+        return false;
+    }
+    createFunc = (CreateRHIFunc)state->rhiModule.GetSymbol("CreateRHI");
+    destroyFunc = (DestroyRHIFunc)state->rhiModule.GetSymbol("DestroyRHI");
+    if (!createFunc || !destroyFunc) {
+        LOG_CRITICAL("app", "Failed to find CreateRHI/DestroyRHI symbols");
+        return false;
+    }
+    state->rhi = createFunc(state);
+    if (!state->rhi->Init()) {
+        LOG_CRITICAL("app", "Echec de l'initialisation.");
+        return false;
+    }
+    return true;
+}
+
+int main(int argc, char** argv) {
+    EngineState state = {};
+    parse_arguments(argc, argv, &state);
 
     if (!tracy_client_startup("suckless-vulkan")) {
         LOG_CRITICAL("tracy", "Impossible d'initialiser le client Tracy pour cette session.");
         return -1;
     }
 
-    // Initialize Global Arenas
-
     arena_init(&state.rhiArena, RHI_ARENA_CAPACITY_BYTES);
     core_engine_init(&state.core);
 
-    if (glfwInit() != GLFW_TRUE) {
-        return -1;
-    }
-    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
-    state.window = glfwCreateWindow(1024, 768, "Vulkan - Icosphere Full GPU", NULL, NULL);
-    if (!state.window) {
+    if (!init_glfw(&state)) {
         return -1;
     }
 
-    std::string libName = state.useNullRHI ? "libnull_rhi.so" : "libvulkan_rhi.so";
-    if (!state.rhiModule.Load(libName)) {
-        LOG_CRITICAL("app", "Failed to load RHI module %s", libName.c_str());
-        return -1;
-    }
-
-    CreateRHIFunc createFunc = (CreateRHIFunc)state.rhiModule.GetSymbol("CreateRHI");
-    DestroyRHIFunc destroyFunc = (DestroyRHIFunc)state.rhiModule.GetSymbol("DestroyRHI");
-    if (!createFunc || !destroyFunc) {
-        LOG_CRITICAL("app", "Failed to find CreateRHI/DestroyRHI symbols");
-        return -1;
-    }
-
-    state.rhi = createFunc(&state);
-    if (!state.rhi->Init()) {
-        LOG_CRITICAL("app", "Echec de l'initialisation.");
+    std::string libName;
+    CreateRHIFunc createFunc = nullptr;
+    DestroyRHIFunc destroyFunc = nullptr;
+    if (!load_initial_rhi(&state, libName, createFunc, destroyFunc)) {
         tracy_client_shutdown();
         return -1;
     }
 
     LOG_INFO("app", "Vulkan initialise avec succes ! La fenetre devrait apparaitre.");
 
-    // main  loop
     bool f5_was_down = false;
     while (!glfwWindowShouldClose(state.window)) {
         glfwPollEvents();
@@ -127,8 +133,8 @@ int main(int argc, char** argv) {
     state.rhi->Shutdown();
     if (destroyFunc)
         destroyFunc(state.rhi);
-
     state.rhiModule.Unload();
+
     glfwDestroyWindow(state.window);
     glfwTerminate();
 
