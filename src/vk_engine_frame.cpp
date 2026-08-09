@@ -70,10 +70,10 @@ bool vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recreateSw
     skyboxProj[1][1] *= -1;
     uboData.invViewProj = glm::inverse(skyboxProj * skyboxView);
 
-    uboData.cameraPosEnvLod = glm::vec4(core.camera.position, core.envLod);
-    uboData.debugParams = glm::vec4(static_cast<float>(core.iblDebugMode), core.iblDebugScale, core.billboardMode ? 1.0f : 0.0f, 0.0f);
-    uboData.postParams1 = glm::vec4(core.exposure, core.saturation, core.contrast, core.gamma);
-    uboData.postParams2 = glm::vec4(core.gain, core.offset, core.wbTemp, core.wbTint);
+    uboData.cameraPosEnvLod = glm::vec4(core.camera.position, core.render.envLod);
+    uboData.debugParams = glm::vec4(static_cast<float>(core.render.iblDebugMode), core.render.iblDebugScale, core.render.billboardMode ? 1.0f : 0.0f, 0.0f);
+    uboData.postParams1 = glm::vec4(core.render.exposure, core.render.saturation, core.render.contrast, core.render.gamma);
+    uboData.postParams2 = glm::vec4(core.render.gain, core.render.offset, core.render.wbTemp, core.render.wbTint);
     uboData.view = view;
     uboData.proj = proj;
 
@@ -109,7 +109,7 @@ bool vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recreateSw
             {
                 SVK_RHI_GPU_ZONE(gpuSkyboxZone, rhi, "GPU Skybox");
                 rhi->BeginDebugLabel("Render_Skybox_EnvMap", 0.2f, 0.5f, 1.0f);
-                if (core.showEnvmap) {
+                if (core.render.showEnvmap) {
                     rhi->BindPipeline(PipelineType::Skybox);
                     rhi->Draw(3, 1);
                 }
@@ -119,7 +119,7 @@ bool vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recreateSw
             {
                 SVK_RHI_GPU_ZONE(gpuSphereZone, rhi, "GPU Spheres");
                 rhi->BeginDebugLabel("Render_Spheres_Instanced", 0.0f, 1.0f, 0.4f);
-                if (core.billboardMode) {
+                if (core.render.billboardMode) {
                     const glm::vec3 camPos = core.camera.position;
                     BillboardSoA* soa = &core.billboardSoA;
 
@@ -159,12 +159,12 @@ bool vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recreateSw
                     rhi->BindMeshBuffers(true);
                     rhi->Draw(6, static_cast<uint32_t>(soa->count));
                 } else {
-                    rhi->BindPipeline(core.wireframeMode ? PipelineType::Wireframe : PipelineType::Graphics);
+                    rhi->BindPipeline(core.render.wireframeMode ? PipelineType::Wireframe : PipelineType::Graphics);
                     rhi->BindMeshBuffers(false);
                     rhi->DrawIndexed(engine->indexCount, kGridSize * kGridSize);
                 }
 
-                if (core.wireframeMode && core.billboardMode) {
+                if (core.render.wireframeMode && core.render.billboardMode) {
                     DebugPushConstant dp = {};
                     dp.model = glm::mat4(1.0f);
                     dp.radius = 1.0f;

@@ -672,8 +672,8 @@ void vk_process_ready_environment_texture(VulkanEngine* engine) {
     // Update descriptors including IBL maps
     update_envmap_descriptor_set(engine);
 
-    engine->appState->core.envLod =
-        std::clamp(engine->appState->core.envLod, kMinEnvLod, static_cast<float>(engine->envHdrMipLevels > 0 ? engine->envHdrMipLevels - 1 : 0));
+    engine->appState->core.render.envLod =
+        std::clamp(engine->appState->core.render.envLod, kMinEnvLod, static_cast<float>(engine->envHdrMipLevels > 0 ? engine->envHdrMipLevels - 1 : 0));
     LOG_INFO("runtime", "HDR actif: %s", get_filename_from_path(ready.sourcePathOrLabel).c_str());
 }
 
@@ -694,7 +694,7 @@ void vk_switch_environment_texture(VulkanEngine* engine, int direction) {
 }
 
 void vk_adjust_env_lod(VulkanEngine* engine, float delta) {
-    engine->appState->core.envLod =
-        std::clamp(engine->appState->core.envLod + delta, kMinEnvLod, static_cast<float>(engine->envHdrMipLevels > 0 ? engine->envHdrMipLevels - 1 : 0));
-    LOG_INFO("runtime", "Env LOD: %.1f", engine->appState->core.envLod);
+    engine->appState->core.render.envLod =
+        std::clamp(engine->appState->core.render.envLod + delta, kMinEnvLod, static_cast<float>(engine->envHdrMipLevels > 0 ? engine->envHdrMipLevels - 1 : 0));
+    LOG_INFO("runtime", "Env LOD: %.1f", engine->appState->core.render.envLod);
 }

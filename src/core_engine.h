@@ -67,6 +67,28 @@ struct CoreInput {
     bool wireframePressed;
 };
 
+struct RenderSettings {
+    bool billboardMode{true};
+    bool wireframeMode{false};
+    bool showEnvmap{true};
+    bool pbrEnabled{true};
+    bool iblEnabled{true};
+
+    float envLod{0.0f};
+    float iblIntensity{1.0f};
+    int iblDebugMode{0};
+    float iblDebugScale{1.0f};
+
+    float exposure{1.0f};
+    float saturation{1.0f};
+    float contrast{1.0f};
+    float gamma{1.0f};
+    float gain{1.0f};
+    float offset{0.0f};
+    float wbTemp{0.0f};
+    float wbTint{0.0f};
+};
+
 struct CoreEngine {
     IRHI* rhi;
 
@@ -85,10 +107,7 @@ struct CoreEngine {
     bool envPageUpKeyWasDown;
     bool envPageDownKeyWasDown;
     bool cameraEnabled;
-    bool showEnvmap;
-    float envLod;
-    int iblDebugMode;
-    float iblDebugScale;
+    RenderSettings render;
     bool iblDebugDigitKeyWasDown[10];
     bool iblDebugPrevKeyWasDown;
     bool iblDebugNextKeyWasDown;
@@ -104,9 +123,7 @@ struct CoreEngine {
     int windowedHeight;
     float lastFrameDeltaSeconds;
 
-    bool billboardMode;
     bool billboardKeyWasDown;
-    bool wireframeMode;
     bool wireframeKeyWasDown;
 
     Camera camera;
@@ -117,19 +134,6 @@ struct CoreEngine {
 
     glm::vec3* instancePositions;
     uint32_t instanceCount;
-
-    bool pbrEnabled;
-    bool iblEnabled;
-    float iblIntensity;
-
-    float exposure;
-    float saturation;
-    float contrast;
-    float gamma;
-    float gain;
-    float offset;
-    float wbTemp;
-    float wbTint;
 
     bool vsync;
     bool vsyncKeyWasDown;

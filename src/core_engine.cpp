@@ -53,11 +53,11 @@ void core_engine_init(CoreEngine* core) {
     core->envPageUpKeyWasDown = false;
     core->envPageDownKeyWasDown = false;
     core->cameraEnabled = true;
-    core->showEnvmap = true;
-    core->envLod = 0.0f;
-    core->iblDebugMode = 0;
-    core->iblDebugScale = 1.0f;
-    core->iblIntensity = 1.0f;
+    core->render.showEnvmap = true;
+    core->render.envLod = 0.0f;
+    core->render.iblDebugMode = 0;
+    core->render.iblDebugScale = 1.0f;
+    core->render.iblIntensity = 1.0f;
 
     for (int i = 0; i < 10; ++i) {
         core->iblDebugDigitKeyWasDown[i] = false;
@@ -72,19 +72,19 @@ void core_engine_init(CoreEngine* core) {
     core->postExposureAddKeyWasDown = false;
     core->postExposureSubKeyWasDown = false;
 
-    core->billboardMode = true;
+    core->render.billboardMode = true;
     core->billboardKeyWasDown = false;
-    core->wireframeMode = false;
+    core->render.wireframeMode = false;
     core->wireframeKeyWasDown = false;
 
-    core->exposure = 1.0f;
-    core->saturation = 1.0f;
-    core->contrast = 1.0f;
-    core->gamma = 1.0f;
-    core->gain = 1.0f;
-    core->offset = 0.0f;
-    core->wbTemp = 6500.0f;
-    core->wbTint = 0.0f;
+    core->render.exposure = 1.0f;
+    core->render.saturation = 1.0f;
+    core->render.contrast = 1.0f;
+    core->render.gamma = 1.0f;
+    core->render.gain = 1.0f;
+    core->render.offset = 0.0f;
+    core->render.wbTemp = 6500.0f;
+    core->render.wbTint = 0.0f;
 
     core->lastFrameDeltaSeconds = 0.0f;
 
@@ -119,32 +119,32 @@ static void process_toggles_and_env_inputs(CoreEngine* core, const CoreInput* in
         core->camera.firstMouse = true;
     }
     if (input->showEnvmapTogglePressed)
-        core->showEnvmap = !core->showEnvmap;
+        core->render.showEnvmap = !core->render.showEnvmap;
     if (input->billboardPressed)
-        core->billboardMode = !core->billboardMode;
+        core->render.billboardMode = !core->render.billboardMode;
     if (input->wireframePressed)
-        core->wireframeMode = !core->wireframeMode;
+        core->render.wireframeMode = !core->render.wireframeMode;
 
     constexpr float kEnvLodStep = 0.5f;
     if (input->envPageUpPressed && input->envShiftDown) {
-        core->envLod += kEnvLodStep;
+        core->render.envLod += kEnvLodStep;
     }
     if (input->envPageDownPressed && input->envShiftDown) {
-        core->envLod = std::max(0.0f, core->envLod - kEnvLodStep);
+        core->render.envLod = std::max(0.0f, core->render.envLod - kEnvLodStep);
     }
 }
 
 static void process_ibl_inputs(CoreEngine* core, const CoreInput* input) {
     for (int i = 0; i < 10; ++i) {
         if (input->iblDebugDigitPressed[i])
-            core->iblDebugMode = i;
+            core->render.iblDebugMode = i;
     }
     if (input->iblDebugPrevPressed)
-        core->iblDebugMode = std::max(0, core->iblDebugMode - 1);
+        core->render.iblDebugMode = std::max(0, core->render.iblDebugMode - 1);
     if (input->iblDebugNextPressed)
-        core->iblDebugMode = std::min(9, core->iblDebugMode + 1);
+        core->render.iblDebugMode = std::min(9, core->render.iblDebugMode + 1);
     if (input->iblDebugF6Pressed)
-        core->iblDebugMode = (core->iblDebugMode + 1) % 10;
+        core->render.iblDebugMode = (core->render.iblDebugMode + 1) % 10;
 }
 
 static void process_camera_inputs(CoreEngine* core, const CoreInput* input) {
@@ -170,20 +170,20 @@ static void process_camera_inputs(CoreEngine* core, const CoreInput* input) {
 
 static void process_postprocess_inputs(CoreEngine* core, const CoreInput* input, float deltaSeconds) {
     if (input->postExposureAddDown) {
-        core->exposure += (0.1f * deltaSeconds * 2.0f);
+        core->render.exposure += (0.1f * deltaSeconds * 2.0f);
     }
     if (input->postExposureSubDown) {
-        core->exposure = std::max(0.01f, core->exposure - (0.1f * deltaSeconds * 2.0f));
+        core->render.exposure = std::max(0.01f, core->render.exposure - (0.1f * deltaSeconds * 2.0f));
     }
     if (input->postResetPressed) {
-        core->exposure = 1.0f;
-        core->saturation = 1.0f;
-        core->contrast = 1.0f;
-        core->gamma = 1.0f;
-        core->gain = 1.0f;
-        core->offset = 0.0f;
-        core->wbTemp = 6500.0f;
-        core->wbTint = 0.0f;
+        core->render.exposure = 1.0f;
+        core->render.saturation = 1.0f;
+        core->render.contrast = 1.0f;
+        core->render.gamma = 1.0f;
+        core->render.gain = 1.0f;
+        core->render.offset = 0.0f;
+        core->render.wbTemp = 6500.0f;
+        core->render.wbTint = 0.0f;
     }
 }
 

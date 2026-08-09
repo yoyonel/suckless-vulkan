@@ -1192,12 +1192,14 @@ bool vk_init_vulkan_engine(VulkanEngine* engine) {
         return false;
     }
     LOG_INFO("engine", "Vulkan initialise avec succes !");
-    LOG_INFO("postprocess", "Default Exposure: %.2f", engine->appState->core.exposure);
-    LOG_INFO("postprocess", "Default IBL Intensity: %.2f (Scale: %.2f)", engine->appState->core.iblIntensity, engine->appState->core.iblDebugScale);
+    LOG_INFO("postprocess", "Default Exposure: %.2f", engine->appState->core.render.exposure);
+    LOG_INFO("postprocess", "Default IBL Intensity: %.2f (Scale: %.2f)", engine->appState->core.render.iblIntensity,
+             engine->appState->core.render.iblDebugScale);
     LOG_INFO("postprocess", "Default Tonemapper: Filmic ACES (DISABLED by default for Legacy OGL-ISO parity)");
-    LOG_INFO("postprocess", "Default Color Grading: Sat=%.2f, Contrast=%.2f, Gamma=%.2f, Gain=%.2f, Offset=%.2f", engine->appState->core.saturation,
-             engine->appState->core.contrast, engine->appState->core.gamma, engine->appState->core.gain, engine->appState->core.offset);
-    LOG_INFO("postprocess", "Default White Balance: Temp=%.1f, Tint=%.2f", engine->appState->core.wbTemp, engine->appState->core.wbTint);
+    LOG_INFO("postprocess", "Default Color Grading: Sat=%.2f, Contrast=%.2f, Gamma=%.2f, Gain=%.2f, Offset=%.2f", engine->appState->core.render.saturation,
+             engine->appState->core.render.contrast, engine->appState->core.render.gamma, engine->appState->core.render.gain,
+             engine->appState->core.render.offset);
+    LOG_INFO("postprocess", "Default White Balance: Temp=%.1f, Tint=%.2f", engine->appState->core.render.wbTemp, engine->appState->core.render.wbTint);
     return true;
 }
 

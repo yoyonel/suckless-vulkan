@@ -288,24 +288,24 @@ void test_vk_engine_runtime(TestStats* stats) {
     fakeState.keyStates[GLFW_KEY_C] = GLFW_RELEASE;
     UPDATE_CONTROLS();
 
-    appState.core.showEnvmap = false;
+    appState.core.render.showEnvmap = false;
     fakeState.keyStates[GLFW_KEY_K] = GLFW_PRESS;
     UPDATE_CONTROLS();
-    check(stats, appState.core.showEnvmap, "K toggles skybox ON");
+    check(stats, appState.core.render.showEnvmap, "K toggles skybox ON");
     fakeState.keyStates[GLFW_KEY_K] = GLFW_RELEASE;
     UPDATE_CONTROLS();
 
-    appState.core.billboardMode = false;
+    appState.core.render.billboardMode = false;
     fakeState.keyStates[GLFW_KEY_B] = GLFW_PRESS;
     UPDATE_CONTROLS();
-    check(stats, appState.core.billboardMode, "B toggles billboard ON");
+    check(stats, appState.core.render.billboardMode, "B toggles billboard ON");
     fakeState.keyStates[GLFW_KEY_B] = GLFW_RELEASE;
     UPDATE_CONTROLS();
 
-    appState.core.wireframeMode = false;
+    appState.core.render.wireframeMode = false;
     fakeState.keyStates[GLFW_KEY_Z] = GLFW_PRESS;
     UPDATE_CONTROLS();
-    check(stats, appState.core.wireframeMode, "Z toggles wireframe ON");
+    check(stats, appState.core.render.wireframeMode, "Z toggles wireframe ON");
     fakeState.keyStates[GLFW_KEY_Z] = GLFW_RELEASE;
     UPDATE_CONTROLS();
 
@@ -341,43 +341,43 @@ void test_vk_engine_runtime(TestStats* stats) {
     for (int digit = 0; digit <= 9; ++digit) {
         fakeState.keyStates[GLFW_KEY_0 + digit] = GLFW_PRESS;
         UPDATE_CONTROLS();
-        check(stats, appState.core.iblDebugMode == digit, "Digit key sets IBL debug mode");
+        check(stats, appState.core.render.iblDebugMode == digit, "Digit key sets IBL debug mode");
         fakeState.keyStates[GLFW_KEY_0 + digit] = GLFW_RELEASE;
         UPDATE_CONTROLS();
     }
 
-    appState.core.iblDebugMode = 5;
+    appState.core.render.iblDebugMode = 5;
     fakeState.keyStates[GLFW_KEY_LEFT_BRACKET] = GLFW_PRESS;
     UPDATE_CONTROLS();
-    check(stats, appState.core.iblDebugMode == 4, "[ decrements IBL debug mode");
+    check(stats, appState.core.render.iblDebugMode == 4, "[ decrements IBL debug mode");
     fakeState.keyStates[GLFW_KEY_LEFT_BRACKET] = GLFW_RELEASE;
     UPDATE_CONTROLS();
 
     fakeState.keyStates[GLFW_KEY_LEFT_BRACKET] = GLFW_PRESS;
-    appState.core.iblDebugMode = -100;
+    appState.core.render.iblDebugMode = -100;
     UPDATE_CONTROLS();
-    check(stats, appState.core.iblDebugMode == 0, "[ clamps IBL mode to 0");
+    check(stats, appState.core.render.iblDebugMode == 0, "[ clamps IBL mode to 0");
     fakeState.keyStates[GLFW_KEY_LEFT_BRACKET] = GLFW_RELEASE;
     UPDATE_CONTROLS();
 
     fakeState.keyStates[GLFW_KEY_RIGHT_BRACKET] = GLFW_PRESS;
-    appState.core.iblDebugMode = 5;
+    appState.core.render.iblDebugMode = 5;
     UPDATE_CONTROLS();
-    check(stats, appState.core.iblDebugMode == 6, "] increments IBL debug mode");
+    check(stats, appState.core.render.iblDebugMode == 6, "] increments IBL debug mode");
     fakeState.keyStates[GLFW_KEY_RIGHT_BRACKET] = GLFW_RELEASE;
     UPDATE_CONTROLS();
 
     fakeState.keyStates[GLFW_KEY_RIGHT_BRACKET] = GLFW_PRESS;
-    appState.core.iblDebugMode = 100;
+    appState.core.render.iblDebugMode = 100;
     UPDATE_CONTROLS();
-    check(stats, appState.core.iblDebugMode == 9, "] clamps IBL debug mode to 9");
+    check(stats, appState.core.render.iblDebugMode == 9, "] clamps IBL debug mode to 9");
     fakeState.keyStates[GLFW_KEY_RIGHT_BRACKET] = GLFW_RELEASE;
     UPDATE_CONTROLS();
 
-    appState.core.iblDebugMode = 5;
+    appState.core.render.iblDebugMode = 5;
     fakeState.keyStates[GLFW_KEY_F6] = GLFW_PRESS;
     UPDATE_CONTROLS();
-    check(stats, appState.core.iblDebugMode == 6, "F6 cycles IBL debug mode");
+    check(stats, appState.core.render.iblDebugMode == 6, "F6 cycles IBL debug mode");
     fakeState.keyStates[GLFW_KEY_F6] = GLFW_RELEASE;
     UPDATE_CONTROLS();
 
@@ -386,40 +386,40 @@ void test_vk_engine_runtime(TestStats* stats) {
     fakeState.keyStates[GLFW_KEY_O] = GLFW_RELEASE;
     UPDATE_CONTROLS();
 
-    appState.core.exposure = 1.0f;
+    appState.core.render.exposure = 1.0f;
     fakeState.keyStates[GLFW_KEY_KP_ADD] = GLFW_PRESS;
     appState.core.lastFrameTimestamp -= std::chrono::milliseconds(100);
     UPDATE_CONTROLS();
-    check(stats, appState.core.exposure > 1.0f, "KP_ADD increases exposure");
+    check(stats, appState.core.render.exposure > 1.0f, "KP_ADD increases exposure");
     fakeState.keyStates[GLFW_KEY_KP_ADD] = GLFW_RELEASE;
     UPDATE_CONTROLS();
 
     fakeState.keyStates[GLFW_KEY_KP_SUBTRACT] = GLFW_PRESS;
     appState.core.lastFrameTimestamp -= std::chrono::milliseconds(100);
     UPDATE_CONTROLS();
-    check(stats, appState.core.exposure < 1.3f, "KP_SUBTRACT decreases exposure");
+    check(stats, appState.core.render.exposure < 1.3f, "KP_SUBTRACT decreases exposure");
     fakeState.keyStates[GLFW_KEY_KP_SUBTRACT] = GLFW_RELEASE;
     UPDATE_CONTROLS();
 
-    appState.core.exposure = 0.0f;
+    appState.core.render.exposure = 0.0f;
     fakeState.keyStates[GLFW_KEY_KP_SUBTRACT] = GLFW_PRESS;
     appState.core.lastFrameTimestamp -= std::chrono::milliseconds(100);
     UPDATE_CONTROLS();
-    check(stats, appState.core.exposure == 0.01f, "KP_SUBTRACT clamps to 0.01f");
+    check(stats, appState.core.render.exposure == 0.01f, "KP_SUBTRACT clamps to 0.01f");
     fakeState.keyStates[GLFW_KEY_KP_SUBTRACT] = GLFW_RELEASE;
     UPDATE_CONTROLS();
 
-    appState.core.exposure = 0.5f;
+    appState.core.render.exposure = 0.5f;
     fakeState.keyStates[GLFW_KEY_0] = GLFW_PRESS;
     UPDATE_CONTROLS();
-    check(stats, appState.core.exposure == 1.0f, "0 resets exposure");
+    check(stats, appState.core.render.exposure == 1.0f, "0 resets exposure");
     fakeState.keyStates[GLFW_KEY_0] = GLFW_RELEASE;
     UPDATE_CONTROLS();
 
-    appState.core.exposure = 0.5f;
+    appState.core.render.exposure = 0.5f;
     fakeState.keyStates[GLFW_KEY_KP_0] = GLFW_PRESS;
     UPDATE_CONTROLS();
-    check(stats, appState.core.exposure == 1.0f, "KP_0 resets exposure");
+    check(stats, appState.core.render.exposure == 1.0f, "KP_0 resets exposure");
     fakeState.keyStates[GLFW_KEY_KP_0] = GLFW_RELEASE;
     UPDATE_CONTROLS();
 
