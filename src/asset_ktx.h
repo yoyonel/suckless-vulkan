@@ -2,8 +2,8 @@
 #define ASSET_KTX_H
 
 #include <cstdint>
+#include <functional>
 #include <string>
-#include <vector>
 
 #pragma pack(push, 1)
 struct KTX2Header {
@@ -37,6 +37,6 @@ enum class KtxResult : uint8_t { Success, FileNotFound, InvalidHeader, ReadError
 
 // API Caveman KTX2
 KtxResult ktx2_bake_hdr_to_file(const std::string& outPath, int width, int height, const float* pixels);
-KtxResult ktx2_load_from_file(const std::string& inPath, int* outWidth, int* outHeight, std::vector<float>& outPixels);
+KtxResult ktx2_load_from_file(const std::string& inPath, int* outWidth, int* outHeight, const std::function<void*(size_t)>& allocate_func);
 
 #endif // ASSET_KTX_H

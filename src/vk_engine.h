@@ -37,13 +37,14 @@ enum class HdrLoadRequestState : std::uint8_t {
 };
 
 struct HdrLoadRequest {
-    int hdrIndex;                  // Index in hdrFiles array
-    HdrLoadRequestState state;     // Current load state
-    std::vector<float> pixelData;  // CPU-side RGBA32F pixel data
-    uint32_t width;                // Image width
-    uint32_t height;               // Image height
-    uint32_t channels;             // Channels (typically 4)
-    std::string sourcePathOrLabel; // Source file path or fallback label
+    int hdrIndex;                                     // Index in hdrFiles array
+    HdrLoadRequestState state;                        // Current load state
+    VkBuffer stagingBuffer = VK_NULL_HANDLE;          // Direct mapped VRAM staging buffer
+    VmaAllocation stagingAllocation = VK_NULL_HANDLE; // Allocation handle
+    uint32_t width;                                   // Image width
+    uint32_t height;                                  // Image height
+    uint32_t channels;                                // Channels (typically 4)
+    std::string sourcePathOrLabel;                    // Source file path or fallback label
 };
 
 // Phase IBL-0: Synchronous Bake Resources

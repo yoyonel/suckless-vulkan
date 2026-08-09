@@ -206,30 +206,7 @@ int find_default_hdr_index(const std::vector<std::string>& hdrFiles) {
 
 namespace {
 
-bool create_hdr_staging_buffer(VulkanEngine* engine, const float* pixels, int width, int height, VkBuffer& stagingBuffer, VmaAllocation& stagingAllocation) {
-    const VkDeviceSize imageSize = static_cast<VkDeviceSize>(width) * static_cast<VkDeviceSize>(height) * 4 * sizeof(float);
-
-    VkBufferCreateInfo bufferInfo{};
-    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    bufferInfo.size = imageSize;
-    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-
-    VmaAllocationCreateInfo stagingAllocInfo{};
-    stagingAllocInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
-
-    if (vmaCreateBuffer(engine->allocator, &bufferInfo, &stagingAllocInfo, &stagingBuffer, &stagingAllocation, nullptr) != VK_SUCCESS) {
-        return false;
-    }
-
-    void* mapped = nullptr;
-    if (vmaMapMemory(engine->allocator, stagingAllocation, &mapped) != VK_SUCCESS) {
-        vmaDestroyBuffer(engine->allocator, stagingBuffer, stagingAllocation);
-        return false;
-    }
-    memcpy(mapped, pixels, static_cast<size_t>(imageSize));
-    vmaUnmapMemory(engine->allocator, stagingAllocation);
-    return true;
-}
+// Staging buffer now directly created in I/O thread
 
 void generate_hdr_mipmaps(VulkanEngine* engine, VkCommandBuffer commandBuffer, int32_t width, int32_t height) {
     int32_t mipWidth = width;
@@ -272,9 +249,10 @@ void generate_hdr_mipmaps(VulkanEngine* engine, VkCommandBuffer commandBuffer, i
 
 } // namespace
 
-bool init_environment_texture_from_pixels(VulkanEngine* engine, const float* pixels, int width, int height, const std::string& sourceLabel, bool isFallback) {
-    SVK_TRACY_ZONE_SCOPED("init_environment_texture_from_pixels");
-    if (pixels == nullptr || width <= 0 || height <= 0) {
+bool init_environment_texture_from_staging(VulkanEngine* engine, VkBuffer stagingBuffer, int width, int height, const std::string& sourceLabel,
+                                           bool isFallback) {
+    SVK_TRACY_ZONE_SCOPED("init_environment_texture_from_staging");
+    if (stagingBuffer == VK_NULL_HANDLE || width <= 0 || height <= 0) {
         return false;
     }
 
@@ -287,12 +265,6 @@ bool init_environment_texture_from_pixels(VulkanEngine* engine, const float* pix
         engine->envHdrMipLevels = 1;
     }
 
-    VkBuffer stagingBuffer = VK_NULL_HANDLE;
-    VmaAllocation stagingAllocation = VK_NULL_HANDLE;
-
-    if (!create_hdr_staging_buffer(engine, pixels, width, height, stagingBuffer, stagingAllocation)) {
-        return false;
-    }
     vk_set_object_name(engine->device, (uint64_t)stagingBuffer, VK_OBJECT_TYPE_BUFFER, "EnvHDR_Staging_Buffer");
 
     engine->envHdrWidth = static_cast<uint32_t>(width);
@@ -301,7 +273,6 @@ bool init_environment_texture_from_pixels(VulkanEngine* engine, const float* pix
     engine->envHdrImage = engine->appState->rhi->CreateTexture(engine->envHdrWidth, engine->envHdrHeight, TextureFormat::RGBA32_SFLOAT, TextureUsage::Sampled,
                                                                engine->envHdrMipLevels, "EnvHDR_Image");
     if (engine->envHdrImage == INVALID_HANDLE) {
-        vmaDestroyBuffer(engine->allocator, stagingBuffer, stagingAllocation);
         return false;
     }
 
@@ -309,7 +280,6 @@ bool init_environment_texture_from_pixels(VulkanEngine* engine, const float* pix
 
     VkCommandBuffer commandBuffer = begin_one_time_commands(engine);
     if (commandBuffer == VK_NULL_HANDLE) {
-        vmaDestroyBuffer(engine->allocator, stagingBuffer, stagingAllocation);
         return false;
     }
 
@@ -334,11 +304,8 @@ bool init_environment_texture_from_pixels(VulkanEngine* engine, const float* pix
     vk_end_label(engine->device, commandBuffer);
 
     if (!end_one_time_commands(engine, commandBuffer)) {
-        vmaDestroyBuffer(engine->allocator, stagingBuffer, stagingAllocation);
         return false;
     }
-
-    vmaDestroyBuffer(engine->allocator, stagingBuffer, stagingAllocation);
 
     engine->envHdrSampler = engine->appState->rhi->CreateSampler(engine->envHdrMipLevels, "EnvHDR_Sampler");
     if (engine->envHdrSampler == INVALID_HANDLE) {
@@ -362,7 +329,7 @@ bool init_environment_texture_from_pixels(VulkanEngine* engine, const float* pix
 }
 
 namespace {
-bool load_hdr_with_ktx2_cache(const std::string& hdrPath, int* outWidth, int* outHeight, std::vector<float>& outPixels) {
+bool load_hdr_with_ktx2_cache(VulkanEngine* engine, const std::string& hdrPath, HdrLoadRequest* request) {
     std::string ktxPath = hdrPath + ".ktx2";
 
     struct stat hdrStat;
@@ -377,24 +344,59 @@ bool load_hdr_with_ktx2_cache(const std::string& hdrPath, int* outWidth, int* ou
         }
     }
 
+    auto allocator_func = [&](size_t size) -> void* {
+        VkBufferCreateInfo bufferInfo{};
+        bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        bufferInfo.size = size;
+        bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+
+        VmaAllocationCreateInfo stagingAllocInfo{};
+        stagingAllocInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+
+        if (vmaCreateBuffer(engine->allocator, &bufferInfo, &stagingAllocInfo, &request->stagingBuffer, &request->stagingAllocation, nullptr) != VK_SUCCESS) {
+            return nullptr;
+        }
+
+        void* mapped = nullptr;
+        if (vmaMapMemory(engine->allocator, request->stagingAllocation, &mapped) != VK_SUCCESS) {
+            vmaDestroyBuffer(engine->allocator, request->stagingBuffer, request->stagingAllocation);
+            request->stagingBuffer = VK_NULL_HANDLE;
+            return nullptr;
+        }
+        return mapped;
+    };
+
     if (ktxValid) {
-        if (ktx2_load_from_file(ktxPath, outWidth, outHeight, outPixels) == KtxResult::Success) {
+        int width;
+        int height;
+        if (ktx2_load_from_file(ktxPath, &width, &height, allocator_func) == KtxResult::Success) {
             LOG_INFO("engine", "[KTX Cache] Load fast-path: %s", ktxPath.c_str());
+            vmaUnmapMemory(engine->allocator, request->stagingAllocation);
+            request->width = static_cast<uint32_t>(width);
+            request->height = static_cast<uint32_t>(height);
             return true;
         }
     }
 
     int channels;
-    float* pixels = stbi_loadf(hdrPath.c_str(), outWidth, outHeight, &channels, 4);
-    if (pixels && *outWidth > 0 && *outHeight > 0) {
-        size_t size = static_cast<size_t>(*outWidth) * static_cast<size_t>(*outHeight) * 4U;
-        outPixels.resize(size);
-        memcpy(outPixels.data(), pixels, size * sizeof(float));
-        stbi_image_free(pixels);
+    int width;
+    int height;
+    float* pixels = stbi_loadf(hdrPath.c_str(), &width, &height, &channels, 4);
+    if (pixels && width > 0 && height > 0) {
+        size_t size = static_cast<size_t>(width) * static_cast<size_t>(height) * 4U * sizeof(float);
+        void* mapped = allocator_func(size);
+        if (mapped) {
+            memcpy(mapped, pixels, size);
+            vmaUnmapMemory(engine->allocator, request->stagingAllocation);
 
-        LOG_INFO("engine", "[KTX Cache] Baking %s...", ktxPath.c_str());
-        ktx2_bake_hdr_to_file(ktxPath, *outWidth, *outHeight, outPixels.data());
-        return true;
+            LOG_INFO("engine", "[KTX Cache] Baking %s...", ktxPath.c_str());
+            ktx2_bake_hdr_to_file(ktxPath, width, height, pixels);
+
+            request->width = static_cast<uint32_t>(width);
+            request->height = static_cast<uint32_t>(height);
+            stbi_image_free(pixels);
+            return true;
+        }
     }
 
     if (pixels)
@@ -404,24 +406,47 @@ bool load_hdr_with_ktx2_cache(const std::string& hdrPath, int* outWidth, int* ou
 } // namespace
 
 bool init_environment_texture_from_path(VulkanEngine* engine, const std::string& hdrPath) {
-    int width = 1;
-    int height = 1;
-    std::vector<float> loadedPixels;
-    std::vector<float> fallbackPixels;
+    HdrLoadRequest request{};
 
     if (hdrPath.empty()) {
         LOG_INFO("engine", "Aucun fichier HDR trouve dans assets/textures/hdr, utilisation d'une texture fallback 1x1");
-        fallbackPixels = {0.0f, 0.0f, 0.0f, 1.0f};
-        return init_environment_texture_from_pixels(engine, fallbackPixels.data(), width, height, "fallback-1x1", true);
+        float fallbackPixel[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+        // Quick setup for fallback staging
+        VkBufferCreateInfo bufferInfo{
+            VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, nullptr, 0, 16, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_SHARING_MODE_EXCLUSIVE, 0, nullptr};
+        VmaAllocationCreateInfo stagingAllocInfo{};
+        stagingAllocInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+        vmaCreateBuffer(engine->allocator, &bufferInfo, &stagingAllocInfo, &request.stagingBuffer, &request.stagingAllocation, nullptr);
+        void* mapped;
+        vmaMapMemory(engine->allocator, request.stagingAllocation, &mapped);
+        memcpy(mapped, fallbackPixel, 16);
+        vmaUnmapMemory(engine->allocator, request.stagingAllocation);
+        bool res = init_environment_texture_from_staging(engine, request.stagingBuffer, 1, 1, "fallback-1x1", true);
+        vmaDestroyBuffer(engine->allocator, request.stagingBuffer, request.stagingAllocation);
+        return res;
     }
 
-    if (!load_hdr_with_ktx2_cache(hdrPath, &width, &height, loadedPixels) || width <= 0 || height <= 0) {
+    if (!load_hdr_with_ktx2_cache(engine, hdrPath, &request) || request.width == 0) {
         LOG_WARNING("engine", "Echec du chargement HDR: %s, utilisation d'une texture fallback 1x1", hdrPath.c_str());
-        fallbackPixels = {0.0f, 0.0f, 0.0f, 1.0f};
-        return init_environment_texture_from_pixels(engine, fallbackPixels.data(), 1, 1, "fallback-1x1", true);
+        float fallbackPixel[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+        VkBufferCreateInfo bufferInfo{
+            VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, nullptr, 0, 16, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_SHARING_MODE_EXCLUSIVE, 0, nullptr};
+        VmaAllocationCreateInfo stagingAllocInfo{};
+        stagingAllocInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+        vmaCreateBuffer(engine->allocator, &bufferInfo, &stagingAllocInfo, &request.stagingBuffer, &request.stagingAllocation, nullptr);
+        void* mapped;
+        vmaMapMemory(engine->allocator, request.stagingAllocation, &mapped);
+        memcpy(mapped, fallbackPixel, 16);
+        vmaUnmapMemory(engine->allocator, request.stagingAllocation);
+        bool res = init_environment_texture_from_staging(engine, request.stagingBuffer, 1, 1, "fallback-1x1", true);
+        vmaDestroyBuffer(engine->allocator, request.stagingBuffer, request.stagingAllocation);
+        return res;
     }
 
-    return init_environment_texture_from_pixels(engine, loadedPixels.data(), width, height, hdrPath, false);
+    bool res =
+        init_environment_texture_from_staging(engine, request.stagingBuffer, static_cast<int>(request.width), static_cast<int>(request.height), hdrPath, false);
+    vmaDestroyBuffer(engine->allocator, request.stagingBuffer, request.stagingAllocation);
+    return res;
 }
 
 void request_environment_texture_async(VulkanEngine* engine, int newHdrIndex) {
@@ -477,15 +502,10 @@ void hdr_io_thread_main(VulkanEngine* engine) {
         if (request.hdrIndex >= 0 && request.hdrIndex < static_cast<int>(engine->hdrFiles.size())) {
             SVK_TRACY_ZONE_SCOPED("hdr_io_thread_decode");
             const std::string hdrPath = engine->hdrFiles[static_cast<size_t>(request.hdrIndex)];
-            int width = 0;
-            int height = 0;
-            std::vector<float> pixels;
-            if (load_hdr_with_ktx2_cache(hdrPath, &width, &height, pixels) && width > 0 && height > 0) {
-                request.width = static_cast<uint32_t>(width);
-                request.height = static_cast<uint32_t>(height);
+
+            if (load_hdr_with_ktx2_cache(engine, hdrPath, &request) && request.width > 0 && request.height > 0) {
                 request.channels = 4;
                 request.sourcePathOrLabel = hdrPath;
-                request.pixelData = std::move(pixels);
                 request.state = HdrLoadRequestState::Ready;
             } else {
                 request.state = HdrLoadRequestState::Failed;
@@ -587,9 +607,15 @@ void vk_stop_hdr_io_thread(VulkanEngine* engine) {
     std::lock_guard<std::mutex> lock(engine->hdrLoadMutex);
     engine->hdrLoadInFlight = false;
     while (!engine->hdrLoadQueue.empty()) {
+        if (engine->hdrLoadQueue.front().stagingBuffer != VK_NULL_HANDLE) {
+            vmaDestroyBuffer(engine->allocator, engine->hdrLoadQueue.front().stagingBuffer, engine->hdrLoadQueue.front().stagingAllocation);
+        }
         engine->hdrLoadQueue.pop();
     }
     while (!engine->hdrReadyQueue.empty()) {
+        if (engine->hdrReadyQueue.front().stagingBuffer != VK_NULL_HANDLE) {
+            vmaDestroyBuffer(engine->allocator, engine->hdrReadyQueue.front().stagingBuffer, engine->hdrReadyQueue.front().stagingAllocation);
+        }
         engine->hdrReadyQueue.pop();
     }
 }
@@ -615,22 +641,27 @@ void vk_process_ready_environment_texture(VulkanEngine* engine) {
         return;
     }
 
-    if (ready.state != HdrLoadRequestState::Ready || ready.pixelData.empty() || ready.width == 0 || ready.height == 0) {
+    if (ready.state != HdrLoadRequestState::Ready || ready.stagingBuffer == VK_NULL_HANDLE || ready.width == 0 || ready.height == 0) {
         LOG_ERROR("runtime", "Echec du chargement async HDR");
+        if (ready.stagingBuffer != VK_NULL_HANDLE)
+            vmaDestroyBuffer(engine->allocator, ready.stagingBuffer, ready.stagingAllocation);
         return;
     }
 
     if (vkDeviceWaitIdle(engine->device) != VK_SUCCESS) {
         LOG_ERROR("runtime", "Impossible de synchroniser le device avant upload HDR async");
+        vmaDestroyBuffer(engine->allocator, ready.stagingBuffer, ready.stagingAllocation);
         return;
     }
 
     vk_cleanup_environment_resources(engine);
-    if (!init_environment_texture_from_pixels(engine, ready.pixelData.data(), static_cast<int>(ready.width), static_cast<int>(ready.height),
-                                              ready.sourcePathOrLabel, false)) {
+    if (!init_environment_texture_from_staging(engine, ready.stagingBuffer, static_cast<int>(ready.width), static_cast<int>(ready.height),
+                                               ready.sourcePathOrLabel, false)) {
         LOG_ERROR("runtime", "Upload GPU HDR async echoue");
+        vmaDestroyBuffer(engine->allocator, ready.stagingBuffer, ready.stagingAllocation);
         return;
     }
+    vmaDestroyBuffer(engine->allocator, ready.stagingBuffer, ready.stagingAllocation);
 
     engine->currentHdrIndex = ready.hdrIndex;
 

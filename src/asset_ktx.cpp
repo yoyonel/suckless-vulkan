@@ -32,7 +32,7 @@ KtxResult ktx2_bake_hdr_to_file(const std::string& outPath, int width, int heigh
     return KtxResult::Success;
 }
 
-KtxResult ktx2_load_from_file(const std::string& inPath, int* outWidth, int* outHeight, std::vector<float>& outPixels) {
+KtxResult ktx2_load_from_file(const std::string& inPath, int* outWidth, int* outHeight, const std::function<void*(size_t)>& allocate_func) {
     FILE* f = fopen(inPath.c_str(), "rb");
     if (!f)
         return KtxResult::FileNotFound;
@@ -59,11 +59,13 @@ KtxResult ktx2_load_from_file(const std::string& inPath, int* outWidth, int* out
 
     fseek(f, static_cast<long>(levelIndex.byteOffset), SEEK_SET);
 
-    size_t numFloats = levelIndex.byteLength / sizeof(float);
-    outPixels.resize(numFloats);
+    void* destBuffer = allocate_func(levelIndex.byteLength);
+    if (!destBuffer) {
+        fclose(f);
+        return KtxResult::ReadError;
+    }
 
-    if (fread(outPixels.data(), 1, levelIndex.byteLength, f) != levelIndex.byteLength) {
-        outPixels.clear();
+    if (fread(destBuffer, 1, levelIndex.byteLength, f) != levelIndex.byteLength) {
         fclose(f);
         return KtxResult::ReadError;
     }
