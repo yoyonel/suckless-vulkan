@@ -115,6 +115,9 @@ struct CoreEngine {
     LinearArena arena;
     BillboardSoA billboardSoA;
 
+    glm::vec3* instancePositions;
+    uint32_t instanceCount;
+
     bool pbrEnabled;
     bool iblEnabled;
     float iblIntensity;

@@ -161,8 +161,9 @@ struct VulkanEngine {
     BufferHandle indexBuffer{INVALID_HANDLE};
     uint32_t indexCount;
 
-    // Instancing : buffer contenant les positions des 100 sphères
-    BufferHandle instanceBuffer{INVALID_HANDLE};
+    // Instancing : Flat Transform Buffer (SSBO)
+    BufferHandle transformBuffer{INVALID_HANDLE};
+    void* transformBufferMapped{nullptr};
 
     // Buffer (SSBO) pour stocker les 100 matériaux PBR
     BufferHandle materialBuffer;

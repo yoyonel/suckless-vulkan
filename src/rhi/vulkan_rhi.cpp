@@ -778,10 +778,10 @@ void VulkanRHI::BindGlobalDescriptor() {
 
 void VulkanRHI::BindMeshBuffers(bool isBillboard) {
     if (!isBillboard) {
-        if (_engine->vertexBuffer != INVALID_HANDLE && _engine->instanceBuffer != INVALID_HANDLE) {
-            VkBuffer buffers[] = {m_buffers[_engine->vertexBuffer].buffer, m_buffers[_engine->instanceBuffer].buffer};
-            VkDeviceSize offsets[] = {0, 0};
-            vkCmdBindVertexBuffers(_engine->commandBuffer, 0, 2, buffers, offsets);
+        if (_engine->vertexBuffer != INVALID_HANDLE) {
+            VkBuffer buffers[] = {m_buffers[_engine->vertexBuffer].buffer};
+            VkDeviceSize offsets[] = {0};
+            vkCmdBindVertexBuffers(_engine->commandBuffer, 0, 1, buffers, offsets);
         }
         if (_engine->indexBuffer != INVALID_HANDLE) {
             vkCmdBindIndexBuffer(_engine->commandBuffer, m_buffers[_engine->indexBuffer].buffer, 0, VK_INDEX_TYPE_UINT32);

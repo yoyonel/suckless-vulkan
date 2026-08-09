@@ -285,7 +285,10 @@ void cleanup_buffer_resources(VulkanEngine* engine) {
 
     engine->appState->rhi->DestroyBuffer(engine->materialBuffer);
 
-    engine->appState->rhi->DestroyBuffer(engine->instanceBuffer);
+    if (engine->transformBufferMapped) {
+        engine->appState->rhi->UnmapBuffer(engine->transformBuffer);
+    }
+    engine->appState->rhi->DestroyBuffer(engine->transformBuffer);
     engine->appState->rhi->DestroyBuffer(engine->vertexBuffer);
     engine->appState->rhi->DestroyBuffer(engine->indexBuffer);
 
@@ -611,7 +614,7 @@ bool init_descriptor_layout(VulkanEngine* engine) {
         {2, DescriptorType::CombinedImageSampler, 1, ShaderStage::Fragment}, {3, DescriptorType::CombinedImageSampler, 1, ShaderStage::Fragment},
         {4, DescriptorType::CombinedImageSampler, 1, ShaderStage::Fragment}, {5, DescriptorType::StorageBuffer, 1, ShaderStage::Fragment},
         {6, DescriptorType::StorageBuffer, 1, ShaderStage::Vertex},          {7, DescriptorType::StorageBuffer, 1, ShaderStage::Vertex},
-        {8, DescriptorType::StorageBuffer, 1, ShaderStage::Vertex}};
+        {8, DescriptorType::StorageBuffer, 1, ShaderStage::Vertex},          {9, DescriptorType::StorageBuffer, 1, ShaderStage::Vertex}};
     DescriptorLayoutDesc desc{bindings.data(), static_cast<uint32_t>(bindings.size())};
     engine->globalDescriptorLayout = engine->appState->rhi->CreateDescriptorLayout(desc, "Global_DescriptorSetLayout");
     return engine->globalDescriptorLayout != INVALID_HANDLE;
@@ -634,9 +637,8 @@ std::vector<uint32_t> load_shader(const char* path) {
 }
 
 bool create_main_graphics_pipeline(VulkanEngine* engine, const std::vector<uint32_t>& vsm, const std::vector<uint32_t>& fsm) {
-    VertexInputBinding bindings[] = {{0, sizeof(Vertex), false}, {1, sizeof(glm::vec3), true}};
-    VertexInputAttribute attrs[] = {
-        {0, 0, VertexFormat::Float3, offsetof(Vertex, position)}, {1, 0, VertexFormat::Float3, offsetof(Vertex, color)}, {2, 1, VertexFormat::Float3, 0}};
+    VertexInputBinding bindings[] = {{0, sizeof(Vertex), false}};
+    VertexInputAttribute attrs[] = {{0, 0, VertexFormat::Float3, offsetof(Vertex, position)}, {1, 0, VertexFormat::Float3, offsetof(Vertex, color)}};
     GraphicsPipelineDesc desc{};
     desc.layout = engine->pipelineLayout;
     desc.renderPass = engine->renderPass;
@@ -645,9 +647,10 @@ bool create_main_graphics_pipeline(VulkanEngine* engine, const std::vector<uint3
     desc.fragmentShaderCode = fsm.data();
     desc.fragmentShaderSize = fsm.size() * 4;
     desc.vertexBindings = bindings;
-    desc.vertexBindingCount = 2;
+    desc.vertexBindingCount = 1;
     desc.vertexAttributes = attrs;
-    desc.vertexAttributeCount = 3;
+    desc.vertexAttributeCount = 2;
+    desc.topology = Topology::TriangleList;
     desc.debugName = "Main_Graphics_Pipeline";
     engine->graphicsPipeline = engine->appState->rhi->CreateGraphicsPipeline(desc);
     return engine->graphicsPipeline != INVALID_HANDLE;
@@ -695,9 +698,8 @@ bool create_billboard_pipeline(VulkanEngine* engine) {
 }
 
 bool create_wireframe_pipeline(VulkanEngine* engine, const std::vector<uint32_t>& vsm, const std::vector<uint32_t>& fsm) {
-    VertexInputBinding bindings[] = {{0, sizeof(Vertex), false}, {1, sizeof(glm::vec3), true}};
-    VertexInputAttribute attrs[] = {
-        {0, 0, VertexFormat::Float3, offsetof(Vertex, position)}, {1, 0, VertexFormat::Float3, offsetof(Vertex, color)}, {2, 1, VertexFormat::Float3, 0}};
+    VertexInputBinding bindings[] = {{0, sizeof(Vertex), false}};
+    VertexInputAttribute attrs[] = {{0, 0, VertexFormat::Float3, offsetof(Vertex, position)}, {1, 0, VertexFormat::Float3, offsetof(Vertex, color)}};
     GraphicsPipelineDesc desc{};
     desc.layout = engine->pipelineLayout;
     desc.renderPass = engine->renderPass;
@@ -706,9 +708,9 @@ bool create_wireframe_pipeline(VulkanEngine* engine, const std::vector<uint32_t>
     desc.fragmentShaderCode = fsm.data();
     desc.fragmentShaderSize = fsm.size() * 4;
     desc.vertexBindings = bindings;
-    desc.vertexBindingCount = 2;
+    desc.vertexBindingCount = 1;
     desc.vertexAttributes = attrs;
-    desc.vertexAttributeCount = 3;
+    desc.vertexAttributeCount = 2;
     desc.polygonMode = PolygonMode::Line;
     desc.debugName = "Wireframe_Pipeline";
     engine->wireframePipeline = engine->appState->rhi->CreateGraphicsPipeline(desc);
@@ -786,18 +788,24 @@ bool create_icosphere_buffers(VulkanEngine* engine, const Icosphere& sphere) {
 
 bool create_instance_grid_buffers(VulkanEngine* engine, std::vector<glm::vec3>& instancePositions) {
     const size_t instanceCount = kMaterialInstanceCount;
+    engine->appState->core.instanceCount = static_cast<uint32_t>(instanceCount);
+    engine->appState->core.instancePositions = static_cast<glm::vec3*>(arena_alloc(&engine->appState->core.arena, instanceCount * sizeof(glm::vec3), 16));
     instancePositions.resize(instanceCount);
+
     for (uint32_t row = 0; row < kGridSize; ++row) {
         for (uint32_t col = 0; col < kGridSize; ++col) {
             const size_t instanceIndex = (static_cast<size_t>(row) * static_cast<size_t>(kGridSize)) + static_cast<size_t>(col);
             const float x = (static_cast<float>(col) * kGridSpacing) - kGridOffset;
             const float y = -((static_cast<float>(row) * kGridSpacing) - kGridOffset);
+            engine->appState->core.instancePositions[instanceIndex] = {x, y, 0.0f};
             instancePositions[instanceIndex] = {x, y, 0.0f};
         }
     }
-    engine->instanceBuffer = engine->appState->rhi->CreateBuffer(instancePositions.size() * sizeof(glm::vec3), BufferUsage::Vertex, instancePositions.data(),
-                                                                 "Instance_Offsets_Buffer");
-    return engine->instanceBuffer != INVALID_HANDLE;
+    engine->transformBuffer = engine->appState->rhi->CreateBuffer(instanceCount * sizeof(glm::mat4), BufferUsage::Storage, nullptr, "Flat_Transform_SSBO");
+    if (engine->transformBuffer != INVALID_HANDLE) {
+        engine->transformBufferMapped = engine->appState->rhi->MapBuffer(engine->transformBuffer);
+    }
+    return engine->transformBuffer != INVALID_HANDLE;
 }
 
 bool create_billboard_instance_buffer(VulkanEngine* engine, const std::vector<glm::vec3>& instancePositions) {
@@ -870,7 +878,7 @@ bool init_buffers(VulkanEngine* engine) {
 }
 
 bool init_descriptor_pool_and_sets(VulkanEngine* engine) {
-    DescriptorPoolSize sizes[3] = {{DescriptorType::UniformBuffer, 1}, {DescriptorType::CombinedImageSampler, 4}, {DescriptorType::StorageBuffer, 4}};
+    DescriptorPoolSize sizes[3] = {{DescriptorType::UniformBuffer, 1}, {DescriptorType::CombinedImageSampler, 4}, {DescriptorType::StorageBuffer, 5}};
     DescriptorPoolDesc desc{sizes, 3, 1};
     engine->globalDescriptorPool = engine->appState->rhi->CreateDescriptorPool(desc, "Global_Descriptor_Pool");
     if (engine->globalDescriptorPool == INVALID_HANDLE) {
@@ -949,7 +957,12 @@ bool init_descriptor_pool_and_sets(VulkanEngine* engine) {
     bbIndexInfo.offset = 0;
     bbIndexInfo.range = VK_WHOLE_SIZE;
 
-    WriteDescriptorSet writes[9] = {};
+    DescriptorBufferInfo transformBufferInfo{};
+    transformBufferInfo.buffer = engine->transformBuffer;
+    transformBufferInfo.offset = 0;
+    transformBufferInfo.range = VK_WHOLE_SIZE;
+
+    WriteDescriptorSet writes[10] = {};
     writes[0].dstSet = engine->descriptorSet;
     writes[0].dstBinding = 0;
     writes[0].dstArrayElement = 0;
@@ -1022,7 +1035,15 @@ bool init_descriptor_pool_and_sets(VulkanEngine* engine) {
     writes[8].pBufferInfo = &bbIndexInfo;
     writes[8].pImageInfo = nullptr;
 
-    engine->appState->rhi->UpdateDescriptorSets(9, writes);
+    writes[9].dstSet = engine->descriptorSet;
+    writes[9].dstBinding = 9;
+    writes[9].dstArrayElement = 0;
+    writes[9].descriptorCount = 1;
+    writes[9].descriptorType = DescriptorType::StorageBuffer;
+    writes[9].pBufferInfo = &transformBufferInfo;
+    writes[9].pImageInfo = nullptr;
+
+    engine->appState->rhi->UpdateDescriptorSets(10, writes);
     return true;
 }
 

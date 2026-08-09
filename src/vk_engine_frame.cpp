@@ -79,6 +79,13 @@ bool vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recreateSw
 
     uboData.windowSize = glm::vec4(static_cast<float>(renderWidth), static_cast<float>(renderHeight), 0.0f, 0.0f);
 
+    if (engine->transformBufferMapped && core.instancePositions) {
+        glm::mat4* transforms = static_cast<glm::mat4*>(engine->transformBufferMapped);
+        for (uint32_t i = 0; i < core.instanceCount; ++i) {
+            transforms[i] = glm::translate(glm::mat4(1.0f), core.instancePositions[i]) * uboData.modelRotation;
+        }
+    }
+
     rhi->UpdateUBO(uboData);
 
     {
