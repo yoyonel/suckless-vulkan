@@ -36,8 +36,8 @@ L'architecture est maintenant complètement découplée, propre, "GPU-Driven rea
    Finaliser les options d'optimisation VRAM (cf. `docs/2026-08-09_options_optimisation_vram.md`), notamment l'Option C (Zero-Copy Staging Buffers via `VMA_MEMORY_USAGE_CPU_ONLY` ou KHR).
 1. **Raytracing / Compute Avancé** :
    Introduire le pipeline Compute de Raytracing de Billboards ou optimiser les passes de luminance IBL.
-1. **Culling GPU** :
-   Grâce au `Flat Transform Buffer` (SSBO) déjà en place pour la grille, implémenter un Frustum Culling via Compute Shader et piloter le rendu via `vkCmdDrawIndexedIndirect`.
+1. **Culling GPU (ANNULÉ)** :
+   *Raison de l'annulation :* Une tentative d'implémentation de Frustum Culling par Compute Shader avec `vkCmdDrawIndexedIndirect` a été avortée (Itération 1). Avec notre scène cible (grille de 10x10 = 100 sphères), le coût de synchronisation (Pipeline Barrier) et de Dispatch du Compute est **supérieur** aux gains. Le culling matériel natif du GPU (Early-Z / Clipping dans le Vertex Shader) est amplement suffisant pour un si faible volume. Le Culling GPU ne sera réévalué que si l'on passe à une échelle massive (> 10 000 instances).
 
 ## 4. Contexte pour la reprise
 
