@@ -2,8 +2,15 @@
 #extension GL_GOOGLE_include_directive : enable
 #include "billboard_utils.glsl"
 
-layout(location = 2) in vec3 instancePos;
-layout(location = 3) in int instanceMaterialIdx;
+layout(std430, set = 0, binding = 6) readonly buffer PosBuffer {
+    vec4 instanceOffsets[];
+};
+layout(std430, set = 0, binding = 7) readonly buffer MatBuffer {
+    int instanceMaterials[];
+};
+layout(std430, set = 0, binding = 8) readonly buffer IndexBuffer {
+    uint sortedIndices[];
+};
 
 layout(set = 0, binding = 0) uniform UBO {
     mat4 vp;
@@ -40,6 +47,10 @@ const int box_indices[24] = int[24](0, 1, 1, 2, 2, 3, 3, 0, // Bottom
 );
 
 void main() {
+    uint inInstanceIdx = sortedIndices[gl_InstanceIndex];
+    vec3 instancePos = instanceOffsets[inInstanceIdx].xyz;
+    int instanceMaterialIdx = instanceMaterials[inInstanceIdx];
+
     vMaterialIdx = instanceMaterialIdx;
     if (push.mode == 0) {
         // AABB box

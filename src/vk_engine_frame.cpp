@@ -1,4 +1,5 @@
 #include "vk_engine_frame.h"
+#include "rhi/command_list.h"
 
 #include "runtime_controls.h"
 #include "tracy_client.h"
@@ -6,6 +7,7 @@
 #include "vk_engine_envmap.h"
 #include "vk_engine_runtime.h"
 
+#include "app_log.h"
 #include <algorithm>
 #include <chrono>
 #include <cstring>
@@ -19,235 +21,204 @@ constexpr float kLegacyDefaultFov = 60.0f;
 
 } // namespace
 
-void vk_update_animation_clock(VulkanEngine* engine, float maxFrameDeltaSeconds) {
-    const auto now = std::chrono::steady_clock::now();
-
-    if (engine->lastFrameTimestamp.time_since_epoch().count() == 0) {
-        engine->lastFrameTimestamp = now;
-        return;
-    }
-
-    float deltaSeconds = std::chrono::duration<float>(now - engine->lastFrameTimestamp).count();
-    engine->lastFrameTimestamp = now;
-    deltaSeconds = std::clamp(deltaSeconds, 0.0f, maxFrameDeltaSeconds);
-    engine->lastFrameDeltaSeconds = deltaSeconds;
-
-    if (!engine->animationPaused) {
-        engine->animationTimeSeconds += deltaSeconds * engine->animationSpeed;
-    }
-}
-
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((target("avx2,fma")))
+#endif
 bool vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recreateSwapchain) {
     SVK_TRACY_ZONE_SCOPED("vk_draw_frame_internal");
-    if (vkWaitForFences(engine->device, 1, &engine->inFlightFence, VK_TRUE, UINT64_MAX) != VK_SUCCESS) {
-        return false;
-    }
-    if (vkResetFences(engine->device, 1, &engine->inFlightFence) != VK_SUCCESS) {
-        return false;
-    }
 
-    {
-        SVK_TRACY_ZONE_SCOPED("Frame CPU Update");
-        vk_update_animation_clock(engine, 0.25f);
-        vk_process_ready_environment_texture(engine);
-        const WindowOps* ops = runtime_default_window_ops();
-        vk_handle_runtime_input(engine, ops);
-        vk_update_camera_key_state(engine, ops);
-        camera_fixed_update(&engine->camera, engine->lastFrameDeltaSeconds);
-    }
+    // Reset the TLS Scratch Arena for this frame
+    arena_reset(&tls_scratch.arena);
+
+    // L1 Cache Optimization: Bring hot pointers/references to stack
+    EngineState* appState = engine->appState;
+    IRHI* rhi = appState->rhi;
+    CoreEngine& core = appState->core;
 
     uint32_t idx;
-    VkResult acquireResult;
     {
         SVK_TRACY_ZONE_SCOPED("Frame CPU Acquire");
-        acquireResult = vkAcquireNextImageKHR(engine->device, engine->swapchain, UINT64_MAX, engine->imageAvailableSemaphore, nullptr, &idx);
-    }
-    if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR) {
-        return recreateSwapchain(engine);
-    }
-    if (acquireResult != VK_SUCCESS && acquireResult != VK_SUBOPTIMAL_KHR) {
-        return false;
+        SwapchainStatus status = rhi->AcquireNextImage(&idx);
+        if (status == SwapchainStatus::NeedRecreate) {
+            return recreateSwapchain(engine);
+        }
+        if (status == SwapchainStatus::Error) {
+            return false;
+        }
     }
     engine->lastRenderedImageIndex = idx;
 
+    {
+        SVK_TRACY_ZONE_SCOPED("Frame CPU Update");
+        vk_process_ready_environment_texture(engine);
+        // Inputs are now handled by HandleInputs() before DrawFrame()
+        core_engine_update(&core, &appState->currentInput, 0.25f);
+
+        appState->currentInput.mouseDeltaX = 0.0f;
+        appState->currentInput.mouseDeltaY = 0.0f;
+        appState->currentInput.scrollDelta = 0.0f;
+    }
+
     UBOData uboData;
     uboData.modelRotation = glm::mat4(1.0f);
-    glm::mat4 view = glm::lookAt(engine->camera.position, engine->camera.position + engine->camera.front, engine->camera.up);
-    glm::mat4 proj =
-        glm::perspective(glm::radians(engine->camera.zoom),
-                         static_cast<float>(engine->swapchainExtent.width) / static_cast<float>(engine->swapchainExtent.height), kNearPlane, kFarPlane);
+    glm::mat4 view = glm::lookAt(core.camera.position, core.camera.position + core.camera.front, core.camera.up);
+
+    uint32_t renderWidth;
+    uint32_t renderHeight;
+    rhi->GetResolution(&renderWidth, &renderHeight);
+    const float aspect = static_cast<float>(renderWidth) / static_cast<float>(renderHeight);
+
+    glm::mat4 proj = glm::perspective(glm::radians(core.camera.zoom), aspect, kNearPlane, kFarPlane);
     proj[1][1] *= -1;
     uboData.vp = proj * view;
 
     glm::mat4 skyboxView = glm::mat4(glm::mat3(view));
-    glm::mat4 skyboxProj =
-        glm::perspective(glm::radians(kLegacyDefaultFov),
-                         static_cast<float>(engine->swapchainExtent.width) / static_cast<float>(engine->swapchainExtent.height), kNearPlane, kFarPlane);
+    glm::mat4 skyboxProj = glm::perspective(glm::radians(kLegacyDefaultFov), aspect, kNearPlane, kFarPlane);
     skyboxProj[1][1] *= -1;
     uboData.invViewProj = glm::inverse(skyboxProj * skyboxView);
 
-    uboData.cameraPosEnvLod = glm::vec4(engine->camera.position, engine->envLod);
-    uboData.debugParams = glm::vec4(static_cast<float>(engine->iblDebugMode), engine->iblDebugScale, engine->billboardMode ? 1.0f : 0.0f, 0.0f);
-    uboData.postParams1 = glm::vec4(engine->exposure, engine->saturation, engine->contrast, engine->gamma);
-    uboData.postParams2 = glm::vec4(engine->gain, engine->offset, engine->wbTemp, engine->wbTint);
+    uboData.cameraPosEnvLod = glm::vec4(core.camera.position, core.render.envLod);
+    uboData.debugParams = glm::vec4(static_cast<float>(core.render.iblDebugMode), core.render.iblDebugScale, core.render.billboardMode ? 1.0f : 0.0f, 0.0f);
+    uboData.postParams1 = glm::vec4(core.render.exposure, core.render.saturation, core.render.contrast, core.render.gamma);
+    uboData.postParams2 = glm::vec4(core.render.gain, core.render.offset, core.render.wbTemp, core.render.wbTint);
     uboData.view = view;
     uboData.proj = proj;
 
-    int width;
-    int height;
-    glfwGetFramebufferSize(engine->window, &width, &height);
-    uboData.windowSize = glm::vec4(static_cast<float>(width), static_cast<float>(height), 0.0f, 0.0f);
+    uboData.windowSize = glm::vec4(static_cast<float>(renderWidth), static_cast<float>(renderHeight), 0.0f, 0.0f);
 
-    memcpy(engine->uniformBufferMapped, &uboData, sizeof(uboData));
+    if (engine->transformBufferMapped && core.scene.instancePositions) {
+        glm::mat4* transforms = static_cast<glm::mat4*>(engine->transformBufferMapped);
+        const glm::vec3* __restrict positions = static_cast<const glm::vec3*>(__builtin_assume_aligned(core.scene.instancePositions, 64));
+        const glm::mat4 baseModelRot = uboData.modelRotation;
+        const uint32_t count = core.scene.instanceCount;
+
+        for (uint32_t i = 0; i < count; ++i) {
+            __builtin_prefetch(&positions[i + 8], 0, 1);
+            transforms[i] = glm::translate(glm::mat4(1.0f), positions[i]) * baseModelRot;
+        }
+    }
+
+    rhi->UpdateUBO(uboData);
 
     {
         SVK_TRACY_ZONE_SCOPED("Frame CPU Record");
-        if (vkResetCommandBuffer(engine->commandBuffer, 0) != VK_SUCCESS) {
-            return false;
-        }
-        VkCommandBufferBeginInfo bi{};
-        bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        if (vkBeginCommandBuffer(engine->commandBuffer, &bi) != VK_SUCCESS) {
+        if (!rhi->BeginFrame()) {
             return false;
         }
 
-        tracy_vk_collect(engine, engine->commandBuffer);
+        IRenderCommandList* cmdList = rhi->GetMainCommandList();
+
+        rhi->CollectProfiling();
 
         {
-            SVK_TRACY_VK_NAMED_ZONE(gpuFrameZone, engine, engine->commandBuffer, "GPU Frame");
+            SVK_RHI_GPU_ZONE(gpuFrameZone, rhi, "GPU Frame");
 
-            vk_begin_label(engine->device, engine->commandBuffer, "Render_Frame_Graphics", 1.0f, 0.5f, 0.0f);
+            rhi->BeginDebugLabel("Render_Frame_Graphics", 1.0f, 0.5f, 0.0f);
 
-            VkClearValue cl[2] = {};
-            cl[0].color = {{0.05f, 0.05f, 0.2f, 1.0f}};
-            cl[1].depthStencil = {1.0f, 0};
-
-            VkRenderPassBeginInfo rp{};
-            rp.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-            rp.renderPass = engine->renderPass;
-            rp.framebuffer = engine->swapchainFramebuffers[idx];
-            rp.renderArea.extent = engine->swapchainExtent;
-            rp.clearValueCount = 2;
-            rp.pClearValues = cl;
-
-            vk_begin_label(engine->device, engine->commandBuffer, "RenderPass_Begin_And_Bindings", 1.0f, 0.8f, 0.2f);
-            vkCmdBeginRenderPass(engine->commandBuffer, &rp, VK_SUBPASS_CONTENTS_INLINE);
-            vkCmdBindDescriptorSets(engine->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, engine->pipelineLayout, 0, 1, &engine->descriptorSet, 0, nullptr);
-            vk_end_label(engine->device, engine->commandBuffer);
+            rhi->BeginDebugLabel("RenderPass_Begin_And_Bindings", 1.0f, 0.8f, 0.2f);
+            cmdList->BeginRenderPass();
+            rhi->BindGlobalDescriptor(cmdList);
+            rhi->EndDebugLabel();
 
             {
-                SVK_TRACY_VK_NAMED_ZONE(gpuSkyboxZone, engine, engine->commandBuffer, "GPU Skybox");
-                vk_begin_label(engine->device, engine->commandBuffer, "Render_Skybox_EnvMap", 0.2f, 0.5f, 1.0f);
-                if (engine->showEnvmap) {
-                    vkCmdBindPipeline(engine->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, engine->skyboxPipeline);
-                    vkCmdDraw(engine->commandBuffer, 3, 1, 0, 0);
+                SVK_RHI_GPU_ZONE(gpuSkyboxZone, rhi, "GPU Skybox");
+                rhi->BeginDebugLabel("Render_Skybox_EnvMap", 0.2f, 0.5f, 1.0f);
+                if (core.render.showEnvmap) {
+                    cmdList->BindPipeline(rhi->GetPipeline(PipelineType::Skybox));
+                    cmdList->Draw(3, 1, 0, 0);
                 }
-                vk_end_label(engine->device, engine->commandBuffer);
+                rhi->EndDebugLabel();
             }
 
             {
-                SVK_TRACY_VK_NAMED_ZONE(gpuSphereZone, engine, engine->commandBuffer, "GPU Spheres");
-                vk_begin_label(engine->device, engine->commandBuffer, "Render_Spheres_Instanced", 0.0f, 1.0f, 0.4f);
-                if (engine->billboardMode) {
-                    const glm::vec3 camPos = engine->camera.position;
-                    std::sort(engine->billboardInstances.begin(), engine->billboardInstances.end(),
-                              [&camPos](const BillboardInstance& a, const BillboardInstance& b) {
-                                  glm::vec3 da = a.pos - camPos;
-                                  glm::vec3 db = b.pos - camPos;
-                                  return glm::dot(da, da) > glm::dot(db, db);
-                              });
+                SVK_RHI_GPU_ZONE(gpuSphereZone, rhi, "GPU Spheres");
+                rhi->BeginDebugLabel("Render_Spheres_Instanced", 0.0f, 1.0f, 0.4f);
+                if (core.render.billboardMode) {
+                    const glm::vec3 camPos = core.camera.position;
+                    BillboardSoA* soa = &core.scene.billboardSoA;
 
-                    if (engine->billboardMapped) {
-                        memcpy(engine->billboardMapped, engine->billboardInstances.data(), engine->billboardInstances.size() * sizeof(BillboardInstance));
+                    struct alignas(8) BillboardSortItem {
+                        uint32_t distBits;
+                        uint32_t index;
+                    };
+
+                    BillboardSortItem* sortItems = static_cast<BillboardSortItem*>(arena_alloc(&tls_scratch.arena, soa->count * sizeof(BillboardSortItem), 8));
+
+                    const glm::vec4* __restrict posArray = static_cast<const glm::vec4*>(__builtin_assume_aligned(soa->pos, 64));
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC unroll 4
+#endif
+                    for (int i = 0; i < soa->count; ++i) {
+                        __builtin_prefetch(&posArray[i + 8], 0, 1);
+                        glm::vec3 da = glm::vec3(posArray[i]) - camPos;
+                        float distSq = glm::dot(da, da);
+                        std::memcpy(&sortItems[i].distBits, &distSq, sizeof(uint32_t));
+                        sortItems[i].index = static_cast<uint32_t>(i);
                     }
 
-                    vkCmdBindPipeline(engine->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, engine->billboardPipeline);
-                    VkBuffer billboardBuffers[] = {engine->billboardBuffer};
-                    VkDeviceSize billboardOffsets[] = {0};
-                    vkCmdBindVertexBuffers(engine->commandBuffer, 1, 1, billboardBuffers, billboardOffsets);
-                    vkCmdDraw(engine->commandBuffer, 6, static_cast<uint32_t>(engine->billboardInstances.size()), 0, 0);
+                    // 2. Cache-Friendly In-Place Sort: Swap adjacent items
+                    std::sort(sortItems, sortItems + soa->count, [](const BillboardSortItem& a, const BillboardSortItem& b) {
+                        return a.distBits > b.distBits; // Positive floats sort correctly as uint32_t
+                    });
+
+                    // 3. Linear Scatter: Extract payload for Vulkan
+                    uint32_t* tempIndices = static_cast<uint32_t*>(arena_alloc(&tls_scratch.arena, soa->count * sizeof(uint32_t), 4));
+                    for (int i = 0; i < soa->count; ++i) {
+                        tempIndices[i] = sortItems[i].index;
+                    }
+
+                    rhi->UpdateBillboardInstances(tempIndices, soa->count);
+
+                    cmdList->BindPipeline(rhi->GetPipeline(PipelineType::Billboard));
+                    rhi->BindMeshBuffers(cmdList, true);
+                    cmdList->Draw(6, static_cast<uint32_t>(soa->count), 0, 0);
                 } else {
-                    VkPipeline pipe = engine->wireframeMode ? engine->wireframePipeline : engine->graphicsPipeline;
-                    vkCmdBindPipeline(engine->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
-                    VkBuffer vertexBuffers[] = {engine->vertexBuffer, engine->instanceBuffer};
-                    VkDeviceSize offsets[] = {0, 0};
-                    vkCmdBindVertexBuffers(engine->commandBuffer, 0, 2, vertexBuffers, offsets);
-                    vkCmdBindIndexBuffer(engine->commandBuffer, engine->indexBuffer, 0, VK_INDEX_TYPE_UINT32);
-                    vkCmdDrawIndexed(engine->commandBuffer, engine->indexCount, kGridSize * kGridSize, 0, 0, 0);
+                    cmdList->BindPipeline(rhi->GetPipeline(core.render.wireframeMode ? PipelineType::Wireframe : PipelineType::Graphics));
+                    rhi->BindMeshBuffers(cmdList, false);
+                    cmdList->DrawIndexed(engine->indexCount, kGridSize * kGridSize, 0, 0, 0);
                 }
 
-                if (engine->wireframeMode && engine->billboardMode) {
+                if (core.render.wireframeMode && core.render.billboardMode) {
                     DebugPushConstant dp = {};
                     dp.model = glm::mat4(1.0f);
                     dp.radius = 1.0f;
 
-                    vkCmdBindPipeline(engine->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, engine->debugTrianglePipeline);
+                    cmdList->BindPipeline(rhi->GetPipeline(PipelineType::DebugTriangle));
                     dp.color = glm::vec4(1.0f, 1.0f, 1.0f, 0.1f);
                     dp.mode = 1;
                     dp.stippled = 2;
-                    vkCmdPushConstants(engine->commandBuffer, engine->debugPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
-                                       sizeof(DebugPushConstant), &dp);
-                    vkCmdDraw(engine->commandBuffer, 6, kGridSize * kGridSize, 0, 0);
+                    cmdList->PushConstants(engine->debugPipelineLayout.get(), ShaderStage::Vertex | ShaderStage::Fragment, 0, sizeof(DebugPushConstant), &dp);
+                    cmdList->Draw(6, kGridSize * kGridSize, 0, 0);
 
-                    vkCmdBindPipeline(engine->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, engine->debugLinePipeline);
+                    cmdList->BindPipeline(rhi->GetPipeline(PipelineType::DebugLine));
                     dp.color = glm::vec4(0.0f, 1.0f, 0.0f, 1.0f);
                     dp.mode = 1;
                     dp.stippled = 0;
-                    vkCmdPushConstants(engine->commandBuffer, engine->debugPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
-                                       sizeof(DebugPushConstant), &dp);
-                    vkCmdDraw(engine->commandBuffer, 8, kGridSize * kGridSize, 0, 0);
+                    cmdList->PushConstants(engine->debugPipelineLayout.get(), ShaderStage::Vertex | ShaderStage::Fragment, 0, sizeof(DebugPushConstant), &dp);
+                    cmdList->Draw(8, kGridSize * kGridSize, 0, 0);
 
                     dp.color = glm::vec4(1.0f, 1.0f, 0.0f, 0.5f);
                     dp.mode = 0;
                     dp.stippled = 1;
-                    vkCmdPushConstants(engine->commandBuffer, engine->debugPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
-                                       sizeof(DebugPushConstant), &dp);
-                    vkCmdDraw(engine->commandBuffer, 24, kGridSize * kGridSize, 0, 0);
+                    cmdList->PushConstants(engine->debugPipelineLayout.get(), ShaderStage::Vertex | ShaderStage::Fragment, 0, sizeof(DebugPushConstant), &dp);
+                    cmdList->Draw(24, kGridSize * kGridSize, 0, 0);
                 }
-                vk_end_label(engine->device, engine->commandBuffer);
+                rhi->EndDebugLabel();
             }
 
-            vkCmdEndRenderPass(engine->commandBuffer);
-            vk_end_label(engine->device, engine->commandBuffer);
+            cmdList->EndRenderPass();
+            rhi->EndDebugLabel();
         }
 
-        if (vkEndCommandBuffer(engine->commandBuffer) != VK_SUCCESS) {
-            return false;
-        }
+        rhi->EndFrame();
     }
-
-    VkPipelineStageFlags wait = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    VkSubmitInfo si{};
-    si.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    si.waitSemaphoreCount = 1;
-    si.pWaitSemaphores = &engine->imageAvailableSemaphore;
-    si.pWaitDstStageMask = &wait;
-    si.commandBufferCount = 1;
-    si.pCommandBuffers = &engine->commandBuffer;
-    si.signalSemaphoreCount = 1;
-    si.pSignalSemaphores = &engine->renderFinishedSemaphore;
 
     {
-        SVK_TRACY_ZONE_SCOPED("Frame CPU Submit");
-        if (vkQueueSubmit(engine->graphicsQueue, 1, &si, engine->inFlightFence) != VK_SUCCESS) {
-            return false;
+        SVK_TRACY_ZONE_SCOPED("Frame CPU Submit and Present");
+        SwapchainStatus status = rhi->SubmitAndPresent(idx);
+        if (status == SwapchainStatus::NeedRecreate) {
+            return recreateSwapchain(engine);
         }
+        return status == SwapchainStatus::Ok;
     }
-
-    VkPresentInfoKHR pri{};
-    pri.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-    pri.waitSemaphoreCount = 1;
-    pri.pWaitSemaphores = &engine->renderFinishedSemaphore;
-    pri.swapchainCount = 1;
-    pri.pSwapchains = &engine->swapchain;
-    pri.pImageIndices = &idx;
-    VkResult presentResult;
-    {
-        SVK_TRACY_ZONE_SCOPED("Frame CPU Present");
-        presentResult = vkQueuePresentKHR(engine->presentQueue, &pri);
-    }
-    if (presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_SUBOPTIMAL_KHR) {
-        return recreateSwapchain(engine);
-    }
-    return presentResult == VK_SUCCESS;
 }
