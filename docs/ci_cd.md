@@ -81,14 +81,14 @@ Après le job `static-checks`, deux jobs optionnels (non-bloquants) diagnostique
 
 #### `memory-checks-asan`
 
-- **Objectif:** Détecter les fuites et corruptions mémoire CPU/RAM
+- **Objectif:** Détecter les fuites et corruptions mémoire CPU/RAM dans la logique métier.
 - **Technologie:** AddressSanitizer (ASan) et UndefinedBehaviorSanitizer (UBSan)
 - **Activation:** Compilé avec `-fsanitize=address,undefined -fno-omit-frame-pointer`
-- **Exécution:** Lance `just test-asan` dans le conteneur CI
-- **Sortie:**
-  - ASan/UBSan imprime les erreurs détectées pendant l'exécution des tests
-  - Les rapports incluent des stack traces annotées pour localiser les fuites
-- **Status:** `continue-on-error: true` — les échecs ne bloquent pas la CI
+- **Exécution:** Lance `scripts/ci/run_ci_asan.sh` dans le conteneur CI
+- **Stratégie ISO-Local (Important) :**
+  - **En CI :** Le conteneur ne disposant pas de GPU, il s'appuie sur `llvmpipe` (rasterizer logiciel CPU/LLVM) qui émet de *faux positifs* de fuites mémoire (dues aux threads JIT asynchrones). Pour garder une CI 100% stable et verte, **le job ASan en CI n'exécute QUE les tests logiques (`LogicTests`)** sans rendu.
+  - **En Local (Pre-push) :** Le développeur exécute le rendu sur un vrai GPU. Un hook git `pre-push` est configuré (`.pre-commit-config.yaml`) pour forcer l'exécution locale de **tous** les tests (`just test-asan`) avant d'autoriser le push. Cela bloque la propagation d'une vraie fuite mémoire vers le dépôt.
+- **Status:** Job bloquant (`continue-on-error: false`) car il ne produit plus de faux positifs.
 
 #### `memory-checks-validation-layers`
 
