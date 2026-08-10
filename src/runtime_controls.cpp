@@ -53,10 +53,10 @@ bool runtime_is_key_pressed_once(GLFWwindow* window, int key, bool* wasDown, con
     return pressedOnce;
 }
 
-bool runtime_toggle_fullscreen(VulkanEngine* engine, const WindowOps* ops) {
-    if (!engine->isFullscreen) {
-        ops->get_window_pos(engine->window, &engine->windowedPosX, &engine->windowedPosY);
-        ops->get_window_size(engine->window, &engine->windowedWidth, &engine->windowedHeight);
+bool runtime_toggle_fullscreen(EngineState* state, const WindowOps* ops) {
+    if (!state->core.window.isFullscreen) {
+        ops->get_window_pos(state->window, &state->core.window.windowedPosX, &state->core.window.windowedPosY);
+        ops->get_window_size(state->window, &state->core.window.windowedWidth, &state->core.window.windowedHeight);
 
         GLFWmonitor* monitor = ops->get_primary_monitor();
         if (monitor == nullptr) {
@@ -68,53 +68,33 @@ bool runtime_toggle_fullscreen(VulkanEngine* engine, const WindowOps* ops) {
             return false;
         }
 
-        ops->set_window_monitor(engine->window, monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
-        engine->isFullscreen = true;
+        ops->set_window_monitor(state->window, monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
+        state->core.window.isFullscreen = true;
         LOG_INFO("runtime", "Mode fullscreen active");
         return true;
     }
 
-    ops->set_window_monitor(engine->window, nullptr, engine->windowedPosX, engine->windowedPosY, engine->windowedWidth, engine->windowedHeight, 0);
-    engine->isFullscreen = false;
+    ops->set_window_monitor(state->window, nullptr, state->core.window.windowedPosX, state->core.window.windowedPosY, state->core.window.windowedWidth,
+                            state->core.window.windowedHeight, 0);
+    state->core.window.isFullscreen = false;
     LOG_INFO("runtime", "Mode fenetre active");
     return true;
 }
 
-void runtime_update_controls(VulkanEngine* engine, const WindowOps* ops) {
-    if (runtime_is_key_pressed_once(engine->window, GLFW_KEY_P, &engine->pauseKeyWasDown, ops)) {
-        engine->animationPaused = !engine->animationPaused;
-        LOG_INFO("runtime", "Animation %s", engine->animationPaused ? "en pause" : "reprise");
-    }
+void runtime_update_controls(EngineState* state, const WindowOps* ops) {
+    state->currentInput.pausePressed = runtime_is_key_pressed_once(state->window, GLFW_KEY_P, &state->core.inputTracking.pauseKeyWasDown, ops);
+    state->currentInput.cameraResetPressed = runtime_is_key_pressed_once(state->window, GLFW_KEY_SPACE, &state->core.inputTracking.cameraResetKeyWasDown, ops);
+    state->currentInput.resetPressed = runtime_is_key_pressed_once(state->window, GLFW_KEY_R, &state->core.inputTracking.resetKeyWasDown, ops);
+    state->currentInput.speedUpPressed = runtime_is_key_pressed_once(state->window, GLFW_KEY_UP, &state->core.inputTracking.speedUpKeyWasDown, ops);
+    state->currentInput.speedDownPressed = runtime_is_key_pressed_once(state->window, GLFW_KEY_DOWN, &state->core.inputTracking.speedDownKeyWasDown, ops);
 
-    if (runtime_is_key_pressed_once(engine->window, GLFW_KEY_SPACE, &engine->cameraResetKeyWasDown, ops)) {
-        camera_init(&engine->camera);
-        LOG_INFO("runtime", "Position camera reinitialisee");
-    }
-
-    if (runtime_is_key_pressed_once(engine->window, GLFW_KEY_R, &engine->resetKeyWasDown, ops)) {
-        engine->animationTimeSeconds = 0.0f;
-        engine->animationSpeed = 1.0f;
-        LOG_INFO("runtime", "Animation reinitialisee");
-    }
-
-    if (runtime_is_key_pressed_once(engine->window, GLFW_KEY_UP, &engine->speedUpKeyWasDown, ops)) {
-        engine->animationSpeed *= 1.25f;
-        LOG_INFO("runtime", "Vitesse animation: %.2fx", engine->animationSpeed);
-    }
-
-    if (runtime_is_key_pressed_once(engine->window, GLFW_KEY_DOWN, &engine->speedDownKeyWasDown, ops)) {
-        engine->animationSpeed *= 0.8f;
-        engine->animationSpeed = engine->animationSpeed < 0.1f ? 0.1f : engine->animationSpeed;
-        LOG_INFO("runtime", "Vitesse animation: %.2fx", engine->animationSpeed);
-    }
-
-    if (runtime_is_key_pressed_once(engine->window, GLFW_KEY_F11, &engine->fullscreenKeyWasDown, ops)) {
-        if (runtime_toggle_fullscreen(engine, ops)) {
-            engine->lastFrameTimestamp = std::chrono::steady_clock::now();
+    if (runtime_is_key_pressed_once(state->window, GLFW_KEY_F11, &state->core.inputTracking.fullscreenKeyWasDown, ops)) {
+        if (runtime_toggle_fullscreen(state, ops)) {
+            state->core.lastFrameTimestamp = std::chrono::steady_clock::now();
         }
     }
 
-    if (runtime_is_key_pressed_once(engine->window, GLFW_KEY_ESCAPE, &engine->escapeKeyWasDown, ops)) {
-        ops->set_window_should_close(engine->window, GLFW_TRUE);
+    if (runtime_is_key_pressed_once(state->window, GLFW_KEY_ESCAPE, &state->core.inputTracking.escapeKeyWasDown, ops)) {
+        ops->set_window_should_close(state->window, GLFW_TRUE);
     }
 }
