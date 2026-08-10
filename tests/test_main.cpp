@@ -1,4 +1,5 @@
 #include "app_log.h"
+#include "rhi/vulkan_rhi.h"
 #include "runtime_controls.h"
 #include "vk_engine.h"
 #include "vk_engine_envmap.h"
@@ -8,18 +9,7 @@
 #include <cstdlib>
 #include <string>
 
-// On réduit au silence les warnings de la lib tierce pour le compilateur
-#if defined(__GNUC__) || defined(__clang__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
-#pragma GCC diagnostic ignored "-Wunused-function"
-#endif
-
 #include <stb/stb_image_write.h>
-
-#if defined(__GNUC__) || defined(__clang__)
-#pragma GCC diagnostic pop
-#endif
 
 #include <cmath>
 #include <cstring>
@@ -35,21 +25,48 @@ struct FrameBufferData {
 
 static bool compare_images(const FrameBufferData& a, const FrameBufferData& b, int threshold, const char* name) {
     size_t diff_count = 0;
+    unsigned char* diff_pixels = new unsigned char[static_cast<size_t>(a.width) * static_cast<size_t>(a.height) * 4];
     for (int px = 0; px < a.width * a.height; ++px) {
         const int base = px * 4;
+        bool is_diff = false;
         for (int c = 0; c < 3; ++c) {
             if (std::abs((int)a.pixels[base + c] - (int)b.pixels[base + c]) > threshold) {
+                is_diff = true;
                 diff_count++;
             }
         }
+        if (is_diff) {
+            diff_pixels[base + 0] = 255;
+            diff_pixels[base + 1] = 0;
+            diff_pixels[base + 2] = 255; // Magenta for differences
+            diff_pixels[base + 3] = 255;
+        } else {
+            diff_pixels[base + 0] = a.pixels[base + 0] / 4; // Dimmed background
+            diff_pixels[base + 1] = a.pixels[base + 1] / 4;
+            diff_pixels[base + 2] = a.pixels[base + 2] / 4;
+            diff_pixels[base + 3] = 255;
+        }
     }
+    bool success = true;
     if (diff_count > 0) {
         float percent = (float)diff_count / (float)(a.width * a.height * 3) * 100.0f;
         LOG_WARNING("test", "Image mismatch for %s: %zu pixels differ (> %d tolerance) - %.2f%%", name, diff_count / 3, threshold, percent);
         // Allow up to 2.5% of pixels to differ (needed for cross-driver wireframe/AA parity)
-        return diff_count < static_cast<size_t>(static_cast<double>(a.width) * a.height * 3 * 0.025);
+        success = diff_count < static_cast<size_t>(static_cast<double>(a.width) * a.height * 3 * 0.025);
     }
-    return true;
+
+    if (!success) {
+        char path_out[256];
+        char path_diff[256];
+        snprintf(path_out, sizeof(path_out), "tests/failures/failed_%s", name);
+        snprintf(path_diff, sizeof(path_diff), "tests/failures/diff_%s", name);
+        stbi_write_png(path_out, a.width, a.height, 4, a.pixels, a.width * 4);
+        stbi_write_png(path_diff, a.width, a.height, 4, diff_pixels, a.width * 4);
+        LOG_WARNING("test", "Wrote failure outputs to %s and %s", path_out, path_diff);
+    }
+
+    delete[] diff_pixels;
+    return success;
 }
 
 static bool readback_frame(VulkanEngine* engine, const FrameBufferData& outFrame) {
@@ -154,8 +171,8 @@ static bool validate_frame(const FrameBufferData& frame, const char* filename) {
             }
             stbi_image_free(refPixels);
         } else {
-            LOG_WARNING("test", "Reference absente, generation automatique : %s", refPath);
-            stbi_write_png(refPath, frame.width, frame.height, 4, frame.pixels, frame.width * 4);
+            LOG_ERROR("test", "Reference absente : %s. Utilisez SVK_UPDATE_REFERENCES=1 pour la generer.", refPath);
+            success = false;
         }
     }
 
@@ -190,11 +207,30 @@ static bool verify_and_capture_frame(VulkanEngine* engine, const char* filename)
     return validate_frame(frame, filename);
 }
 
+extern "C" IRHI* CreateRHI(EngineState*);
+extern "C" void DestroyRHI(IRHI*);
 static bool test_integration_rendering() {
-    VulkanEngine engine = {};
-    if (!init_vulkan_engine(&engine)) {
+    EngineState appState = {};
+
+    arena_init(&appState.rhiArena, RHI_ARENA_CAPACITY_BYTES);
+    core_engine_init(&appState.core);
+
+    if (glfwInit() != GLFW_TRUE) {
         return false;
     }
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+    appState.window = glfwCreateWindow(1024, 768, "Test", NULL, NULL);
+    if (!appState.window) {
+        return false;
+    }
+
+    appState.rhi = CreateRHI(&appState);
+    if (!appState.rhi->Init()) {
+        return false;
+    }
+    VulkanEngine& engine = *static_cast<VulkanRHI*>(appState.rhi)->_engine;
+    // init_vulkan_engine is called by Init()
 
     // Capture 1: Billboard (Default)
     if (!draw_frame(&engine)) {
@@ -204,7 +240,7 @@ static bool test_integration_rendering() {
     bool b1 = verify_and_capture_frame(&engine, "test_billboard.png");
 
     // Capture 2: Icosphere
-    engine.billboardMode = false;
+    engine.appState->core.render.billboardMode = false;
     if (!draw_frame(&engine)) {
         cleanup_vulkan_engine(&engine);
         return false;
@@ -212,8 +248,8 @@ static bool test_integration_rendering() {
     bool b2 = verify_and_capture_frame(&engine, "test_icosphere.png");
 
     // Capture 3: Billboard Wireframe (New)
-    engine.billboardMode = true;
-    engine.wireframeMode = true;
+    engine.appState->core.render.billboardMode = true;
+    engine.appState->core.render.wireframeMode = true;
     if (!draw_frame(&engine)) {
         cleanup_vulkan_engine(&engine);
         return false;
@@ -221,8 +257,8 @@ static bool test_integration_rendering() {
     bool b3 = verify_and_capture_frame(&engine, "test_wireframe_billboard.png");
 
     // Capture 4: Icosphere Wireframe
-    engine.billboardMode = false;
-    engine.wireframeMode = true;
+    engine.appState->core.render.billboardMode = false;
+    engine.appState->core.render.wireframeMode = true;
     if (!draw_frame(&engine)) {
         cleanup_vulkan_engine(&engine);
         return false;
@@ -232,12 +268,12 @@ static bool test_integration_rendering() {
     // Capture 5: Close-up Billboard Singularity (Extreme Proximity)
     // Sphere at (1.25, 1.25, 0.0), Radius 1.0.
     // Camera at distance 1.5 -> 0.5 from surface
-    engine.camera.position = glm::vec3(1.25f, 1.25f, 1.5f);
-    engine.camera.yaw = -90.0f;
-    engine.camera.pitch = 0.0f;
-    camera_update_vectors(&engine.camera);
-    engine.billboardMode = true;
-    engine.wireframeMode = true;
+    engine.appState->core.camera.position = glm::vec3(1.25f, 1.25f, 1.5f);
+    engine.appState->core.camera.yaw = -90.0f;
+    engine.appState->core.camera.pitch = 0.0f;
+    camera_update_vectors(&engine.appState->core.camera);
+    engine.appState->core.render.billboardMode = true;
+    engine.appState->core.render.wireframeMode = true;
     if (!draw_frame(&engine)) {
         cleanup_vulkan_engine(&engine);
         return false;
@@ -246,8 +282,8 @@ static bool test_integration_rendering() {
 
     // Test coverage for default WindowOps wrappers
     const WindowOps* ops = runtime_default_window_ops();
-    ops->get_key(engine.window, GLFW_KEY_UNKNOWN);
-    ops->set_window_should_close(engine.window, GLFW_FALSE);
+    ops->get_key(engine.appState->window, GLFW_KEY_UNKNOWN);
+    ops->set_window_should_close(engine.appState->window, GLFW_FALSE);
     GLFWmonitor* primary = ops->get_primary_monitor();
     if (primary) {
         ops->get_video_mode(primary);
@@ -256,9 +292,9 @@ static bool test_integration_rendering() {
     int winY = 0;
     int winW = 0;
     int winH = 0;
-    ops->get_window_pos(engine.window, &winX, &winY);
-    ops->get_window_size(engine.window, &winW, &winH);
-    ops->set_window_monitor(engine.window, nullptr, winX, winY, winW, winH, 0);
+    ops->get_window_pos(engine.appState->window, &winX, &winY);
+    ops->get_window_size(engine.appState->window, &winW, &winH);
+    ops->set_window_monitor(engine.appState->window, nullptr, winX, winY, winW, winH, 0);
 
     // Test envmap logic
     vk_adjust_env_lod(&engine, 1.0f);
@@ -268,16 +304,24 @@ static bool test_integration_rendering() {
     vk_ibl_export_maps(&engine);
 
     // Cover mouse and scroll callbacks
-    engine.cameraEnabled = false;
-    vk_mouse_callback(engine.window, 10.0, 10.0); // camera off
-    engine.cameraEnabled = true;
-    engine.camera.firstMouse = true;
-    vk_mouse_callback(engine.window, 10.0, 10.0); // first mouse
-    vk_mouse_callback(engine.window, 20.0, 20.0); // move mouse
+    engine.appState->core.cameraEnabled = false;
+    vk_mouse_callback(engine.appState->window, 10.0, 10.0); // camera off
+    engine.appState->core.cameraEnabled = true;
+    engine.appState->core.camera.firstMouse = true;
+    vk_mouse_callback(engine.appState->window, 10.0, 10.0); // first mouse
+    vk_mouse_callback(engine.appState->window, 20.0, 20.0); // move mouse
 
-    vk_scroll_callback(engine.window, 0, 1.0); // scroll
+    vk_scroll_callback(engine.appState->window, 0, 1.0); // scroll
 
     cleanup_vulkan_engine(&engine);
+    appState.rhi->Shutdown();
+    DestroyRHI(appState.rhi);
+
+    arena_free(&appState.rhiArena);
+    arena_free(&appState.core.scene.arena);
+
+    glfwDestroyWindow(appState.window);
+    glfwTerminate();
     return b1 && b2 && b3 && b4 && b5;
 }
 

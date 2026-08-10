@@ -1,10 +1,153 @@
 #include "app_log.h"
+#include "core_engine.h"
 #include "runtime_controls.h"
 #include "vk_engine_runtime.h"
 
+#define UPDATE_CONTROLS()                                                                                                                                      \
+    runtime_update_controls(&appState, &ops);                                                                                                                  \
+    vk_handle_runtime_input(&engine, &ops);                                                                                                                    \
+    vk_update_camera_key_state(&engine, &ops);                                                                                                                 \
+    core_engine_update(&appState.core, &appState.currentInput, 0.16f);
+#include "rhi/command_list.h"
+#include "rhi/rhi_ptr.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+
+class MockCommandList : public IRenderCommandList {
+  public:
+    void BeginRenderPass() override {}
+    void EndRenderPass() override {}
+    void BindPipeline(PipelineHandle /*pipeline*/, bool /*isCompute*/) override {}
+    void BindDescriptorSets(PipelineLayoutHandle /*layout*/, uint32_t /*firstSet*/, uint32_t /*count*/, const DescriptorSetHandle* /*sets*/,
+                            bool /*isCompute*/) override {}
+    void PushConstants(PipelineLayoutHandle /*layout*/, ShaderStage /*stage*/, uint32_t /*offset*/, uint32_t /*size*/, const void* /*values*/) override {}
+    void BindVertexBuffers(uint32_t /*firstBinding*/, uint32_t /*bindingCount*/, const BufferHandle* /*buffers*/, const uint64_t* /*offsets*/) override {}
+    void BindIndexBuffer(BufferHandle /*buffer*/, uint64_t /*offset*/, uint32_t /*indexType*/) override {}
+    void Draw(uint32_t /*vertexCount*/, uint32_t /*instanceCount*/, uint32_t /*firstVertex*/, uint32_t /*firstInstance*/) override {}
+    void DrawIndexed(uint32_t /*indexCount*/, uint32_t /*instanceCount*/, uint32_t /*firstIndex*/, int32_t /*vertexOffset*/,
+                     uint32_t /*firstInstance*/) override {}
+    void Dispatch(uint32_t /*groupCountX*/, uint32_t /*groupCountY*/, uint32_t /*groupCountZ*/) override {}
+    void SetViewport(float /*x*/, float /*y*/, float /*width*/, float /*height*/, float /*minDepth*/, float /*maxDepth*/) override {}
+    void SetScissor(int32_t /*x*/, int32_t /*y*/, uint32_t /*width*/, uint32_t /*height*/) override {}
+    void BeginDebugLabel(const char* /*name*/, float /*r*/, float /*g*/, float /*b*/) override {}
+    void EndDebugLabel() override {}
+    void InsertDebugLabel(const char* /*name*/, float /*r*/, float /*g*/, float /*b*/) override {}
+};
+
+// Mock minimal pour IRHI
+
+class MockRHI : public IRHI {
+
+  public:
+    int destroyedBuffers = 0;
+    int destroyedTextures = 0;
+
+    bool Init() override {
+        return true;
+    }
+    void Shutdown() override {}
+    bool DrawFrame() override {
+        return true;
+    }
+    void HandleInputs(const WindowOps* /*ops*/) override {}
+
+    BufferHandle CreateBuffer(std::size_t /*size*/, BufferUsage /*usage*/, const void* /*initialData*/, const char* /*name*/) override {
+        return 1;
+    }
+    void DestroyBuffer(BufferHandle /*handle*/) override {
+        destroyedBuffers++;
+    }
+    void* MapBuffer(BufferHandle /*handle*/) override {
+        return nullptr;
+    }
+    void UnmapBuffer(BufferHandle /*handle*/) override {}
+
+    TextureHandle CreateTexture(uint32_t /*width*/, uint32_t /*height*/, TextureFormat /*format*/, TextureUsage /*usage*/, uint32_t /*mipLevels*/,
+                                const char* /*name*/) override {
+        return 2;
+    }
+    void DestroyTexture(TextureHandle /*handle*/) override {
+        destroyedTextures++;
+    }
+
+    ImageViewHandle CreateImageView(TextureHandle /*texture*/, uint32_t /*baseMipLevel*/, uint32_t /*levelCount*/, uint32_t /*baseArrayLayer*/,
+                                    uint32_t /*layerCount*/) override {
+        return 3;
+    }
+    void DestroyImageView(ImageViewHandle /*handle*/) override {}
+
+    SamplerHandle CreateSampler(uint32_t /*mipLevels*/, bool /*clampToEdge*/, const char* /*name*/) override {
+        return 4;
+    }
+    void DestroySampler(SamplerHandle /*handle*/) override {}
+
+    DescriptorLayoutHandle CreateDescriptorLayout(const DescriptorLayoutDesc& /*desc*/, const char* /*name*/) override {
+        return 5;
+    }
+    void DestroyDescriptorLayout(DescriptorLayoutHandle /*handle*/) override {}
+
+    DescriptorPoolHandle CreateDescriptorPool(const DescriptorPoolDesc& /*desc*/, const char* /*name*/) override {
+        return 6;
+    }
+    void DestroyDescriptorPool(DescriptorPoolHandle /*handle*/) override {}
+
+    bool AllocateDescriptorSets(const DescriptorSetAllocateDesc& /*desc*/, DescriptorSetHandle* /*outSets*/) override {
+        return true;
+    }
+    void UpdateDescriptorSets(uint32_t /*writeCount*/, const WriteDescriptorSet* /*pDescriptorWrites*/) override {}
+
+    PipelineLayoutHandle CreatePipelineLayout(const PipelineLayoutDesc& /*desc*/, const char* /*name*/) override {
+        return 7;
+    }
+    void DestroyPipelineLayout(PipelineLayoutHandle /*handle*/) override {}
+
+    PipelineHandle CreateComputePipeline(const ComputePipelineDesc& /*desc*/) override {
+        return 8;
+    }
+    PipelineHandle CreateGraphicsPipeline(const GraphicsPipelineDesc& /*desc*/) override {
+        return 9;
+    }
+    void DestroyPipeline(PipelineHandle /*handle*/) override {}
+
+    SwapchainStatus AcquireNextImage(uint32_t* /*imageIndex*/) override {
+        return SwapchainStatus::Ok;
+    }
+    void UpdateUBO(const UBOData& /*data*/) override {}
+    bool BeginFrame() override {
+        return true;
+    }
+    void EndFrame() override {}
+    SwapchainStatus SubmitAndPresent(uint32_t /*imageIndex*/) override {
+        return SwapchainStatus::Ok;
+    }
+
+    void BeginRenderPass() override {}
+    void EndRenderPass() override {}
+
+    PipelineHandle GetPipeline(PipelineType /*type*/) const override {
+        return INVALID_HANDLE;
+    }
+    void BindGlobalDescriptor(class IRenderCommandList* /*cmdList*/) override {}
+    void BindMeshBuffers(class IRenderCommandList* /*cmdList*/, bool /*isBillboard*/) override {}
+    class IRenderCommandList* GetMainCommandList() override {
+        return nullptr;
+    }
+    void UpdateBillboardInstances(const uint32_t* /*instances*/, std::size_t /*count*/) override {}
+
+    void PushDebugConstants(const void* /*data*/, uint32_t /*size*/) override {}
+    void BeginDebugLabel(const char* /*name*/, float /*r*/, float /*g*/, float /*b*/) override {}
+    void EndDebugLabel() override {}
+    void CollectProfiling() override {}
+    void GetResolution(uint32_t* /*width*/, uint32_t* /*height*/) const override {}
+
+    void* GetOpaqueTracyContext() const override {
+        return nullptr;
+    }
+    void* GetOpaqueCommandBuffer() const override { // NOLINT
+        return nullptr;
+    }
+};
 
 // Mocks for vk_engine_runtime.cpp dependencies not linked in logic_tests
 void vk_adjust_env_lod(VulkanEngine* engine, float step) {
@@ -178,249 +321,278 @@ void test_logging(TestStats* stats) {
 }
 
 void test_runtime_controls(TestStats* stats) {
-    FakeWindowOpsState state = {};
-    g_fake = &state;
+    FakeWindowOpsState fakeState = {};
+    g_fake = &fakeState;
     const WindowOps ops = make_fake_ops();
 
+    EngineState appState = {};
     VulkanEngine engine = {};
-    engine.window = reinterpret_cast<GLFWwindow*>(0x2);
-    engine.animationSpeed = 1.0f;
-    engine.animationTimeSeconds = 3.0f;
+    engine.appState = &appState;
+    appState.window = reinterpret_cast<GLFWwindow*>(0x2);
+    appState.core.time.animationSpeed = 1.0f;
+    appState.core.time.animationTimeSeconds = 3.0f;
+    appState.core.lastFrameTimestamp = std::chrono::steady_clock::now();
 
-    state.keyStates[GLFW_KEY_ESCAPE] = GLFW_PRESS;
-    runtime_update_controls(&engine, &ops);
-    check(stats, state.shouldCloseCalled, "ESC should request window close");
-    check(stats, state.shouldCloseValue == GLFW_TRUE, "ESC should set GLFW_TRUE close flag");
+    fakeState.keyStates[GLFW_KEY_ESCAPE] = GLFW_PRESS;
+    UPDATE_CONTROLS();
+    check(stats, fakeState.shouldCloseCalled, "ESC should request window close");
+    check(stats, fakeState.shouldCloseValue == GLFW_TRUE, "ESC should set GLFW_TRUE close flag");
 
-    state.keyStates[GLFW_KEY_ESCAPE] = GLFW_RELEASE;
-    runtime_update_controls(&engine, &ops);
+    fakeState.keyStates[GLFW_KEY_ESCAPE] = GLFW_RELEASE;
+    UPDATE_CONTROLS();
 
-    state.keyStates[GLFW_KEY_F11] = GLFW_PRESS;
-    runtime_update_controls(&engine, &ops);
-    check(stats, engine.isFullscreen, "F11 should switch to fullscreen");
-    check(stats, state.setWindowMonitorCallCount == 1, "Entering fullscreen should call set_window_monitor once");
-    check(stats, state.lastMonitor != nullptr, "Fullscreen should pass a monitor");
-    check(stats, state.lastW == 1920 && state.lastH == 1080, "Fullscreen should use monitor resolution");
+    fakeState.keyStates[GLFW_KEY_F11] = GLFW_PRESS;
+    UPDATE_CONTROLS();
+    check(stats, appState.core.window.isFullscreen, "F11 should switch to fullscreen");
+    check(stats, fakeState.setWindowMonitorCallCount == 1, "Entering fullscreen should call set_window_monitor once");
+    check(stats, fakeState.lastMonitor != nullptr, "Fullscreen should pass a monitor");
+    check(stats, fakeState.lastW == 1920 && fakeState.lastH == 1080, "Fullscreen should use monitor resolution");
 
-    state.keyStates[GLFW_KEY_F11] = GLFW_RELEASE;
-    runtime_update_controls(&engine, &ops);
+    fakeState.keyStates[GLFW_KEY_F11] = GLFW_RELEASE;
+    UPDATE_CONTROLS();
 
-    state.keyStates[GLFW_KEY_F11] = GLFW_PRESS;
-    runtime_update_controls(&engine, &ops);
-    check(stats, !engine.isFullscreen, "Second F11 should return to window mode");
-    check(stats, state.setWindowMonitorCallCount == 2, "Windowed restore should call set_window_monitor");
-    check(stats, state.lastMonitor == nullptr, "Windowed restore should pass null monitor");
-    check(stats, state.lastX == state.windowX && state.lastY == state.windowY, "Windowed restore should use saved position");
-    check(stats, state.lastW == state.windowW && state.lastH == state.windowH, "Windowed restore should use saved size");
+    fakeState.keyStates[GLFW_KEY_F11] = GLFW_PRESS;
+    UPDATE_CONTROLS();
+    check(stats, !appState.core.window.isFullscreen, "Second F11 should return to window mode");
+    check(stats, fakeState.setWindowMonitorCallCount == 2, "Windowed restore should call set_window_monitor");
+    check(stats, fakeState.lastMonitor == nullptr, "Windowed restore should pass null monitor");
+    check(stats, fakeState.lastX == fakeState.windowX && fakeState.lastY == fakeState.windowY, "Windowed restore should use saved position");
+    check(stats, fakeState.lastW == fakeState.windowW && fakeState.lastH == fakeState.windowH, "Windowed restore should use saved size");
 
     // Edge cases for null monitor/video mode
-    state.hasMonitor = false;
-    check(stats, !runtime_toggle_fullscreen(&engine, &ops), "Toggle fullscreen should fail if no monitor");
-    state.hasMonitor = true;
-    state.hasVideoMode = false;
-    check(stats, !runtime_toggle_fullscreen(&engine, &ops), "Toggle fullscreen should fail if no video mode");
-    state.hasVideoMode = true;
+    fakeState.hasMonitor = false;
+    check(stats, !runtime_toggle_fullscreen(&appState, &ops), "Toggle fullscreen should fail if no monitor");
+    fakeState.hasMonitor = true;
+    fakeState.hasVideoMode = false;
+    check(stats, !runtime_toggle_fullscreen(&appState, &ops), "Toggle fullscreen should fail if no video mode");
+    fakeState.hasVideoMode = true;
 
-    camera_init(&engine.camera);
-    engine.camera.position = glm::vec3(1.0f, 2.0f, 3.0f);
+    camera_init(&appState.core.camera);
+    appState.core.camera.position = glm::vec3(1.0f, 2.0f, 3.0f);
 
-    state.keyStates[GLFW_KEY_P] = GLFW_PRESS;
-    runtime_update_controls(&engine, &ops);
-    check(stats, engine.animationPaused, "P should toggle pause on");
-    state.keyStates[GLFW_KEY_P] = GLFW_RELEASE;
-    runtime_update_controls(&engine, &ops);
+    fakeState.keyStates[GLFW_KEY_P] = GLFW_PRESS;
+    UPDATE_CONTROLS();
+    check(stats, appState.core.time.animationPaused, "P should toggle pause on");
+    fakeState.keyStates[GLFW_KEY_P] = GLFW_RELEASE;
+    UPDATE_CONTROLS();
 
-    state.keyStates[GLFW_KEY_SPACE] = GLFW_PRESS;
-    runtime_update_controls(&engine, &ops);
-    check(stats, engine.camera.position.z == 20.0f, "Space should reset camera position (z=20)");
-    check(stats, engine.camera.position.x == 0.0f, "Space should reset camera position (x=0)");
-    state.keyStates[GLFW_KEY_SPACE] = GLFW_RELEASE;
-    runtime_update_controls(&engine, &ops);
+    fakeState.keyStates[GLFW_KEY_SPACE] = GLFW_PRESS;
+    UPDATE_CONTROLS();
+    check(stats, appState.core.camera.position.z == 20.0f, "Space should reset camera position (z=20)");
+    check(stats, appState.core.camera.position.x == 0.0f, "Space should reset camera position (x=0)");
+    fakeState.keyStates[GLFW_KEY_SPACE] = GLFW_RELEASE;
+    UPDATE_CONTROLS();
 
-    state.keyStates[GLFW_KEY_UP] = GLFW_PRESS;
-    runtime_update_controls(&engine, &ops);
-    check(stats, engine.animationSpeed > 1.2f, "Up should increase speed");
-    state.keyStates[GLFW_KEY_UP] = GLFW_RELEASE;
-    runtime_update_controls(&engine, &ops);
+    fakeState.keyStates[GLFW_KEY_UP] = GLFW_PRESS;
+    UPDATE_CONTROLS();
+    check(stats, appState.core.time.animationSpeed > 1.2f, "Up should increase speed");
+    fakeState.keyStates[GLFW_KEY_UP] = GLFW_RELEASE;
+    UPDATE_CONTROLS();
 
-    engine.animationSpeed = 0.05f;
-    state.keyStates[GLFW_KEY_DOWN] = GLFW_PRESS;
-    runtime_update_controls(&engine, &ops);
-    check(stats, engine.animationSpeed >= 0.1f, "Down should clamp speed to minimum");
-    state.keyStates[GLFW_KEY_DOWN] = GLFW_RELEASE;
-    runtime_update_controls(&engine, &ops);
+    appState.core.time.animationSpeed = 0.05f;
+    fakeState.keyStates[GLFW_KEY_DOWN] = GLFW_PRESS;
+    UPDATE_CONTROLS();
+    check(stats, appState.core.time.animationSpeed >= 0.1f, "Down should clamp speed to minimum");
+    fakeState.keyStates[GLFW_KEY_DOWN] = GLFW_RELEASE;
+    UPDATE_CONTROLS();
 
-    engine.animationTimeSeconds = 9.0f;
-    engine.animationSpeed = 2.0f;
-    state.keyStates[GLFW_KEY_R] = GLFW_PRESS;
-    runtime_update_controls(&engine, &ops);
-    check(stats, engine.animationTimeSeconds == 0.0f, "R should reset animation time");
-    check(stats, engine.animationSpeed == 1.0f, "R should restore default animation speed");
+    appState.core.time.animationTimeSeconds = 9.0f;
+    appState.core.time.animationSpeed = 2.0f;
+    fakeState.keyStates[GLFW_KEY_R] = GLFW_PRESS;
+    appState.core.lastFrameTimestamp -= std::chrono::milliseconds(16);
+    UPDATE_CONTROLS();
+    check(stats, appState.core.time.animationTimeSeconds < 0.05f, "R should reset animation time");
+    check(stats, appState.core.time.animationSpeed == 1.0f, "R should restore default animation speed");
 
     g_fake = nullptr;
 }
 
 void test_vk_engine_runtime(TestStats* stats) {
-    FakeWindowOpsState state = {};
-    g_fake = &state;
+    FakeWindowOpsState fakeState = {};
+    g_fake = &fakeState;
     const WindowOps ops = make_fake_ops();
 
+    EngineState appState = {};
     VulkanEngine engine = {};
-    engine.window = reinterpret_cast<GLFWwindow*>(0x2);
+    engine.appState = &appState;
+    appState.window = reinterpret_cast<GLFWwindow*>(0x2);
+    appState.core.lastFrameTimestamp = std::chrono::steady_clock::now();
 
-    engine.cameraEnabled = false;
-    state.keyStates[GLFW_KEY_C] = GLFW_PRESS;
-    vk_handle_runtime_input(&engine, &ops);
-    check(stats, engine.cameraEnabled, "C toggles camera ON");
-    state.keyStates[GLFW_KEY_C] = GLFW_RELEASE;
-    vk_handle_runtime_input(&engine, &ops);
+    appState.core.cameraEnabled = false;
+    fakeState.keyStates[GLFW_KEY_C] = GLFW_PRESS;
+    UPDATE_CONTROLS();
+    check(stats, appState.core.cameraEnabled, "C toggles camera ON");
+    fakeState.keyStates[GLFW_KEY_C] = GLFW_RELEASE;
+    UPDATE_CONTROLS();
 
-    engine.showEnvmap = false;
-    state.keyStates[GLFW_KEY_K] = GLFW_PRESS;
-    vk_handle_runtime_input(&engine, &ops);
-    check(stats, engine.showEnvmap, "K toggles skybox ON");
-    state.keyStates[GLFW_KEY_K] = GLFW_RELEASE;
-    vk_handle_runtime_input(&engine, &ops);
+    appState.core.render.showEnvmap = false;
+    fakeState.keyStates[GLFW_KEY_K] = GLFW_PRESS;
+    UPDATE_CONTROLS();
+    check(stats, appState.core.render.showEnvmap, "K toggles skybox ON");
+    fakeState.keyStates[GLFW_KEY_K] = GLFW_RELEASE;
+    UPDATE_CONTROLS();
 
-    engine.billboardMode = false;
-    state.keyStates[GLFW_KEY_B] = GLFW_PRESS;
-    vk_handle_runtime_input(&engine, &ops);
-    check(stats, engine.billboardMode, "B toggles billboard ON");
-    state.keyStates[GLFW_KEY_B] = GLFW_RELEASE;
-    vk_handle_runtime_input(&engine, &ops);
+    appState.core.render.billboardMode = false;
+    fakeState.keyStates[GLFW_KEY_B] = GLFW_PRESS;
+    UPDATE_CONTROLS();
+    check(stats, appState.core.render.billboardMode, "B toggles billboard ON");
+    fakeState.keyStates[GLFW_KEY_B] = GLFW_RELEASE;
+    UPDATE_CONTROLS();
 
-    engine.wireframeMode = false;
-    state.keyStates[GLFW_KEY_Z] = GLFW_PRESS;
-    vk_handle_runtime_input(&engine, &ops);
-    check(stats, engine.wireframeMode, "Z toggles wireframe ON");
-    state.keyStates[GLFW_KEY_Z] = GLFW_RELEASE;
-    vk_handle_runtime_input(&engine, &ops);
+    appState.core.render.wireframeMode = false;
+    fakeState.keyStates[GLFW_KEY_Z] = GLFW_PRESS;
+    UPDATE_CONTROLS();
+    check(stats, appState.core.render.wireframeMode, "Z toggles wireframe ON");
+    fakeState.keyStates[GLFW_KEY_Z] = GLFW_RELEASE;
+    UPDATE_CONTROLS();
 
-    engine.vsync = false;
-    state.keyStates[GLFW_KEY_V] = GLFW_PRESS;
-    vk_handle_runtime_input(&engine, &ops);
-    check(stats, engine.vsync, "V toggles vsync ON");
-    state.keyStates[GLFW_KEY_V] = GLFW_RELEASE;
-    vk_handle_runtime_input(&engine, &ops);
+    appState.core.vsync = false;
+    fakeState.keyStates[GLFW_KEY_V] = GLFW_PRESS;
+    UPDATE_CONTROLS();
+    check(stats, appState.core.vsync, "V toggles vsync ON");
+    fakeState.keyStates[GLFW_KEY_V] = GLFW_RELEASE;
+    UPDATE_CONTROLS();
 
-    state.keyStates[GLFW_KEY_PAGE_UP] = GLFW_PRESS;
-    vk_handle_runtime_input(&engine, &ops);
-    state.keyStates[GLFW_KEY_PAGE_UP] = GLFW_RELEASE;
+    fakeState.keyStates[GLFW_KEY_PAGE_UP] = GLFW_PRESS;
+    UPDATE_CONTROLS();
+    fakeState.keyStates[GLFW_KEY_PAGE_UP] = GLFW_RELEASE;
 
-    state.keyStates[GLFW_KEY_LEFT_SHIFT] = GLFW_PRESS;
-    state.keyStates[GLFW_KEY_PAGE_UP] = GLFW_PRESS;
-    vk_handle_runtime_input(&engine, &ops);
-    state.keyStates[GLFW_KEY_PAGE_UP] = GLFW_RELEASE;
+    fakeState.keyStates[GLFW_KEY_LEFT_SHIFT] = GLFW_PRESS;
+    fakeState.keyStates[GLFW_KEY_PAGE_UP] = GLFW_PRESS;
+    UPDATE_CONTROLS();
+    fakeState.keyStates[GLFW_KEY_PAGE_UP] = GLFW_RELEASE;
 
-    state.keyStates[GLFW_KEY_PAGE_DOWN] = GLFW_PRESS;
-    vk_handle_runtime_input(&engine, &ops);
-    state.keyStates[GLFW_KEY_PAGE_DOWN] = GLFW_RELEASE;
-    state.keyStates[GLFW_KEY_LEFT_SHIFT] = GLFW_RELEASE;
+    fakeState.keyStates[GLFW_KEY_PAGE_DOWN] = GLFW_PRESS;
+    UPDATE_CONTROLS();
+    fakeState.keyStates[GLFW_KEY_PAGE_DOWN] = GLFW_RELEASE;
+    fakeState.keyStates[GLFW_KEY_LEFT_SHIFT] = GLFW_RELEASE;
 
-    state.keyStates[GLFW_KEY_PAGE_DOWN] = GLFW_PRESS;
-    vk_handle_runtime_input(&engine, &ops);
-    state.keyStates[GLFW_KEY_PAGE_DOWN] = GLFW_RELEASE;
+    fakeState.keyStates[GLFW_KEY_PAGE_DOWN] = GLFW_PRESS;
+    UPDATE_CONTROLS();
+    fakeState.keyStates[GLFW_KEY_PAGE_DOWN] = GLFW_RELEASE;
 
-    state.keyStates[GLFW_KEY_RIGHT_SHIFT] = GLFW_PRESS;
-    vk_handle_runtime_input(&engine, &ops);
-    state.keyStates[GLFW_KEY_RIGHT_SHIFT] = GLFW_RELEASE;
+    fakeState.keyStates[GLFW_KEY_RIGHT_SHIFT] = GLFW_PRESS;
+    UPDATE_CONTROLS();
+    fakeState.keyStates[GLFW_KEY_RIGHT_SHIFT] = GLFW_RELEASE;
 
     for (int digit = 0; digit <= 9; ++digit) {
-        state.keyStates[GLFW_KEY_0 + digit] = GLFW_PRESS;
-        vk_handle_runtime_input(&engine, &ops);
-        check(stats, engine.iblDebugMode == digit, "Digit key sets IBL debug mode");
-        state.keyStates[GLFW_KEY_0 + digit] = GLFW_RELEASE;
-        vk_handle_runtime_input(&engine, &ops);
+        fakeState.keyStates[GLFW_KEY_0 + digit] = GLFW_PRESS;
+        UPDATE_CONTROLS();
+        check(stats, appState.core.render.iblDebugMode == digit, "Digit key sets IBL debug mode");
+        fakeState.keyStates[GLFW_KEY_0 + digit] = GLFW_RELEASE;
+        UPDATE_CONTROLS();
     }
 
-    engine.iblDebugMode = 5;
-    state.keyStates[GLFW_KEY_LEFT_BRACKET] = GLFW_PRESS;
-    vk_handle_runtime_input(&engine, &ops);
-    check(stats, engine.iblDebugMode == 4, "[ decrements IBL debug mode");
-    state.keyStates[GLFW_KEY_LEFT_BRACKET] = GLFW_RELEASE;
-    vk_handle_runtime_input(&engine, &ops);
+    appState.core.render.iblDebugMode = 5;
+    fakeState.keyStates[GLFW_KEY_LEFT_BRACKET] = GLFW_PRESS;
+    UPDATE_CONTROLS();
+    check(stats, appState.core.render.iblDebugMode == 4, "[ decrements IBL debug mode");
+    fakeState.keyStates[GLFW_KEY_LEFT_BRACKET] = GLFW_RELEASE;
+    UPDATE_CONTROLS();
 
-    state.keyStates[GLFW_KEY_LEFT_BRACKET] = GLFW_PRESS;
-    engine.iblDebugMode = -100;
-    vk_handle_runtime_input(&engine, &ops);
-    check(stats, engine.iblDebugMode == 0, "[ clamps IBL mode to 0");
-    state.keyStates[GLFW_KEY_LEFT_BRACKET] = GLFW_RELEASE;
-    vk_handle_runtime_input(&engine, &ops);
+    fakeState.keyStates[GLFW_KEY_LEFT_BRACKET] = GLFW_PRESS;
+    appState.core.render.iblDebugMode = -100;
+    UPDATE_CONTROLS();
+    check(stats, appState.core.render.iblDebugMode == 0, "[ clamps IBL mode to 0");
+    fakeState.keyStates[GLFW_KEY_LEFT_BRACKET] = GLFW_RELEASE;
+    UPDATE_CONTROLS();
 
-    state.keyStates[GLFW_KEY_RIGHT_BRACKET] = GLFW_PRESS;
-    engine.iblDebugMode = 5;
-    vk_handle_runtime_input(&engine, &ops);
-    check(stats, engine.iblDebugMode == 6, "] increments IBL debug mode");
-    state.keyStates[GLFW_KEY_RIGHT_BRACKET] = GLFW_RELEASE;
-    vk_handle_runtime_input(&engine, &ops);
+    fakeState.keyStates[GLFW_KEY_RIGHT_BRACKET] = GLFW_PRESS;
+    appState.core.render.iblDebugMode = 5;
+    UPDATE_CONTROLS();
+    check(stats, appState.core.render.iblDebugMode == 6, "] increments IBL debug mode");
+    fakeState.keyStates[GLFW_KEY_RIGHT_BRACKET] = GLFW_RELEASE;
+    UPDATE_CONTROLS();
 
-    state.keyStates[GLFW_KEY_RIGHT_BRACKET] = GLFW_PRESS;
-    engine.iblDebugMode = 100;
-    vk_handle_runtime_input(&engine, &ops);
-    check(stats, engine.iblDebugMode == 9, "] clamps IBL debug mode to 9");
-    state.keyStates[GLFW_KEY_RIGHT_BRACKET] = GLFW_RELEASE;
-    vk_handle_runtime_input(&engine, &ops);
+    fakeState.keyStates[GLFW_KEY_RIGHT_BRACKET] = GLFW_PRESS;
+    appState.core.render.iblDebugMode = 100;
+    UPDATE_CONTROLS();
+    check(stats, appState.core.render.iblDebugMode == 9, "] clamps IBL debug mode to 9");
+    fakeState.keyStates[GLFW_KEY_RIGHT_BRACKET] = GLFW_RELEASE;
+    UPDATE_CONTROLS();
 
-    engine.iblDebugMode = 5;
-    state.keyStates[GLFW_KEY_F5] = GLFW_PRESS;
-    vk_handle_runtime_input(&engine, &ops);
-    check(stats, engine.iblDebugMode == 6, "F5 cycles IBL debug mode");
-    state.keyStates[GLFW_KEY_F5] = GLFW_RELEASE;
-    vk_handle_runtime_input(&engine, &ops);
+    appState.core.render.iblDebugMode = 5;
+    fakeState.keyStates[GLFW_KEY_F6] = GLFW_PRESS;
+    UPDATE_CONTROLS();
+    check(stats, appState.core.render.iblDebugMode == 6, "F6 cycles IBL debug mode");
+    fakeState.keyStates[GLFW_KEY_F6] = GLFW_RELEASE;
+    UPDATE_CONTROLS();
 
-    state.keyStates[GLFW_KEY_O] = GLFW_PRESS;
-    vk_handle_runtime_input(&engine, &ops);
-    state.keyStates[GLFW_KEY_O] = GLFW_RELEASE;
-    vk_handle_runtime_input(&engine, &ops);
+    fakeState.keyStates[GLFW_KEY_O] = GLFW_PRESS;
+    UPDATE_CONTROLS();
+    fakeState.keyStates[GLFW_KEY_O] = GLFW_RELEASE;
+    UPDATE_CONTROLS();
 
-    engine.exposure = 1.0f;
-    engine.lastFrameDeltaSeconds = 1.0f;
-    state.keyStates[GLFW_KEY_KP_ADD] = GLFW_PRESS;
-    vk_handle_runtime_input(&engine, &ops);
-    check(stats, engine.exposure > 1.0f, "KP_ADD increases exposure");
-    state.keyStates[GLFW_KEY_KP_ADD] = GLFW_RELEASE;
-    vk_handle_runtime_input(&engine, &ops);
+    appState.core.render.exposure = 1.0f;
+    fakeState.keyStates[GLFW_KEY_KP_ADD] = GLFW_PRESS;
+    appState.core.lastFrameTimestamp -= std::chrono::milliseconds(100);
+    UPDATE_CONTROLS();
+    check(stats, appState.core.render.exposure > 1.0f, "KP_ADD increases exposure");
+    fakeState.keyStates[GLFW_KEY_KP_ADD] = GLFW_RELEASE;
+    UPDATE_CONTROLS();
 
-    state.keyStates[GLFW_KEY_KP_SUBTRACT] = GLFW_PRESS;
-    vk_handle_runtime_input(&engine, &ops);
-    check(stats, engine.exposure < 1.3f, "KP_SUBTRACT decreases exposure");
-    state.keyStates[GLFW_KEY_KP_SUBTRACT] = GLFW_RELEASE;
-    vk_handle_runtime_input(&engine, &ops);
+    fakeState.keyStates[GLFW_KEY_KP_SUBTRACT] = GLFW_PRESS;
+    appState.core.lastFrameTimestamp -= std::chrono::milliseconds(100);
+    UPDATE_CONTROLS();
+    check(stats, appState.core.render.exposure < 1.3f, "KP_SUBTRACT decreases exposure");
+    fakeState.keyStates[GLFW_KEY_KP_SUBTRACT] = GLFW_RELEASE;
+    UPDATE_CONTROLS();
 
-    engine.exposure = 0.0f;
-    state.keyStates[GLFW_KEY_KP_SUBTRACT] = GLFW_PRESS;
-    vk_handle_runtime_input(&engine, &ops);
-    check(stats, engine.exposure == 0.01f, "KP_SUBTRACT clamps to 0.01f");
-    state.keyStates[GLFW_KEY_KP_SUBTRACT] = GLFW_RELEASE;
-    vk_handle_runtime_input(&engine, &ops);
+    appState.core.render.exposure = 0.0f;
+    fakeState.keyStates[GLFW_KEY_KP_SUBTRACT] = GLFW_PRESS;
+    appState.core.lastFrameTimestamp -= std::chrono::milliseconds(100);
+    UPDATE_CONTROLS();
+    check(stats, appState.core.render.exposure == 0.01f, "KP_SUBTRACT clamps to 0.01f");
+    fakeState.keyStates[GLFW_KEY_KP_SUBTRACT] = GLFW_RELEASE;
+    UPDATE_CONTROLS();
 
-    engine.exposure = 0.5f;
-    state.keyStates[GLFW_KEY_0] = GLFW_PRESS;
-    vk_handle_runtime_input(&engine, &ops);
-    check(stats, engine.exposure == 1.0f, "0 resets exposure");
-    state.keyStates[GLFW_KEY_0] = GLFW_RELEASE;
-    vk_handle_runtime_input(&engine, &ops);
+    appState.core.render.exposure = 0.5f;
+    fakeState.keyStates[GLFW_KEY_0] = GLFW_PRESS;
+    UPDATE_CONTROLS();
+    check(stats, appState.core.render.exposure == 1.0f, "0 resets exposure");
+    fakeState.keyStates[GLFW_KEY_0] = GLFW_RELEASE;
+    UPDATE_CONTROLS();
 
-    engine.exposure = 0.5f;
-    state.keyStates[GLFW_KEY_KP_0] = GLFW_PRESS;
-    vk_handle_runtime_input(&engine, &ops);
-    check(stats, engine.exposure == 1.0f, "KP_0 resets exposure");
-    state.keyStates[GLFW_KEY_KP_0] = GLFW_RELEASE;
-    vk_handle_runtime_input(&engine, &ops);
+    appState.core.render.exposure = 0.5f;
+    fakeState.keyStates[GLFW_KEY_KP_0] = GLFW_PRESS;
+    UPDATE_CONTROLS();
+    check(stats, appState.core.render.exposure == 1.0f, "KP_0 resets exposure");
+    fakeState.keyStates[GLFW_KEY_KP_0] = GLFW_RELEASE;
+    UPDATE_CONTROLS();
 
-    state.keyStates[GLFW_KEY_W] = GLFW_PRESS;
-    state.keyStates[GLFW_KEY_S] = GLFW_PRESS;
-    state.keyStates[GLFW_KEY_A] = GLFW_PRESS;
-    state.keyStates[GLFW_KEY_D] = GLFW_PRESS;
-    state.keyStates[GLFW_KEY_Q] = GLFW_PRESS;
-    state.keyStates[GLFW_KEY_E] = GLFW_PRESS;
-    vk_update_camera_key_state(&engine, &ops);
+    fakeState.keyStates[GLFW_KEY_W] = GLFW_PRESS;
+    fakeState.keyStates[GLFW_KEY_S] = GLFW_PRESS;
+    fakeState.keyStates[GLFW_KEY_A] = GLFW_PRESS;
+    fakeState.keyStates[GLFW_KEY_D] = GLFW_PRESS;
+    fakeState.keyStates[GLFW_KEY_Q] = GLFW_PRESS;
+    fakeState.keyStates[GLFW_KEY_E] = GLFW_PRESS;
+    UPDATE_CONTROLS();
     check(stats,
-          engine.camera.moveForward && engine.camera.moveBackward && engine.camera.moveLeft && engine.camera.moveRight && engine.camera.moveUp &&
-              engine.camera.moveDown,
+          appState.core.camera.moveForward && appState.core.camera.moveBackward && appState.core.camera.moveLeft && appState.core.camera.moveRight &&
+              appState.core.camera.moveUp && appState.core.camera.moveDown,
           "Camera keys set correctly");
 
     g_fake = nullptr;
+}
+
+void test_rhi_ptr(TestStats* stats) {
+    MockRHI mock;
+
+    {
+        rhi::BufferPtr buf(&mock, 42);
+        check(stats, buf.get() == 42, "BufferPtr contains correct handle");
+        check(stats, mock.destroyedBuffers == 0, "Buffer not destroyed yet");
+    }
+    check(stats, mock.destroyedBuffers == 1, "Buffer destroyed at end of scope");
+
+    {
+        rhi::TexturePtr tex(&mock, 100);
+        rhi::TexturePtr tex2 = std::move(tex);
+        check(stats, !tex.is_valid(), "Moved-from handle is invalid"); // NOLINT(bugprone-use-after-move)
+        check(stats, tex2.get() == 100, "Moved-to handle is valid");
+        check(stats, mock.destroyedTextures == 0, "Texture not destroyed on move");
+    }
+    check(stats, mock.destroyedTextures == 1, "Texture destroyed at end of scope after move");
 }
 
 } // namespace
@@ -431,6 +603,7 @@ int main() {
     test_logging(&stats);
     test_runtime_controls(&stats);
     test_vk_engine_runtime(&stats);
+    test_rhi_ptr(&stats);
 
     if (stats.failed != 0) {
         LOG_ERROR("test", "logic tests failed: %d failed / %d passed", stats.failed, stats.passed);

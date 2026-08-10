@@ -16,9 +16,22 @@ repos:
         pass_filenames: false
         stages: [pre-commit]
 
+      - id: check-rhi-leaks
+        name: Check RHI Leaks
+        entry: just check-rhi-leaks
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
       - id: test-before-push
-        name: Run all tests (including visual regression) before push
-        entry: bash -lc 'just test'
+        name: Run all tests (including ASan and visual regression) before push
+        entry: bash -lc 'just test-asan'
         language: system
         pass_filenames: false
         stages: [pre-push]
+
+  - repo: https://github.com/koalaman/shellcheck-precommit
+    rev: v0.10.0
+    hooks:
+      - id: shellcheck
+        args: ["--severity=style"]
