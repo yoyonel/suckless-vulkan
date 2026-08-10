@@ -70,6 +70,6 @@ class NullRHI : public IRHI {
         *height = 600;
     }
     void* GetOpaqueTracyContext() const override { return nullptr; }
-    void* GetOpaqueCommandBuffer() const override { return nullptr; }
+    CommandBufferHandle GetOpaqueCommandBuffer() const override { return {nullptr}; }
 };
 #endif

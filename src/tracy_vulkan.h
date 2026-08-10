@@ -10,8 +10,8 @@
 #define SVK_TRACY_VK_NAMED_ZONE(varname, engine, commandBuffer, name)                                                                                          \
     TracyVkNamedZone(static_cast<TracyVkCtx>((engine)->tracyVkContext), varname, commandBuffer, name, true)
 #define SVK_RHI_GPU_ZONE(varname, rhi, name)                                                                                                                   \
-    TracyVkNamedZone(static_cast<TracyVkCtx>((rhi)->GetOpaqueTracyContext()), varname, static_cast<VkCommandBuffer>((rhi)->GetOpaqueCommandBuffer()), name,    \
-                     true)
+    TracyVkNamedZone(static_cast<TracyVkCtx>((rhi)->GetOpaqueTracyContext()), varname, static_cast<VkCommandBuffer>((rhi)->GetOpaqueCommandBuffer().ptr),      \
+                     name, true)
 #else
 #define SVK_TRACY_VK_NAMED_ZONE(varname, engine, commandBuffer, name)
 #define SVK_RHI_GPU_ZONE(varname, rhi, name)

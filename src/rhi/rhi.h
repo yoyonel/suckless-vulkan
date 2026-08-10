@@ -18,7 +18,7 @@ using SamplerHandle = uint32_t;
 using DescriptorLayoutHandle = uint32_t;
 using DescriptorPoolHandle = uint32_t;
 using DescriptorSetHandle = uint32_t;
-using CommandBufferHandle = void*;
+struct CommandBufferHandle { void* ptr; };
 
 static constexpr uint32_t INVALID_HANDLE = 0xFFFFFFFF;
 
@@ -283,7 +283,7 @@ public:
 
     // Type-erased accessors for profiling/debug tools
     virtual void* GetOpaqueTracyContext() const = 0;
-    virtual void* GetOpaqueCommandBuffer() const = 0;
+    virtual CommandBufferHandle GetOpaqueCommandBuffer() const = 0;
 };
 
 #endif

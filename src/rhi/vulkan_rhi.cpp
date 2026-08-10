@@ -541,7 +541,16 @@ void VulkanRHI::DestroyImageView(ImageViewHandle handle) {
     }
 }
 
-// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+
+
+static VkImageLayout MapImageLayout(TextureLayout layout) {
+    switch (layout) {
+        case TextureLayout::General: return VK_IMAGE_LAYOUT_GENERAL;
+        case TextureLayout::ShaderReadOnlyOptimal: return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        default: return VK_IMAGE_LAYOUT_UNDEFINED;
+    }
+}
+
 void VulkanRHI::UpdateDescriptorSets(uint32_t writeCount, const WriteDescriptorSet* pDescriptorWrites) {
     VkWriteDescriptorSet* vkWrites = static_cast<VkWriteDescriptorSet*>(arena_alloc(&tls_scratch.arena, writeCount * sizeof(VkWriteDescriptorSet), alignof(VkWriteDescriptorSet)));
     
@@ -576,13 +585,7 @@ void VulkanRHI::UpdateDescriptorSets(uint32_t writeCount, const WriteDescriptorS
         vkWrites[i].pBufferInfo = nullptr;
         vkWrites[i].pTexelBufferView = nullptr;
         
-        switch (pDescriptorWrites[i].descriptorType) {
-            case DescriptorType::UniformBuffer: vkWrites[i].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; break;
-            case DescriptorType::StorageBuffer: vkWrites[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; break;
-            case DescriptorType::CombinedImageSampler: vkWrites[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; break;
-            case DescriptorType::StorageImage: vkWrites[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE; break;
-            default: break;
-        }
+        vkWrites[i].descriptorType = MapDescriptorType(pDescriptorWrites[i].descriptorType);
 
         if (pDescriptorWrites[i].pImageInfo) {
             uint32_t startIndex = currentImageIndex;
@@ -594,11 +597,7 @@ void VulkanRHI::UpdateDescriptorSets(uint32_t writeCount, const WriteDescriptorS
                 } else {
                     info.imageView = GetVkImageView(pDescriptorWrites[i].pImageInfo[j].texture);
                 }
-                switch (pDescriptorWrites[i].pImageInfo[j].imageLayout) {
-                    case TextureLayout::General: info.imageLayout = VK_IMAGE_LAYOUT_GENERAL; break;
-                    case TextureLayout::ShaderReadOnlyOptimal: info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL; break;
-                    default: info.imageLayout = VK_IMAGE_LAYOUT_UNDEFINED; break;
-                }
+                info.imageLayout = MapImageLayout(pDescriptorWrites[i].pImageInfo[j].imageLayout);
                 vkImageInfos[currentImageIndex++] = info;
             }
             vkWrites[i].pImageInfo = &vkImageInfos[startIndex];
@@ -825,8 +824,8 @@ void* VulkanRHI::GetOpaqueTracyContext() const {
     return _engine->tracyVkContext;
 }
 
-void* VulkanRHI::GetOpaqueCommandBuffer() const {
-    return _engine->commandBuffer;
+CommandBufferHandle VulkanRHI::GetOpaqueCommandBuffer() const {
+    return {_engine->commandBuffer};
 }
 
 PipelineLayoutHandle VulkanRHI::CreatePipelineLayout(const PipelineLayoutDesc& desc, const char* name) {
@@ -883,6 +882,10 @@ PipelineHandle VulkanRHI::CreateComputePipeline(const ComputePipelineDesc& desc)
     VkShaderModule module = VK_NULL_HANDLE;
     if (vkCreateShaderModule(_engine->device, &modInfo, nullptr, &module) != VK_SUCCESS) {
         return INVALID_HANDLE;
+    }
+    if (desc.name) {
+        std::string sname = std::string(desc.name) + "_CS";
+        vk_set_object_name(_engine->device, (uint64_t)module, VK_OBJECT_TYPE_SHADER_MODULE, sname.c_str());
     }
 
     VkComputePipelineCreateInfo info{};
@@ -946,6 +949,12 @@ PipelineHandle VulkanRHI::CreateGraphicsPipeline(const GraphicsPipelineDesc& des
     if (vkCreateShaderModule(_engine->device, &fInfo, nullptr, &fsm) != VK_SUCCESS) {
         vkDestroyShaderModule(_engine->device, vsm, nullptr);
         return INVALID_HANDLE;
+    }
+    if (desc.debugName) {
+        std::string vname = std::string(desc.debugName) + "_VS";
+        std::string fname = std::string(desc.debugName) + "_FS";
+        vk_set_object_name(_engine->device, (uint64_t)vsm, VK_OBJECT_TYPE_SHADER_MODULE, vname.c_str());
+        vk_set_object_name(_engine->device, (uint64_t)fsm, VK_OBJECT_TYPE_SHADER_MODULE, fname.c_str());
     }
 
     VkPipelineShaderStageCreateInfo stages[2] = {};

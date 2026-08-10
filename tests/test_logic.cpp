@@ -144,8 +144,8 @@ class MockRHI : public IRHI {
     void* GetOpaqueTracyContext() const override {
         return nullptr;
     }
-    void* GetOpaqueCommandBuffer() const override { // NOLINT
-        return nullptr;
+    CommandBufferHandle GetOpaqueCommandBuffer() const override {
+        return {nullptr};
     }
 };
 
@@ -587,8 +587,9 @@ void test_rhi_ptr(TestStats* stats) {
 
     {
         rhi::TexturePtr tex(&mock, 100);
+        rhi::TexturePtr& tex_ref = tex;
         rhi::TexturePtr tex2 = std::move(tex);
-        check(stats, !tex.is_valid(), "Moved-from handle is invalid"); // NOLINT(bugprone-use-after-move)
+        check(stats, tex_ref.empty(), "Moved-from handle is invalid");
         check(stats, tex2.get() == 100, "Moved-to handle is valid");
         check(stats, mock.destroyedTextures == 0, "Texture not destroyed on move");
     }

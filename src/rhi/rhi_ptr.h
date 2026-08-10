@@ -54,6 +54,9 @@ template <typename HandleT, void (IRHI::*DestroyFn)(HandleT)> class RhiHandle {
     bool is_valid() const {
         return handle != INVALID_HANDLE;
     }
+    bool empty() const {
+        return handle == INVALID_HANDLE;
+    }
 
     // Utile pour piocher l'adresse du handle sous jacent si on passe à Vulkan (ex: &handle)
     // Mais risqué. On préfère `.get()`

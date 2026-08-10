@@ -1,6 +1,7 @@
 #include <vector>
 #include "vulkan_command_list.h"
 #include "vulkan_rhi.h"
+#include "../vk_engine.h"
 
 VulkanCommandList::VulkanCommandList(VulkanRHI* rhi, VkCommandBuffer cmdBuffer)
     : m_rhi(rhi), m_cmdBuffer(cmdBuffer) {
@@ -70,6 +71,10 @@ void VulkanCommandList::SetScissor(int32_t x, int32_t y, uint32_t width, uint32_
     vkCmdSetScissor(m_cmdBuffer, 0, 1, &sc);
 }
 
-void VulkanCommandList::BeginDebugLabel(const char* /*name*/, float /*r*/, float /*g*/, float /*b*/) {}
-void VulkanCommandList::EndDebugLabel() {}
+void VulkanCommandList::BeginDebugLabel(const char* name, float r, float g, float b) {
+    vk_begin_label(m_rhi->_engine->device, m_cmdBuffer, name, r, g, b);
+}
+void VulkanCommandList::EndDebugLabel() {
+    vk_end_label(m_rhi->_engine->device, m_cmdBuffer);
+}
 void VulkanCommandList::InsertDebugLabel(const char* /*name*/, float /*r*/, float /*g*/, float /*b*/) {}

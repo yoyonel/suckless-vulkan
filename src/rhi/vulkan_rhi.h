@@ -86,7 +86,7 @@ public:
     void CollectProfiling() override;
     void GetResolution(uint32_t* width, uint32_t* height) const override;
     void* GetOpaqueTracyContext() const override;
-    void* GetOpaqueCommandBuffer() const override;
+    CommandBufferHandle GetOpaqueCommandBuffer() const override;
 
 private:
     struct VulkanBuffer {
