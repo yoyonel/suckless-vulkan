@@ -32,3 +32,13 @@ core.*
 .vscode/
 .idea/
 .DS_Store
+.cache/
+
+# Profiling
+heaptrack.*
+*.tracy
+
+# Logs
+*.log
+*.ktx2
+tests/failures/

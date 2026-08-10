@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     clang-tidy \
     cmake \
     curl \
+    git \
     libclang-rt-14-dev \
     llvm \
     ninja-build \
@@ -59,7 +60,8 @@ RUN pip3 install --break-system-packages --no-cache-dir \
     uv==0.10.11 \
     cmakelang==0.6.13 \
     yamllint==1.38.0 \
-    pymarkdownlnt==0.9.36
+    pymarkdownlnt==0.9.36 \
+    ruff==0.2.1
 
 # Copy ASan suppressions file for Vulkan SDK/driver false-positives
 COPY .asan_ignorefile /work/.asan_ignorefile
@@ -68,5 +70,5 @@ COPY .asan_ignorefile /work/.asan_ignorefile
 # volume-mounted files are owned by the host user, not root.
 RUN useradd --no-create-home --uid 1001 --shell /bin/bash ci
 
-USER ci
+USER 1001
 WORKDIR /work

@@ -146,6 +146,15 @@ build-tracy-capture: configure-tracy-capture
     @echo "Compilation de tracy-capture (CLI)..."
     @cmake --build build/tracy-capture -j$(nproc)
 
+# Configure tracy-csvexport upstream.
+configure-tracy-csvexport: configure-tracy
+    @cmake -B build/tracy-csvexport -S build/tracy/_deps/tracy-src/csvexport -DCMAKE_BUILD_TYPE=Release
+
+# Compile tracy-csvexport upstream.
+build-tracy-csvexport: configure-tracy-csvexport
+    @echo "Compilation de tracy-csvexport (CLI)..."
+    @cmake --build build/tracy-csvexport -j$(nproc)
+
 # --- EXECUTION & DEBUG ---
 
 # Exécute l'application release.
@@ -180,6 +189,20 @@ renderdoc-debug-shaders: build-debug-renderdoc
     @{{ renderdoc_bin }} --working-dir . ./build/debug/vulkan_app
 
 # Exécute tous les tests CTest du build release.
+test-tracy: build-tracy
+    @scripts/smoke_test_app.sh ./build/tracy/vulkan_app
+
+test-oom: build
+    @scripts/test_oom.sh
+
+benchmark: build
+    @chmod +x scripts/benchmark.sh
+    @scripts/benchmark.sh
+
+benchmark-tracy: build-tracy build-tracy-capture build-tracy-csvexport
+    @chmod +x scripts/benchmark_tracy.sh
+    @scripts/benchmark_tracy.sh
+
 test: build
     @ctest --test-dir build/release --output-on-failure
 
@@ -301,13 +324,18 @@ format-just:
     @echo "Formatage du justfile..."
     @JUST_UNSTABLE=1 just --fmt
 
+# Formate le code Python.
+format-python:
+    @echo "Formatage du code Python..."
+    @uvx ruff format scripts/
+
 # Formate la documentation Markdown.
 format-docs:
     @echo "Formatage du Markdown avec mdformat..."
     @uvx mdformat docs/
 
 # Lance tous les formateurs.
-format: format-code format-cmake format-shell format-yaml format-docs format-just
+format: format-code format-cmake format-shell format-yaml format-docs format-just format-python
 
 # Lance clang-tidy en parallèle sur tous les fichiers C/C++ du projet (hors ext). En CI (CI=true), cmake est regenere dans un dossier temporaire (chemins natifs au conteneur). En local, build/release est reutilise pour la vitesse. Parallelise avec xargs -P $(nproc) pour utiliser tous les cores.
 lint-c:
@@ -368,7 +396,11 @@ lint-cmake:
 # Lint shell scripts.
 lint-shell:
     @echo "Lint shell scripts..."
-    @shellcheck scripts/*.sh
+    @if command -v shellcheck >/dev/null 2>&1; then \
+        shellcheck scripts/*.sh; \
+    else \
+        docker run --rm -v "${PWD}:/mnt" -w /mnt koalaman/shellcheck:v0.10.0 scripts/*.sh; \
+    fi
 
 # Lint YAML.
 lint-yaml:
@@ -417,14 +449,24 @@ lint-actions:
         docker run --rm -v "${PWD}:/work" -w /work rhysd/actionlint:latest; \
     fi
 
+# Vérifie qu'aucun type Vulkan ne fuite dans la logique pure.
+check-rhi-leaks:
+    @echo "Vérification des fuites RHI..."
+    @python3 scripts/check_rhi_leaks.py
+
+# Lint Python scripts.
+lint-python:
+    @echo "Lint Python scripts (ruff)..."
+    @uvx ruff check scripts/
+
 # Lint rapide (sans clang-tidy complet ni docker/actions).
-lint-fast: lint-cmake lint-shell lint-yaml lint-just lint-shaders lint-docs
+lint-fast: check-rhi-leaks lint-cmake lint-shell lint-yaml lint-just lint-shaders lint-docs lint-python
 
 # Lint iteration rapide (inclut clang-tidy sur fichiers modifies).
-lint-iter: lint-c-changed lint-cmake lint-shell lint-yaml lint-just lint-shaders lint-docs
+lint-iter: check-rhi-leaks lint-c-changed lint-cmake lint-shell lint-yaml lint-just lint-shaders lint-docs lint-python
 
 # Lint complet.
-lint: lint-c lint-cmake lint-shell lint-yaml lint-just lint-shaders lint-docs lint-dockerfile lint-actions
+lint: lint-c lint-cmake lint-shell lint-yaml lint-just lint-shaders lint-docs lint-dockerfile lint-actions lint-python
 
 # Format + lint + tests (gate local principal).
 check: format lint test
@@ -545,3 +587,8 @@ docs-uv-build:
 # Fait les deux d'un coup
 check-docs: format-docs lint-docs
     @echo "Documentation propre et validée ! ✨"
+
+# Run performance benchmark using perf on unit_tests
+perf-benchmark: build
+    @echo "--- 🚀 Running Perf Benchmark ---"
+    perf stat -e L1-dcache-load-misses,L1-dcache-loads ./build/unit_tests > /dev/null

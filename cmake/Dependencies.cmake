@@ -23,6 +23,10 @@ if(ENABLE_TRACY)
         GIT_TAG v0.13.1
         GIT_SHALLOW TRUE
         GIT_PROGRESS TRUE)
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
     FetchContent_MakeAvailable(tracy)
-    list(APPEND PROJECT_LINK_LIBS Tracy::TracyClient)
+    
+    add_compile_definitions(TRACY_ENABLE)
+    include_directories(${tracy_SOURCE_DIR}/public)
+    set(TRACY_AVAILABLE ON)
 endif()

@@ -8,6 +8,8 @@
 4. **Pre-commit checks** — Enforce via `just pre-commit-install`
 5. **CI/CD validation** — All builds/tests must pass locally (Docker) AND remote (GitHub Actions)
 6. **NO suppression of warnings/errors** — Fix issues at the source; never bypass them
+7. **INTERDICTION ABSOLUE DE MERGER UNE PR** — Zéro action de merge tolérée. Le merge est la responsabilité stricte et exclusive du développeur.
+8. **Zéro commit/push sans accord explicite** — Toujours demander validation avant toute altération de l'historique distant.
 
 ---
 
@@ -470,6 +472,7 @@ Rationale: RenderDoc readability is a project quality requirement, not an option
 - ❌ Make docs-only changes without updating `mkdocs.yml`
 - ❌ Forget to update docs when changing behavior
 - ❌ Ignore failing CI checks — fix them, don't skip
+- ❌ **NEVER leave temporary patch scripts (like python or shell files) untracked in the git working directory. ALWAYS delete them immediately after use.**
 
 **Do:**
 - ✅ Use `just` for all development tasks
@@ -502,3 +505,6 @@ When executing a code review, always present findings sequentially with the foll
 - **Corrections**: Possible fixes
 - **Gains**: Associated benefits
 - **Testable**: Test coverage and testability
+
+### Testing Safety
+- **NEVER** run the application (`just run` or `vulkan_app`) without a `timeout` command (e.g., `timeout 5s just run`). Otherwise, the application window will stay open indefinitely and block the agent's execution.

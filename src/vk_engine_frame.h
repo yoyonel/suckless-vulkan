@@ -3,9 +3,9 @@
 
 #include "vk_engine.h"
 
-using RecreateSwapchainFn = bool (*)(VulkanEngine*);
+using RecreateSwapchainFn = GfxResult (*)(VulkanEngine*);
 
 void vk_update_animation_clock(VulkanEngine* engine, float maxFrameDeltaSeconds);
-bool vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recreateSwapchain);
+GfxResult vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recreateSwapchain);
 
 #endif

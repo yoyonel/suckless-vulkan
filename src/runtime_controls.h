@@ -1,7 +1,9 @@
+#include "result.h"
 #ifndef RUNTIME_CONTROLS_H
 #define RUNTIME_CONTROLS_H
 
-#include "vk_engine.h"
+#include "engine_state.h"
+#include <GLFW/glfw3.h>
 
 struct WindowOps {
     int (*get_key)(GLFWwindow* window, int key);
@@ -15,7 +17,7 @@ struct WindowOps {
 
 const WindowOps* runtime_default_window_ops();
 bool runtime_is_key_pressed_once(GLFWwindow* window, int key, bool* wasDown, const WindowOps* ops);
-bool runtime_toggle_fullscreen(VulkanEngine* engine, const WindowOps* ops);
-void runtime_update_controls(VulkanEngine* engine, const WindowOps* ops);
+AppResult runtime_toggle_fullscreen(EngineState* state, const WindowOps* ops);
+void runtime_update_controls(EngineState* state, const WindowOps* ops);
 
 #endif

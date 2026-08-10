@@ -19,24 +19,23 @@ ubo;
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec3 inColor;
 
-// Attribut par instance (binding 1, rate = INSTANCE)
-layout(location = 2) in vec3 instanceOffset;
-
 layout(location = 0) out vec3 outWorldPos;
 layout(location = 1) out vec3 outNormal;
 layout(location = 2) out vec3 outAlbedo;
 layout(location = 3) flat out int outMaterialIdx;
 
+layout(std430, set = 0, binding = 9) readonly buffer TransformBuffer {
+    mat4 transforms[];
+};
+
 void main() {
-    // Rotation locale de la sphère
-    vec4 localPos = ubo.modelRotation * vec4(inPosition, 1.0);
-    // Translation vers la position de l'instance dans le monde
-    vec4 worldPos = localPos + vec4(instanceOffset, 0.0);
+    mat4 modelMat = transforms[gl_InstanceIndex];
+    vec4 worldPos = modelMat * vec4(inPosition, 1.0);
     gl_Position = ubo.vp * worldPos;
 
     outWorldPos = worldPos.xyz;
-    // For a sphere centered at origin, normal is just the rotated local position
-    outNormal = normalize(localPos.xyz);
+    // Assuming uniform scaling, the upper 3x3 of modelMat can be used for normals
+    outNormal = normalize(mat3(modelMat) * inPosition);
     outAlbedo = inColor;
     outMaterialIdx = gl_InstanceIndex;
 }
