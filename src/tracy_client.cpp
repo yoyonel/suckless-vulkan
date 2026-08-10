@@ -3,8 +3,41 @@
 #ifdef TRACY_ENABLE
 
 #include "app_log.h"
+#include <cstdlib>
+#include <new>
 #include <tracy/Tracy.hpp>
 #include <tracy/TracyC.h>
+
+void* operator new(std::size_t count) {
+    auto ptr = std::malloc(count);
+    if (!ptr)
+        throw std::bad_alloc();
+    SVK_TRACY_ALLOC(ptr, count);
+    return ptr;
+}
+void operator delete(void* ptr) noexcept {
+    SVK_TRACY_FREE(ptr);
+    std::free(ptr);
+}
+void* operator new[](std::size_t count) {
+    auto ptr = std::malloc(count);
+    if (!ptr)
+        throw std::bad_alloc();
+    SVK_TRACY_ALLOC(ptr, count);
+    return ptr;
+}
+void operator delete[](void* ptr) noexcept {
+    SVK_TRACY_FREE(ptr);
+    std::free(ptr);
+}
+void operator delete(void* ptr, std::size_t size) noexcept {
+    SVK_TRACY_FREE(ptr);
+    std::free(ptr);
+}
+void operator delete[](void* ptr, std::size_t size) noexcept {
+    SVK_TRACY_FREE(ptr);
+    std::free(ptr);
+}
 
 bool g_tracyInitialized = false;
 
