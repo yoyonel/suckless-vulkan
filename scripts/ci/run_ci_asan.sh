@@ -15,11 +15,7 @@ cmake -S . -B "${BUILD_DIR}" \
 
 cmake --build "${BUILD_DIR}" --parallel
 
-# In containerized environments, GPU/Vulkan loader can report harmless shutdown leaks.
-# Keep the test informative while avoiding hard failures on known driver-side leaks.
-lsan_options="exitcode=0"
-if [[ -f ".asan_ignorefile" ]]; then
-    lsan_options="suppressions=$(pwd)/.asan_ignorefile:report_objects=1:${lsan_options}"
-fi
+# En CI, on n'exécute QUE les LogicTests avec ASan pour éviter les faux positifs llvmpipe
+lsan_options="suppressions=$(pwd)/.asan_ignorefile:report_objects=1"
 
-LSAN_OPTIONS="${lsan_options}" ctest --test-dir "${BUILD_DIR}" --output-on-failure
+LSAN_OPTIONS="${lsan_options}" ctest --test-dir "${BUILD_DIR}" --output-on-failure -R LogicTests
