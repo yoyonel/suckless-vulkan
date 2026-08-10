@@ -108,7 +108,6 @@ jobs:
   memory-checks-asan:
     needs: static-checks
     runs-on: ubuntu-latest
-    continue-on-error: true
 
     steps:
       - name: Checkout
