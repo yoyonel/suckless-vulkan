@@ -24,8 +24,8 @@ repos:
         stages: [pre-commit]
 
       - id: test-before-push
-        name: Run all tests (including visual regression) before push
-        entry: bash -lc 'just test'
+        name: Run all tests (including ASan and visual regression) before push
+        entry: bash -lc 'just test-asan'
         language: system
         pass_filenames: false
         stages: [pre-push]
