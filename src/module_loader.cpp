@@ -6,14 +6,14 @@ ModuleLoader::~ModuleLoader() {
     Unload();
 }
 
-bool ModuleLoader::Load(const std::string& path) {
+ResourceResult ModuleLoader::Load(const std::string& path) {
     Unload();
     handle = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
     if (!handle) {
         LOG_ERROR("module", "Failed to load %s: %s", path.c_str(), dlerror());
-        return false;
+        return ResourceResult::ErrorParseFailed;
     }
-    return true;
+    return ResourceResult::Success;
 }
 
 void ModuleLoader::Unload() {

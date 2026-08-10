@@ -101,7 +101,7 @@ void vk_handle_runtime_input(VulkanEngine* engine, const WindowOps* ops) {
     if (is_key_pressed_once(engine->appState->window, GLFW_KEY_V, &engine->appState->core.inputTracking.vsyncKeyWasDown, ops)) {
         engine->appState->core.vsync = !engine->appState->core.vsync;
         LOG_INFO("runtime", "VSync toggle: %s (recreating swapchain...)", engine->appState->core.vsync ? "ON" : "OFF");
-        vk_recreate_swapchain(engine);
+        (void)vk_recreate_swapchain(engine);
     }
 }
 

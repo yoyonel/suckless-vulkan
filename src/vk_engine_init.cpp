@@ -42,10 +42,10 @@ MaterialGpu make_default_material() {
     return material;
 }
 
-bool load_legacy_materials_for_grid(std::vector<MaterialGpu>& materials, size_t instanceCount) {
-    if (!MaterialLoader::load_materials(kMaterialJsonPath, materials)) {
+ResourceResult load_legacy_materials_for_grid(std::vector<MaterialGpu>& materials, size_t instanceCount) {
+    if (MaterialLoader::load_materials(kMaterialJsonPath, materials) != ResourceResult::Success) {
         LOG_ERROR("material", "Failed to load material presets from %s", kMaterialJsonPath);
-        return false;
+        return ResourceResult::ErrorParseFailed;
     }
 
     if (materials.size() != instanceCount) {
@@ -56,7 +56,7 @@ bool load_legacy_materials_for_grid(std::vector<MaterialGpu>& materials, size_t 
         materials.resize(instanceCount, make_default_material());
     }
 
-    return true;
+    return ResourceResult::Success;
 }
 
 struct QueueFamilySelection {
@@ -351,9 +351,9 @@ void cleanup_core_resources(VulkanEngine* engine) {
     }
 }
 
-bool init_core(VulkanEngine* engine) {
+GfxResult init_core(VulkanEngine* engine) {
     if (engine->appState->window == nullptr) {
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     }
 
     glfwSetWindowUserPointer(engine->appState->window, engine);
@@ -376,17 +376,17 @@ bool init_core(VulkanEngine* engine) {
     createInfo.ppEnabledExtensionNames = extensions.data();
 
     if (vkCreateInstance(&createInfo, NULL, &engine->instance) != VK_SUCCESS)
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     if (glfwCreateWindowSurface(engine->instance, engine->appState->window, NULL, &engine->surface) != VK_SUCCESS)
-        return false;
+        return GfxResult::ErrorInitializationFailed;
 
     uint32_t deviceCount = 0;
     if (vkEnumeratePhysicalDevices(engine->instance, &deviceCount, NULL) != VK_SUCCESS || deviceCount == 0) {
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     }
     std::vector<VkPhysicalDevice> devices(deviceCount);
     if (vkEnumeratePhysicalDevices(engine->instance, &deviceCount, devices.data()) != VK_SUCCESS) {
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     }
 
     QueueFamilySelection queueSelection;
@@ -411,7 +411,7 @@ bool init_core(VulkanEngine* engine) {
     }
 
     if (engine->physicalDevice == VK_NULL_HANDLE) {
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     }
 
     float queuePriority = 1.0f;
@@ -443,7 +443,7 @@ bool init_core(VulkanEngine* engine) {
     deviceInfo.pEnabledFeatures = &deviceFeatures;
 
     if (vkCreateDevice(engine->physicalDevice, &deviceInfo, NULL, &engine->device) != VK_SUCCESS)
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     vk_set_object_name(engine->device, (uint64_t)engine->device, VK_OBJECT_TYPE_DEVICE, "Logical_Device");
 
     VkPhysicalDeviceProperties props;
@@ -457,39 +457,39 @@ bool init_core(VulkanEngine* engine) {
     vkGetDeviceQueue(engine->device, engine->presentQueueFamilyIndex, 0, &engine->presentQueue);
     vk_set_object_name(engine->device, (uint64_t)engine->graphicsQueue, VK_OBJECT_TYPE_QUEUE, "Graphics_Queue");
     vk_set_object_name(engine->device, (uint64_t)engine->presentQueue, VK_OBJECT_TYPE_QUEUE, "Present_Queue");
-    return true;
+    return GfxResult::Success;
 }
 
-bool init_allocator(VulkanEngine* engine) {
+GfxResult init_allocator(VulkanEngine* engine) {
     VmaAllocatorCreateInfo allocatorInfo{};
     allocatorInfo.physicalDevice = engine->physicalDevice;
     allocatorInfo.device = engine->device;
     allocatorInfo.instance = engine->instance;
-    return (vmaCreateAllocator(&allocatorInfo, &engine->allocator) == VK_SUCCESS);
+    return (vmaCreateAllocator(&allocatorInfo, &engine->allocator) == VK_SUCCESS) ? GfxResult::Success : GfxResult::ErrorInitializationFailed;
 }
 
-bool init_swapchain(VulkanEngine* engine) {
+GfxResult init_swapchain(VulkanEngine* engine) {
     VkSurfaceCapabilitiesKHR capabilities{};
     if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(engine->physicalDevice, engine->surface, &capabilities) != VK_SUCCESS) {
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     }
 
     uint32_t formatCount = 0;
     if (vkGetPhysicalDeviceSurfaceFormatsKHR(engine->physicalDevice, engine->surface, &formatCount, nullptr) != VK_SUCCESS || formatCount == 0) {
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     }
     std::vector<VkSurfaceFormatKHR> formats(formatCount);
     if (vkGetPhysicalDeviceSurfaceFormatsKHR(engine->physicalDevice, engine->surface, &formatCount, formats.data()) != VK_SUCCESS) {
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     }
 
     uint32_t presentModeCount = 0;
     if (vkGetPhysicalDeviceSurfacePresentModesKHR(engine->physicalDevice, engine->surface, &presentModeCount, nullptr) != VK_SUCCESS || presentModeCount == 0) {
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     }
     std::vector<VkPresentModeKHR> presentModes(presentModeCount);
     if (vkGetPhysicalDeviceSurfacePresentModesKHR(engine->physicalDevice, engine->surface, &presentModeCount, presentModes.data()) != VK_SUCCESS) {
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     }
 
     const VkSurfaceFormatKHR surfaceFormat = choose_surface_format(formats);
@@ -509,11 +509,11 @@ bool init_swapchain(VulkanEngine* engine) {
 
     imageCount = std::min(imageCount, static_cast<uint32_t>(MAX_SWAPCHAIN_IMAGES));
     if (imageCount < capabilities.minImageCount) {
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     }
 
     if ((capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) == 0) {
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     }
 
     VkSwapchainCreateInfoKHR swapchainInfo{};
@@ -541,17 +541,17 @@ bool init_swapchain(VulkanEngine* engine) {
     swapchainInfo.clipped = VK_TRUE;
 
     if (vkCreateSwapchainKHR(engine->device, &swapchainInfo, NULL, &engine->swapchain) != VK_SUCCESS)
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     vk_set_object_name(engine->device, (uint64_t)engine->swapchain, VK_OBJECT_TYPE_SWAPCHAIN_KHR, "Main_Swapchain");
 
     if (vkGetSwapchainImagesKHR(engine->device, engine->swapchain, &engine->imageCount, NULL) != VK_SUCCESS) {
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     }
     if (engine->imageCount > MAX_SWAPCHAIN_IMAGES) {
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     }
     if (vkGetSwapchainImagesKHR(engine->device, engine->swapchain, &engine->imageCount, engine->swapchainImages) != VK_SUCCESS) {
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     }
 
     for (uint32_t i = 0; i < engine->imageCount; i++) {
@@ -564,7 +564,7 @@ bool init_swapchain(VulkanEngine* engine) {
         viewInfo.subresourceRange.levelCount = 1;
         viewInfo.subresourceRange.layerCount = 1;
         if (vkCreateImageView(engine->device, &viewInfo, NULL, &engine->swapchainImageViews[i]) != VK_SUCCESS) {
-            return false;
+            return GfxResult::ErrorInitializationFailed;
         }
         const std::string swapchainViewName = "Swapchain_ImageView_" + std::to_string(i);
         vk_set_object_name(engine->device, (uint64_t)engine->swapchainImageViews[i], VK_OBJECT_TYPE_IMAGE_VIEW, swapchainViewName.c_str());
@@ -572,17 +572,17 @@ bool init_swapchain(VulkanEngine* engine) {
 
     engine->depthFormat = find_depth_format(engine->physicalDevice);
     if (engine->depthFormat == VK_FORMAT_UNDEFINED) {
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     }
 
     engine->depthImage.Reset(engine->appState->rhi,
                              engine->appState->rhi->CreateTexture(engine->swapchainExtent.width, engine->swapchainExtent.height, TextureFormat::Depth,
                                                                   TextureUsage::DepthAttachment, 1, "Depth_Buffer_Image"));
 
-    return engine->depthImage.is_valid();
+    return engine->depthImage.is_valid() ? GfxResult::Success : GfxResult::ErrorInitializationFailed;
 }
 
-bool init_render_pass(VulkanEngine* engine) {
+GfxResult init_render_pass(VulkanEngine* engine) {
     VkAttachmentDescription attachments[2] = {};
     attachments[0].format = engine->swapchainImageFormat;
     attachments[0].samples = VK_SAMPLE_COUNT_1_BIT;
@@ -615,7 +615,7 @@ bool init_render_pass(VulkanEngine* engine) {
     rpInfo.pSubpasses = &subpass;
 
     if (vkCreateRenderPass(engine->device, &rpInfo, NULL, &engine->renderPass) != VK_SUCCESS)
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     vk_set_object_name(engine->device, (uint64_t)engine->renderPass, VK_OBJECT_TYPE_RENDER_PASS, "Main_RenderPass");
 
     for (uint32_t i = 0; i < engine->imageCount; i++) {
@@ -630,15 +630,15 @@ bool init_render_pass(VulkanEngine* engine) {
         fbInfo.height = engine->swapchainExtent.height;
         fbInfo.layers = 1;
         if (vkCreateFramebuffer(engine->device, &fbInfo, NULL, &engine->swapchainFramebuffers[i]) != VK_SUCCESS) {
-            return false;
+            return GfxResult::ErrorInitializationFailed;
         }
         const std::string framebufferName = "Swapchain_Framebuffer_" + std::to_string(i);
         vk_set_object_name(engine->device, (uint64_t)engine->swapchainFramebuffers[i], VK_OBJECT_TYPE_FRAMEBUFFER, framebufferName.c_str());
     }
-    return true;
+    return GfxResult::Success;
 }
 
-bool init_descriptor_layout(VulkanEngine* engine) {
+GfxResult init_descriptor_layout(VulkanEngine* engine) {
     std::vector<DescriptorSetLayoutBinding> bindings = {
         {0, DescriptorType::UniformBuffer, 1, ShaderStage::AllGraphics},     {1, DescriptorType::CombinedImageSampler, 1, ShaderStage::Fragment},
         {2, DescriptorType::CombinedImageSampler, 1, ShaderStage::Fragment}, {3, DescriptorType::CombinedImageSampler, 1, ShaderStage::Fragment},
@@ -647,7 +647,7 @@ bool init_descriptor_layout(VulkanEngine* engine) {
         {8, DescriptorType::StorageBuffer, 1, ShaderStage::Vertex},          {9, DescriptorType::StorageBuffer, 1, ShaderStage::Vertex}};
     DescriptorLayoutDesc desc{bindings.data(), static_cast<uint32_t>(bindings.size())};
     engine->globalDescriptorLayout.Reset(engine->appState->rhi, engine->appState->rhi->CreateDescriptorLayout(desc, "Global_DescriptorSetLayout"));
-    return engine->globalDescriptorLayout.is_valid();
+    return engine->globalDescriptorLayout.is_valid() ? GfxResult::Success : GfxResult::ErrorInitializationFailed;
 }
 
 std::vector<uint32_t> load_shader(const char* path) {
@@ -666,7 +666,7 @@ std::vector<uint32_t> load_shader(const char* path) {
     return buffer;
 }
 
-bool create_main_graphics_pipeline(VulkanEngine* engine, const std::vector<uint32_t>& vsm, const std::vector<uint32_t>& fsm) {
+GfxResult create_main_graphics_pipeline(VulkanEngine* engine, const std::vector<uint32_t>& vsm, const std::vector<uint32_t>& fsm) {
     VertexInputBinding bindings[] = {{0, sizeof(Vertex), false}};
     VertexInputAttribute attrs[] = {{0, 0, VertexFormat::Float3, offsetof(Vertex, position)}, {1, 0, VertexFormat::Float3, offsetof(Vertex, color)}};
     GraphicsPipelineDesc desc{};
@@ -683,10 +683,10 @@ bool create_main_graphics_pipeline(VulkanEngine* engine, const std::vector<uint3
     desc.topology = Topology::TriangleList;
     desc.debugName = "Main_Graphics_Pipeline";
     engine->graphicsPipeline.Reset(engine->appState->rhi, engine->appState->rhi->CreateGraphicsPipeline(desc));
-    return engine->graphicsPipeline.is_valid();
+    return engine->graphicsPipeline.is_valid() ? GfxResult::Success : GfxResult::ErrorInitializationFailed;
 }
 
-bool create_skybox_pipeline(VulkanEngine* engine, const std::vector<uint32_t>& vsm, const std::vector<uint32_t>& fsm) {
+GfxResult create_skybox_pipeline(VulkanEngine* engine, const std::vector<uint32_t>& vsm, const std::vector<uint32_t>& fsm) {
     GraphicsPipelineDesc desc{};
     desc.layout = engine->pipelineLayout;
     desc.renderPass = engine->renderPass;
@@ -699,14 +699,14 @@ bool create_skybox_pipeline(VulkanEngine* engine, const std::vector<uint32_t>& v
     desc.depthCompareOp = CompareOp::LessOrEqual;
     desc.debugName = "Skybox_Graphics_Pipeline";
     engine->skyboxPipeline.Reset(engine->appState->rhi, engine->appState->rhi->CreateGraphicsPipeline(desc));
-    return engine->skyboxPipeline.is_valid();
+    return engine->skyboxPipeline.is_valid() ? GfxResult::Success : GfxResult::ErrorInitializationFailed;
 }
 
-bool create_billboard_pipeline(VulkanEngine* engine) {
+GfxResult create_billboard_pipeline(VulkanEngine* engine) {
     auto bvm = load_shader("shaders/billboard_vert.spv");
     auto bfm = load_shader("shaders/billboard_frag.spv");
     if (bvm.empty() || bfm.empty())
-        return false;
+        return GfxResult::ErrorInitializationFailed;
 
     GraphicsPipelineDesc desc{};
     desc.layout = engine->pipelineLayout;
@@ -724,10 +724,10 @@ bool create_billboard_pipeline(VulkanEngine* engine) {
     desc.vertexAttributeCount = 0;
     desc.debugName = "Billboard_Graphics_Pipeline";
     engine->billboardPipeline.Reset(engine->appState->rhi, engine->appState->rhi->CreateGraphicsPipeline(desc));
-    return engine->billboardPipeline.is_valid();
+    return engine->billboardPipeline.is_valid() ? GfxResult::Success : GfxResult::ErrorInitializationFailed;
 }
 
-bool create_wireframe_pipeline(VulkanEngine* engine, const std::vector<uint32_t>& vsm, const std::vector<uint32_t>& fsm) {
+GfxResult create_wireframe_pipeline(VulkanEngine* engine, const std::vector<uint32_t>& vsm, const std::vector<uint32_t>& fsm) {
     VertexInputBinding bindings[] = {{0, sizeof(Vertex), false}};
     VertexInputAttribute attrs[] = {{0, 0, VertexFormat::Float3, offsetof(Vertex, position)}, {1, 0, VertexFormat::Float3, offsetof(Vertex, color)}};
     GraphicsPipelineDesc desc{};
@@ -744,14 +744,14 @@ bool create_wireframe_pipeline(VulkanEngine* engine, const std::vector<uint32_t>
     desc.polygonMode = PolygonMode::Line;
     desc.debugName = "Wireframe_Pipeline";
     engine->wireframePipeline.Reset(engine->appState->rhi, engine->appState->rhi->CreateGraphicsPipeline(desc));
-    return engine->wireframePipeline.is_valid();
+    return engine->wireframePipeline.is_valid() ? GfxResult::Success : GfxResult::ErrorInitializationFailed;
 }
 
-bool create_debug_pipelines(VulkanEngine* engine) {
+GfxResult create_debug_pipelines(VulkanEngine* engine) {
     auto dvm = load_shader("shaders/debug_vert.spv");
     auto dfm = load_shader("shaders/debug_frag.spv");
     if (dvm.empty() || dfm.empty())
-        return false;
+        return GfxResult::ErrorInitializationFailed;
 
     PushConstantRange dPushRange{ShaderStage::Vertex | ShaderStage::Fragment, 0, sizeof(DebugPushConstant)};
     DescriptorLayoutHandle d[] = {engine->globalDescriptorLayout};
@@ -782,10 +782,10 @@ bool create_debug_pipelines(VulkanEngine* engine) {
     desc.colorBlendEnable = true;
     desc.debugName = "Debug_Triangle_Pipeline";
     engine->debugTrianglePipeline.Reset(engine->appState->rhi, engine->appState->rhi->CreateGraphicsPipeline(desc));
-    return engine->debugLinePipeline.is_valid() && engine->debugTrianglePipeline.is_valid();
+    return engine->debugLinePipeline.is_valid() && engine->debugTrianglePipeline.is_valid() ? GfxResult::Success : GfxResult::ErrorInitializationFailed;
 }
 
-bool init_pipeline(VulkanEngine* engine) {
+GfxResult init_pipeline(VulkanEngine* engine) {
     DescriptorLayoutHandle d[] = {engine->globalDescriptorLayout};
     PipelineLayoutDesc plDesc{d, 1, nullptr, 0};
     engine->pipelineLayout.Reset(engine->appState->rhi, engine->appState->rhi->CreatePipelineLayout(plDesc, "Main_Pipeline_Layout"));
@@ -795,30 +795,35 @@ bool init_pipeline(VulkanEngine* engine) {
     auto skyboxVsm = load_shader("shaders/skybox_vert.spv");
     auto skyboxFsm = load_shader("shaders/skybox_frag.spv");
     if (vsm.empty() || fsm.empty() || skyboxVsm.empty() || skyboxFsm.empty())
-        return false;
+        return GfxResult::ErrorInitializationFailed;
 
-    bool success = true;
-    success &= create_main_graphics_pipeline(engine, vsm, fsm);
-    success &= create_skybox_pipeline(engine, skyboxVsm, skyboxFsm);
-    success &= create_wireframe_pipeline(engine, vsm, fsm);
-    success &= create_billboard_pipeline(engine);
-    success &= create_debug_pipelines(engine);
+    GfxResult success = GfxResult::Success;
+    if (create_main_graphics_pipeline(engine, vsm, fsm) != GfxResult::Success)
+        success = GfxResult::ErrorInitializationFailed;
+    if (create_skybox_pipeline(engine, skyboxVsm, skyboxFsm) != GfxResult::Success)
+        success = GfxResult::ErrorInitializationFailed;
+    if (create_wireframe_pipeline(engine, vsm, fsm) != GfxResult::Success)
+        success = GfxResult::ErrorInitializationFailed;
+    if (create_billboard_pipeline(engine) != GfxResult::Success)
+        success = GfxResult::ErrorInitializationFailed;
+    if (create_debug_pipelines(engine) != GfxResult::Success)
+        success = GfxResult::ErrorInitializationFailed;
 
     return success;
 }
 
-bool create_icosphere_buffers(VulkanEngine* engine, const Icosphere& sphere) {
+GfxResult create_icosphere_buffers(VulkanEngine* engine, const Icosphere& sphere) {
     engine->vertexBuffer.Reset(engine->appState->rhi, engine->appState->rhi->CreateBuffer(sphere.vertices.size() * sizeof(Vertex), BufferUsage::Vertex,
                                                                                           sphere.vertices.data(), "Icosphere_Vertex_Buffer"));
     if (!engine->vertexBuffer.is_valid())
-        return false;
+        return GfxResult::ErrorInitializationFailed;
 
     engine->indexBuffer.Reset(engine->appState->rhi, engine->appState->rhi->CreateBuffer(sphere.indices.size() * sizeof(uint32_t), BufferUsage::Index,
                                                                                          sphere.indices.data(), "Icosphere_Index_Buffer"));
-    return engine->indexBuffer.is_valid();
+    return engine->indexBuffer.is_valid() ? GfxResult::Success : GfxResult::ErrorInitializationFailed;
 }
 
-bool create_instance_grid_buffers(VulkanEngine* engine, std::vector<glm::vec3>& instancePositions) {
+GfxResult create_instance_grid_buffers(VulkanEngine* engine, std::vector<glm::vec3>& instancePositions) {
     const size_t instanceCount = kMaterialInstanceCount;
     engine->appState->core.scene.instanceCount = static_cast<uint32_t>(instanceCount);
     engine->appState->core.scene.instancePositions =
@@ -839,10 +844,10 @@ bool create_instance_grid_buffers(VulkanEngine* engine, std::vector<glm::vec3>& 
     if (engine->transformBuffer.is_valid()) {
         engine->transformBufferMapped = engine->appState->rhi->MapBuffer(engine->transformBuffer);
     }
-    return engine->transformBuffer.is_valid();
+    return engine->transformBuffer.is_valid() ? GfxResult::Success : GfxResult::ErrorInitializationFailed;
 }
 
-bool create_billboard_instance_buffer(VulkanEngine* engine, const std::vector<glm::vec3>& instancePositions) {
+GfxResult create_billboard_instance_buffer(VulkanEngine* engine, const std::vector<glm::vec3>& instancePositions) {
     const size_t instanceCount = instancePositions.size();
 
     BillboardSoA* soa = &engine->appState->core.scene.billboardSoA;
@@ -863,31 +868,33 @@ bool create_billboard_instance_buffer(VulkanEngine* engine, const std::vector<gl
     engine->billboardMatSSBO.Reset(
         engine->appState->rhi, engine->appState->rhi->CreateBuffer(instanceCount * sizeof(int), BufferUsage::Storage, soa->materialIdx, "Billboard_Mat_SSBO"));
 
-    return engine->billboardBuffer.is_valid() && engine->billboardPosSSBO.is_valid() && engine->billboardMatSSBO.is_valid();
+    return engine->billboardBuffer.is_valid() && engine->billboardPosSSBO.is_valid() && engine->billboardMatSSBO.is_valid()
+               ? GfxResult::Success
+               : GfxResult::ErrorInitializationFailed;
 }
 
-bool create_material_ssbo(VulkanEngine* engine) {
+GfxResult create_material_ssbo(VulkanEngine* engine) {
     std::vector<MaterialGpu> materials;
-    if (!load_legacy_materials_for_grid(materials, kMaterialInstanceCount)) {
-        return false;
+    if (load_legacy_materials_for_grid(materials, kMaterialInstanceCount) != ResourceResult::Success) {
+        return GfxResult::ErrorInitializationFailed;
     }
     if (materials.empty()) {
-        return true;
+        return GfxResult::Success;
     }
     engine->materialBuffer.Reset(engine->appState->rhi, engine->appState->rhi->CreateBuffer(materials.size() * sizeof(MaterialGpu), BufferUsage::Storage,
                                                                                             materials.data(), "PBR_Materials_SSBO"));
-    return engine->materialBuffer.is_valid();
+    return engine->materialBuffer.is_valid() ? GfxResult::Success : GfxResult::ErrorInitializationFailed;
 }
 
-bool create_global_uniform_buffer(VulkanEngine* engine) {
+GfxResult create_global_uniform_buffer(VulkanEngine* engine) {
     engine->uniformBuffer.Reset(engine->appState->rhi, engine->appState->rhi->CreateBuffer(sizeof(UBOData), BufferUsage::Uniform, nullptr, "Global_MVP_UBO"));
     if (!engine->uniformBuffer.is_valid())
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     engine->uniformBufferMapped = engine->appState->rhi->MapBuffer(engine->uniformBuffer);
-    return engine->uniformBufferMapped != nullptr;
+    return engine->uniformBufferMapped != nullptr ? GfxResult::Success : GfxResult::ErrorInitializationFailed;
 }
 
-bool init_buffers(VulkanEngine* engine) {
+GfxResult init_buffers(VulkanEngine* engine) {
     Icosphere sphere;
     sphere.generate(3);
     engine->indexCount = static_cast<uint32_t>(sphere.indices.size());
@@ -897,27 +904,32 @@ bool init_buffers(VulkanEngine* engine) {
     cpIn.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     cpIn.queueFamilyIndex = engine->graphicsQueueFamilyIndex;
     if (vkCreateCommandPool(engine->device, &cpIn, nullptr, &engine->commandPool) != VK_SUCCESS) {
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     }
     vk_set_object_name(engine->device, (uint64_t)engine->commandPool, VK_OBJECT_TYPE_COMMAND_POOL, "Main_Command_Pool");
 
     std::vector<glm::vec3> instancePositions;
-    bool success = true;
-    success &= create_icosphere_buffers(engine, sphere);
-    success &= create_instance_grid_buffers(engine, instancePositions);
-    success &= create_billboard_instance_buffer(engine, instancePositions);
-    success &= create_material_ssbo(engine);
-    success &= create_global_uniform_buffer(engine);
+    GfxResult success = GfxResult::Success;
+    if (create_icosphere_buffers(engine, sphere) != GfxResult::Success)
+        success = GfxResult::ErrorInitializationFailed;
+    if (create_instance_grid_buffers(engine, instancePositions) != GfxResult::Success)
+        success = GfxResult::ErrorInitializationFailed;
+    if (create_billboard_instance_buffer(engine, instancePositions) != GfxResult::Success)
+        success = GfxResult::ErrorInitializationFailed;
+    if (create_material_ssbo(engine) != GfxResult::Success)
+        success = GfxResult::ErrorInitializationFailed;
+    if (create_global_uniform_buffer(engine) != GfxResult::Success)
+        success = GfxResult::ErrorInitializationFailed;
 
     return success;
 }
 
-bool init_descriptor_pool_and_sets(VulkanEngine* engine) {
+GfxResult init_descriptor_pool_and_sets(VulkanEngine* engine) {
     DescriptorPoolSize sizes[3] = {{DescriptorType::UniformBuffer, 1}, {DescriptorType::CombinedImageSampler, 4}, {DescriptorType::StorageBuffer, 5}};
     DescriptorPoolDesc desc{sizes, 3, 1};
     engine->globalDescriptorPool.Reset(engine->appState->rhi, engine->appState->rhi->CreateDescriptorPool(desc, "Global_Descriptor_Pool"));
     if (!engine->globalDescriptorPool.is_valid()) {
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     }
 
     DescriptorSetAllocateDesc ai{};
@@ -925,8 +937,8 @@ bool init_descriptor_pool_and_sets(VulkanEngine* engine) {
     ai.setCount = 1;
     DescriptorLayoutHandle layoutHandle = engine->globalDescriptorLayout;
     ai.layouts = &layoutHandle;
-    if (!engine->appState->rhi->AllocateDescriptorSets(ai, &engine->descriptorSet)) {
-        return false;
+    if (engine->appState->rhi->AllocateDescriptorSets(ai, &engine->descriptorSet) != RHIResult::Success) {
+        return GfxResult::ErrorInitializationFailed;
     }
     VkDescriptorSet vkSet = ((VulkanRHI*)engine->appState->rhi)->GetVkDescriptorSet(engine->descriptorSet);
     vk_set_object_name(engine->device, (uint64_t)vkSet, VK_OBJECT_TYPE_DESCRIPTOR_SET, "Global_Descriptor_Set");
@@ -975,7 +987,7 @@ bool init_descriptor_pool_and_sets(VulkanEngine* engine) {
     // Safety: ensure no invalid handles are passed for required bindings
     if (envInfo.texture == INVALID_HANDLE || irrInfo.texture == INVALID_HANDLE || prefInfo.texture == INVALID_HANDLE || lutInfo.texture == INVALID_HANDLE) {
         LOG_ERROR("engine", "init_descriptor_pool_and_sets: one or more required images are INVALID (spec violation). Skipping initial update.");
-        return true; // We'll update later in vk_init_environment_texture
+        return GfxResult::Success; // We'll update later in vk_init_environment_texture
     }
 
     DescriptorBufferInfo bbPosInfo{};
@@ -1080,17 +1092,17 @@ bool init_descriptor_pool_and_sets(VulkanEngine* engine) {
     writes[9].pImageInfo = nullptr;
 
     engine->appState->rhi->UpdateDescriptorSets(10, writes);
-    return true;
+    return GfxResult::Success;
 }
 
-bool init_commands_and_sync(VulkanEngine* engine) {
+GfxResult init_commands_and_sync(VulkanEngine* engine) {
     VkCommandBufferAllocateInfo ai{};
     ai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     ai.commandPool = engine->commandPool;
     ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     ai.commandBufferCount = 1;
     if (vkAllocateCommandBuffers(engine->device, &ai, &engine->commandBuffer) != VK_SUCCESS) {
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     }
     vk_set_object_name(engine->device, (uint64_t)engine->commandBuffer, VK_OBJECT_TYPE_COMMAND_BUFFER, "Main_CommandBuffer");
 
@@ -1101,25 +1113,25 @@ bool init_commands_and_sync(VulkanEngine* engine) {
     fi.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
     if (vkCreateSemaphore(engine->device, &si, nullptr, &engine->imageAvailableSemaphore) != VK_SUCCESS) {
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     }
     vk_set_object_name(engine->device, (uint64_t)engine->imageAvailableSemaphore, VK_OBJECT_TYPE_SEMAPHORE, "Image_Available_Semaphore");
     if (vkCreateSemaphore(engine->device, &si, nullptr, &engine->renderFinishedSemaphore) != VK_SUCCESS) {
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     }
     vk_set_object_name(engine->device, (uint64_t)engine->renderFinishedSemaphore, VK_OBJECT_TYPE_SEMAPHORE, "Render_Finished_Semaphore");
     if (vkCreateFence(engine->device, &fi, nullptr, &engine->inFlightFence) != VK_SUCCESS) {
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     }
     vk_set_object_name(engine->device, (uint64_t)engine->inFlightFence, VK_OBJECT_TYPE_FENCE, "Main_Render_Fence");
-    return true;
+    return GfxResult::Success;
 }
 
 } // namespace
 
 // --- FONCTIONS PUBLIQUES (vk_engine_init) ---
 
-bool vk_recreate_swapchain(VulkanEngine* engine) {
+GfxResult vk_recreate_swapchain(VulkanEngine* engine) {
     int width = 0;
     int height = 0;
     glfwGetFramebufferSize(engine->appState->window, &width, &height);
@@ -1129,87 +1141,89 @@ bool vk_recreate_swapchain(VulkanEngine* engine) {
     }
 
     if (vkDeviceWaitIdle(engine->device) != VK_SUCCESS) {
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     }
 
     cleanup_swapchain_dependent_resources(engine);
 
-    return init_swapchain(engine) && init_render_pass(engine) && init_pipeline(engine);
+    return (init_swapchain(engine) == GfxResult::Success && init_render_pass(engine) == GfxResult::Success && init_pipeline(engine) == GfxResult::Success)
+               ? GfxResult::Success
+               : GfxResult::ErrorInitializationFailed;
 }
 
-bool vk_init_vulkan_engine(VulkanEngine* engine) {
+GfxResult vk_init_vulkan_engine(VulkanEngine* engine) {
     SVK_TRACY_ZONE_SCOPED("vk_init_vulkan_engine");
     LOG_INFO("app", "Starting engine initialization...");
     LOG_INFO("vulkan", "Vulkan Debug Callback initialized (High Sensitivity)");
 
     LOG_INFO("app", "init_core...");
-    if (!init_core(engine)) {
+    if (init_core(engine) != GfxResult::Success) {
         LOG_ERROR("app", "init_core failed");
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     }
     LOG_INFO("app", "init_allocator...");
-    if (!init_allocator(engine)) {
+    if (init_allocator(engine) != GfxResult::Success) {
         LOG_ERROR("app", "init_allocator failed");
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     }
 
     // Engine RHI is initialized in main.cpp, here we just initialize the internal engine parts
     LOG_INFO("app", "init_swapchain...");
-    if (!init_swapchain(engine)) {
+    if (init_swapchain(engine) != GfxResult::Success) {
         LOG_ERROR("app", "init_swapchain failed");
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     }
     LOG_INFO("app", "init_render_pass...");
-    if (!init_render_pass(engine)) {
+    if (init_render_pass(engine) != GfxResult::Success) {
         LOG_ERROR("app", "init_render_pass failed");
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     }
     LOG_INFO("app", "init_descriptor_layout...");
-    if (!init_descriptor_layout(engine)) {
+    if (init_descriptor_layout(engine) != GfxResult::Success) {
         LOG_ERROR("app", "init_descriptor_layout failed");
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     }
     LOG_INFO("app", "init_pipeline...");
-    if (!init_pipeline(engine)) {
+    if (init_pipeline(engine) != GfxResult::Success) {
         LOG_ERROR("app", "init_pipeline failed");
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     }
     LOG_INFO("app", "init_buffers...");
-    if (!init_buffers(engine)) {
+    if (init_buffers(engine) != GfxResult::Success) {
         LOG_ERROR("app", "init_buffers failed");
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     }
     LOG_INFO("app", "vk_init_environment_catalog...");
-    if (!vk_init_environment_catalog(engine)) {
+    if (vk_init_environment_catalog(engine) != GfxResult::Success) {
         LOG_ERROR("app", "vk_init_environment_catalog failed");
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     }
-    if (!init_ibl(engine)) {
+    if (init_ibl(engine) != GfxResult::Success) {
         LOG_ERROR("app", "init_ibl failed");
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     }
 
     LOG_INFO("app", "Initializing commands and sync objects...");
-    if (!init_commands_and_sync(engine)) {
+    if (init_commands_and_sync(engine) != GfxResult::Success) {
         LOG_ERROR("app", "init_commands_and_sync failed");
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     }
 
-    if (!tracy_vk_context_init(engine)) {
+    if (tracy_vk_context_init(engine) != GfxResult::Success) {
         LOG_ERROR("tracy", "tracy_vk_context_init failed");
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     }
 
     LOG_INFO("app", "Initializing environment texture (triggers bake)...");
-    if (!vk_init_environment_texture(engine)) {
+    if (vk_init_environment_texture(engine) != GfxResult::Success) {
         LOG_ERROR("app", "vk_init_environment_texture failed");
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     }
 
     LOG_INFO("app", "Initializing descriptor pool and sets (commandPool=%p)...", (void*)engine->commandPool);
-    if (!init_descriptor_pool_and_sets(engine)) {
+    if (init_descriptor_pool_and_sets(engine) != GfxResult::Success) {
         LOG_ERROR("app", "init_descriptor_pool_and_sets failed");
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     }
 
     LOG_INFO("app", "Initialization complete.");
@@ -1223,9 +1237,9 @@ bool vk_init_vulkan_engine(VulkanEngine* engine) {
     // Some values still depend on window layout
     glfwGetWindowPos(engine->appState->window, &engine->appState->core.window.windowedPosX, &engine->appState->core.window.windowedPosY);
     glfwGetWindowSize(engine->appState->window, &engine->appState->core.window.windowedWidth, &engine->appState->core.window.windowedHeight);
-    if (!vk_start_hdr_io_thread(engine)) {
+    if (vk_start_hdr_io_thread(engine) != GfxResult::Success) {
         vk_cleanup_vulkan_engine(engine);
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     }
     LOG_INFO("engine", "Vulkan initialise avec succes !");
     LOG_INFO("postprocess", "Default Exposure: %.2f", engine->appState->core.render.exposure);
@@ -1236,7 +1250,7 @@ bool vk_init_vulkan_engine(VulkanEngine* engine) {
              engine->appState->core.render.contrast, engine->appState->core.render.gamma, engine->appState->core.render.gain,
              engine->appState->core.render.offset);
     LOG_INFO("postprocess", "Default White Balance: Temp=%.1f, Tint=%.2f", engine->appState->core.render.wbTemp, engine->appState->core.render.wbTint);
-    return true;
+    return GfxResult::Success;
 }
 
 void vk_cleanup_vulkan_engine(VulkanEngine* engine) {

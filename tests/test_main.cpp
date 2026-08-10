@@ -226,14 +226,14 @@ static bool test_integration_rendering() {
     }
 
     appState.rhi = CreateRHI(&appState);
-    if (!appState.rhi->Init()) {
+    if (appState.rhi->Init() != RHIResult::Success) {
         return false;
     }
     VulkanEngine& engine = *static_cast<VulkanRHI*>(appState.rhi)->_engine;
     // init_vulkan_engine is called by Init()
 
     // Capture 1: Billboard (Default)
-    if (!draw_frame(&engine)) {
+    if (draw_frame(&engine) != GfxResult::Success) {
         cleanup_vulkan_engine(&engine);
         return false;
     }
@@ -241,7 +241,7 @@ static bool test_integration_rendering() {
 
     // Capture 2: Icosphere
     engine.appState->core.render.billboardMode = false;
-    if (!draw_frame(&engine)) {
+    if (draw_frame(&engine) != GfxResult::Success) {
         cleanup_vulkan_engine(&engine);
         return false;
     }
@@ -250,7 +250,7 @@ static bool test_integration_rendering() {
     // Capture 3: Billboard Wireframe (New)
     engine.appState->core.render.billboardMode = true;
     engine.appState->core.render.wireframeMode = true;
-    if (!draw_frame(&engine)) {
+    if (draw_frame(&engine) != GfxResult::Success) {
         cleanup_vulkan_engine(&engine);
         return false;
     }
@@ -259,7 +259,7 @@ static bool test_integration_rendering() {
     // Capture 4: Icosphere Wireframe
     engine.appState->core.render.billboardMode = false;
     engine.appState->core.render.wireframeMode = true;
-    if (!draw_frame(&engine)) {
+    if (draw_frame(&engine) != GfxResult::Success) {
         cleanup_vulkan_engine(&engine);
         return false;
     }
@@ -274,7 +274,7 @@ static bool test_integration_rendering() {
     camera_update_vectors(&engine.appState->core.camera);
     engine.appState->core.render.billboardMode = true;
     engine.appState->core.render.wireframeMode = true;
-    if (!draw_frame(&engine)) {
+    if (draw_frame(&engine) != GfxResult::Success) {
         cleanup_vulkan_engine(&engine);
         return false;
     }

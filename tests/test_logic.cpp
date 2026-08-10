@@ -43,12 +43,12 @@ class MockRHI : public IRHI {
     int destroyedBuffers = 0;
     int destroyedTextures = 0;
 
-    bool Init() override {
-        return true;
+    RHIResult Init() override {
+        return RHIResult::Success;
     }
     void Shutdown() override {}
-    bool DrawFrame() override {
-        return true;
+    RHIResult DrawFrame() override {
+        return RHIResult::Success;
     }
     void HandleInputs(const WindowOps* /*ops*/) override {}
 
@@ -92,8 +92,8 @@ class MockRHI : public IRHI {
     }
     void DestroyDescriptorPool(DescriptorPoolHandle /*handle*/) override {}
 
-    bool AllocateDescriptorSets(const DescriptorSetAllocateDesc& /*desc*/, DescriptorSetHandle* /*outSets*/) override {
-        return true;
+    RHIResult AllocateDescriptorSets(const DescriptorSetAllocateDesc& /*desc*/, DescriptorSetHandle* /*outSets*/) override {
+        return RHIResult::Success;
     }
     void UpdateDescriptorSets(uint32_t /*writeCount*/, const WriteDescriptorSet* /*pDescriptorWrites*/) override {}
 
@@ -114,8 +114,8 @@ class MockRHI : public IRHI {
         return SwapchainStatus::Ok;
     }
     void UpdateUBO(const UBOData& /*data*/) override {}
-    bool BeginFrame() override {
-        return true;
+    RHIResult BeginFrame() override {
+        return RHIResult::Success;
     }
     void EndFrame() override {}
     SwapchainStatus SubmitAndPresent(uint32_t /*imageIndex*/) override {
@@ -361,10 +361,10 @@ void test_runtime_controls(TestStats* stats) {
 
     // Edge cases for null monitor/video mode
     fakeState.hasMonitor = false;
-    check(stats, !runtime_toggle_fullscreen(&appState, &ops), "Toggle fullscreen should fail if no monitor");
+    check(stats, runtime_toggle_fullscreen(&appState, &ops) != AppResult::Success, "Toggle fullscreen should fail if no monitor");
     fakeState.hasMonitor = true;
     fakeState.hasVideoMode = false;
-    check(stats, !runtime_toggle_fullscreen(&appState, &ops), "Toggle fullscreen should fail if no video mode");
+    check(stats, runtime_toggle_fullscreen(&appState, &ops) != AppResult::Success, "Toggle fullscreen should fail if no video mode");
     fakeState.hasVideoMode = true;
 
     camera_init(&appState.core.camera);
@@ -597,8 +597,20 @@ void test_rhi_ptr(TestStats* stats) {
 
 } // namespace
 
+#include "../src/result.h"
+
+static void test_results(TestStats* stats) {
+    check(stats, std::strcmp(to_string(AppResult::Success), "Success") == 0, "to_string(AppResult::Success)");
+    check(stats, std::strcmp(to_string(AppResult::ErrorInitializationFailed), "ErrorInitializationFailed") == 0,
+          "to_string(AppResult::ErrorInitializationFailed)");
+    check(stats, std::strcmp(to_string(RHIResult::ErrorOutOfMemory), "ErrorOutOfMemory") == 0, "to_string(RHIResult::ErrorOutOfMemory)");
+    check(stats, std::strcmp(to_string(ResourceResult::ErrorFileNotFound), "ErrorFileNotFound") == 0, "to_string(ResourceResult::ErrorFileNotFound)");
+    check(stats, std::strcmp(to_string(GfxResult::ErrorInvalidState), "ErrorInvalidState") == 0, "to_string(GfxResult::ErrorInvalidState)");
+}
+
 int main() {
     TestStats stats = {};
+    test_results(&stats);
 
     test_logging(&stats);
     test_runtime_controls(&stats);

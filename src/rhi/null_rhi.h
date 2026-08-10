@@ -4,13 +4,13 @@
 
 class NullRHI : public IRHI {
   public:
-    bool Init() override {
-        return true;
+    RHIResult Init() override {
+        return RHIResult::Success;
     }
     void Shutdown() override {}
 
-    bool DrawFrame() override {
-        return true;
+    RHIResult DrawFrame() override {
+        return RHIResult::Success;
     }
     void HandleInputs(const struct WindowOps* ops) override {
         (void)ops;
@@ -36,7 +36,7 @@ class NullRHI : public IRHI {
     DescriptorPoolHandle CreateDescriptorPool(const DescriptorPoolDesc& /*desc*/, const char* /*name*/ = nullptr) override { return INVALID_HANDLE; }
     void DestroyDescriptorPool(DescriptorPoolHandle /*handle*/) override {}
 
-    bool AllocateDescriptorSets(const DescriptorSetAllocateDesc& /*desc*/, DescriptorSetHandle* /*outSets*/) override { return false; }
+    RHIResult AllocateDescriptorSets(const DescriptorSetAllocateDesc& /*desc*/, DescriptorSetHandle* /*outSets*/) override { return RHIResult::ErrorOutOfMemory; }
     void UpdateDescriptorSets(uint32_t /*count*/, const WriteDescriptorSet* /*writes*/) override {}
     PipelineLayoutHandle CreatePipelineLayout(const PipelineLayoutDesc& /*desc*/, const char* /*name*/) override { return INVALID_HANDLE; }
     void DestroyPipelineLayout(PipelineLayoutHandle /*handle*/) override {}
@@ -47,8 +47,8 @@ class NullRHI : public IRHI {
 
     SwapchainStatus AcquireNextImage(uint32_t* /*imageIndex*/) override { return SwapchainStatus::Ok; }
     void UpdateUBO(const struct UBOData& /*data*/) override {}
-    bool BeginFrame() override {
-        return true;
+    RHIResult BeginFrame() override {
+        return RHIResult::Success;
     }
     class IRenderCommandList* GetMainCommandList() override { return nullptr; }
     void EndFrame() override {}

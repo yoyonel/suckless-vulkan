@@ -1,3 +1,4 @@
+#include "result.h"
 #ifndef MODULE_LOADER_H
 #define MODULE_LOADER_H
 
@@ -8,7 +9,7 @@ class ModuleLoader {
     ModuleLoader() = default;
     ~ModuleLoader();
 
-    bool Load(const std::string& path);
+    ResourceResult Load(const std::string& path);
     void Unload();
     void* GetSymbol(const std::string& name) const;
     bool IsLoaded() const;

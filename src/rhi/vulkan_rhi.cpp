@@ -34,7 +34,7 @@ VulkanRHI::VulkanRHI(VulkanEngine* engine) : _engine(engine) {}
 VulkanRHI::~VulkanRHI() {
     Shutdown();
 }
-static bool create_gpu_buffer_rhi(struct VulkanEngine* engine, VkDeviceSize size, VkBufferUsageFlags usage, const void* srcData, VkBuffer& buf, VmaAllocation& alloc, const char* name) {
+static RHIResult create_gpu_buffer_rhi(struct VulkanEngine* engine, VkDeviceSize size, VkBufferUsageFlags usage, const void* srcData, VkBuffer& buf, VmaAllocation& alloc, const char* name) {
     VkBuffer staging = VK_NULL_HANDLE;
     VmaAllocation stgAlloc = VK_NULL_HANDLE;
     VkBufferCreateInfo stgIn{};
@@ -44,7 +44,7 @@ static bool create_gpu_buffer_rhi(struct VulkanEngine* engine, VkDeviceSize size
     VmaAllocationCreateInfo stgAl{};
     stgAl.usage = VMA_MEMORY_USAGE_CPU_ONLY;
     if (vmaCreateBuffer(engine->allocator, &stgIn, &stgAl, &staging, &stgAlloc, nullptr) != VK_SUCCESS) {
-        return false;
+        return RHIResult::ErrorInitializationFailed;
     }
     {
         const std::string stagingBufferName = std::string(name) + "_Staging_Buffer";
@@ -54,7 +54,7 @@ static bool create_gpu_buffer_rhi(struct VulkanEngine* engine, VkDeviceSize size
     void* map = nullptr;
     if (vmaMapMemory(engine->allocator, stgAlloc, &map) != VK_SUCCESS) {
         vmaDestroyBuffer(engine->allocator, staging, stgAlloc);
-        return false;
+        return RHIResult::ErrorInitializationFailed;
     }
     memcpy(map, srcData, size);
     vmaUnmapMemory(engine->allocator, stgAlloc);
@@ -67,7 +67,7 @@ static bool create_gpu_buffer_rhi(struct VulkanEngine* engine, VkDeviceSize size
     gpuAl.usage = VMA_MEMORY_USAGE_GPU_ONLY;
     if (vmaCreateBuffer(engine->allocator, &gpuIn, &gpuAl, &buf, &alloc, nullptr) != VK_SUCCESS) {
         vmaDestroyBuffer(engine->allocator, staging, stgAlloc);
-        return false;
+        return RHIResult::ErrorInitializationFailed;
     }
     vk_set_object_name(engine->device, (uint64_t)buf, VK_OBJECT_TYPE_BUFFER, name);
 
@@ -83,7 +83,7 @@ static bool create_gpu_buffer_rhi(struct VulkanEngine* engine, VkDeviceSize size
         buf = VK_NULL_HANDLE;
         alloc = VK_NULL_HANDLE;
         vmaDestroyBuffer(engine->allocator, staging, stgAlloc);
-        return false;
+        return RHIResult::ErrorInitializationFailed;
     }
     {
         const std::string stagingCbName = std::string(name) + "_Staging_CommandBuffer";
@@ -98,7 +98,7 @@ static bool create_gpu_buffer_rhi(struct VulkanEngine* engine, VkDeviceSize size
         buf = VK_NULL_HANDLE;
         alloc = VK_NULL_HANDLE;
         vmaDestroyBuffer(engine->allocator, staging, stgAlloc);
-        return false;
+        return RHIResult::ErrorInitializationFailed;
     }
 
     vk_begin_label(engine->device, stagingCb, "GPU_Staging_Copy", 0.0f, 1.0f, 0.0f);
@@ -113,7 +113,7 @@ static bool create_gpu_buffer_rhi(struct VulkanEngine* engine, VkDeviceSize size
         buf = VK_NULL_HANDLE;
         alloc = VK_NULL_HANDLE;
         vmaDestroyBuffer(engine->allocator, staging, stgAlloc);
-        return false;
+        return RHIResult::ErrorInitializationFailed;
     }
 
     VkSubmitInfo si{};
@@ -127,17 +127,17 @@ static bool create_gpu_buffer_rhi(struct VulkanEngine* engine, VkDeviceSize size
         buf = VK_NULL_HANDLE;
         alloc = VK_NULL_HANDLE;
         vmaDestroyBuffer(engine->allocator, staging, stgAlloc);
-        return false;
+        return RHIResult::ErrorInitializationFailed;
     }
 
     vkFreeCommandBuffers(engine->device, engine->commandPool, 1, &stagingCb);
     vmaDestroyBuffer(engine->allocator, staging, stgAlloc);
-    return true;
+    return RHIResult::Success;
 }
 
 
-bool VulkanRHI::Init() {
-    return init_vulkan_engine(_engine);
+RHIResult VulkanRHI::Init() {
+    return init_vulkan_engine(_engine) == GfxResult::Success ? RHIResult::Success : RHIResult::ErrorInitializationFailed;
 }
 
 void VulkanRHI::Shutdown() {
@@ -148,8 +148,8 @@ void VulkanRHI::Shutdown() {
 
 #include "vk_engine_runtime.h"
 
-bool VulkanRHI::DrawFrame() {
-    return draw_frame(_engine);
+RHIResult VulkanRHI::DrawFrame() {
+    return draw_frame(_engine) == GfxResult::Success ? RHIResult::Success : RHIResult::ErrorInitializationFailed;
 }
 
 void VulkanRHI::HandleInputs(const struct WindowOps* ops) {
@@ -168,7 +168,7 @@ BufferHandle VulkanRHI::CreateBuffer(std::size_t size, BufferUsage usage, const 
 
     VulkanBuffer buf{};
     if (initialData) {
-        if (!create_gpu_buffer_rhi(_engine, size, vkUsage, initialData, buf.buffer, buf.allocation, name ? name : "Buffer")) {
+        if (create_gpu_buffer_rhi(_engine, size, vkUsage, initialData, buf.buffer, buf.allocation, name ? name : "Buffer") != RHIResult::Success) {
             return INVALID_HANDLE;
         }
     } else {
@@ -461,12 +461,12 @@ void VulkanRHI::DestroyDescriptorPool(DescriptorPoolHandle handle) {
     }
 }
 
-bool VulkanRHI::AllocateDescriptorSets(const DescriptorSetAllocateDesc& desc, DescriptorSetHandle* outSets) {
-    if (desc.pool == INVALID_HANDLE || desc.pool >= m_descriptorPools.size()) return false;
+RHIResult VulkanRHI::AllocateDescriptorSets(const DescriptorSetAllocateDesc& desc, DescriptorSetHandle* outSets) {
+    if (desc.pool == INVALID_HANDLE || desc.pool >= m_descriptorPools.size()) return RHIResult::ErrorInitializationFailed;
     
     std::vector<VkDescriptorSetLayout> vkLayouts(desc.setCount);
     for (uint32_t i = 0; i < desc.setCount; ++i) {
-        if (desc.layouts[i] == INVALID_HANDLE || desc.layouts[i] >= m_descriptorLayouts.size()) return false;
+        if (desc.layouts[i] == INVALID_HANDLE || desc.layouts[i] >= m_descriptorLayouts.size()) return RHIResult::ErrorInitializationFailed;
         vkLayouts[i] = m_descriptorLayouts[desc.layouts[i]].layout;
     }
 
@@ -478,7 +478,7 @@ bool VulkanRHI::AllocateDescriptorSets(const DescriptorSetAllocateDesc& desc, De
 
     std::vector<VkDescriptorSet> vkSets(desc.setCount);
     if (vkAllocateDescriptorSets(_engine->device, &ai, vkSets.data()) != VK_SUCCESS) {
-        return false;
+        return RHIResult::ErrorOutOfMemory;
     }
 
     for (uint32_t i = 0; i < desc.setCount; ++i) {
@@ -489,7 +489,7 @@ bool VulkanRHI::AllocateDescriptorSets(const DescriptorSetAllocateDesc& desc, De
         m_descriptorSets[handle] = {vkSets[i]};
         outSets[i] = handle;
     }
-    return true;
+    return RHIResult::Success;
 }
 
 VkImageView VulkanRHI::GetVkImageViewForHandle(ImageViewHandle handle) const {
@@ -700,14 +700,14 @@ SwapchainStatus VulkanRHI::SubmitAndPresent(uint32_t imageIndex) {
     return presentResult == VK_SUCCESS ? SwapchainStatus::Ok : SwapchainStatus::Error;
 }
 
-bool VulkanRHI::BeginFrame() {
+RHIResult VulkanRHI::BeginFrame() {
     if (vkResetCommandBuffer(_engine->commandBuffer, 0) != VK_SUCCESS) {
-        return false;
+        return RHIResult::ErrorInitializationFailed;
     }
     VkCommandBufferBeginInfo bi{};
     bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     bool res = (vkBeginCommandBuffer(_engine->commandBuffer, &bi) == VK_SUCCESS);
-    if (!res) return false;
+    if (!res) return RHIResult::ErrorInitializationFailed;
     
     if (m_mainCmdList == nullptr) {
         m_mainCmdList = new VulkanCommandList(this, _engine->commandBuffer);
@@ -715,7 +715,7 @@ bool VulkanRHI::BeginFrame() {
         delete m_mainCmdList;
         m_mainCmdList = new VulkanCommandList(this, _engine->commandBuffer);
     }
-    return true;
+    return RHIResult::Success;
 }
 
 IRenderCommandList* VulkanRHI::GetMainCommandList() {

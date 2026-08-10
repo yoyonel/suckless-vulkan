@@ -6,13 +6,13 @@
 #include <iostream>
 #include <sstream>
 
-bool MaterialLoader::load_materials(const std::string& filepath, std::vector<MaterialGpu>& out_materials) {
+ResourceResult MaterialLoader::load_materials(const std::string& filepath, std::vector<MaterialGpu>& out_materials) {
     out_materials.clear();
 
     std::ifstream file(filepath);
     if (!file.is_open()) {
         std::cerr << "Failed to open material file: " << filepath << '\n';
-        return false;
+        return ResourceResult::ErrorParseFailed;
     }
 
     std::stringstream buffer;
@@ -26,13 +26,13 @@ bool MaterialLoader::load_materials(const std::string& filepath, std::vector<Mat
         if (error_ptr != nullptr) {
             std::cerr << "Error before: " << error_ptr << '\n';
         }
-        return false;
+        return ResourceResult::ErrorParseFailed;
     }
 
     if (!cJSON_IsArray(root)) {
         std::cerr << "Root is not a JSON array in " << filepath << '\n';
         cJSON_Delete(root);
-        return false;
+        return ResourceResult::ErrorParseFailed;
     }
 
     const int numMaterials = cJSON_GetArraySize(root);
@@ -76,5 +76,5 @@ bool MaterialLoader::load_materials(const std::string& filepath, std::vector<Mat
     }
 
     cJSON_Delete(root);
-    return true;
+    return ResourceResult::Success;
 }

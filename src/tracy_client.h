@@ -1,3 +1,4 @@
+#include "result.h"
 #ifndef TRACY_CLIENT_H
 #define TRACY_CLIENT_H
 
@@ -18,8 +19,8 @@
     } while (0)
 #endif
 
-bool tracy_client_startup(const char* programName);
-bool tracy_client_poll_connection();
+AppResult tracy_client_startup(const char* programName);
+AppResult tracy_client_poll_connection();
 void tracy_client_mark_frame();
 void tracy_client_shutdown();
 

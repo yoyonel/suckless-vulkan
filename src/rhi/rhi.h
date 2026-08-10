@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstddef>
 #include <vector>
+#include "../result.h"
 
 struct Vertex;
 
@@ -217,9 +218,9 @@ class IRHI {
 public:
     virtual ~IRHI() = default;
 
-    virtual bool Init() = 0;
+    virtual RHIResult Init() = 0;
     virtual void Shutdown() = 0;
-    virtual bool DrawFrame() = 0;
+    virtual RHIResult DrawFrame() = 0;
     virtual void HandleInputs(const struct WindowOps* ops) = 0;
 
     // Resources
@@ -243,7 +244,7 @@ public:
     virtual DescriptorPoolHandle CreateDescriptorPool(const DescriptorPoolDesc& desc, const char* name = nullptr) = 0;
     virtual void DestroyDescriptorPool(DescriptorPoolHandle handle) = 0;
 
-    virtual bool AllocateDescriptorSets(const DescriptorSetAllocateDesc& desc, DescriptorSetHandle* outSets) = 0;
+    virtual RHIResult AllocateDescriptorSets(const DescriptorSetAllocateDesc& desc, DescriptorSetHandle* outSets) = 0;
 
     virtual void UpdateDescriptorSets(uint32_t writeCount, const WriteDescriptorSet* pDescriptorWrites) = 0;
 
@@ -257,7 +258,7 @@ public:
     // Frame lifecycle
     virtual SwapchainStatus AcquireNextImage(uint32_t* imageIndex) = 0;
     virtual void UpdateUBO(const struct UBOData& data) = 0;
-    virtual bool BeginFrame() = 0;
+    virtual RHIResult BeginFrame() = 0;
     virtual class IRenderCommandList* GetMainCommandList() = 0;
     virtual void EndFrame() = 0;
     virtual SwapchainStatus SubmitAndPresent(uint32_t imageIndex) = 0;

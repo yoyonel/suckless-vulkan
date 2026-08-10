@@ -105,9 +105,9 @@ float half_to_float(uint16_t h) {
     return f;
 }
 
-bool save_image_as_hdr(VulkanEngine* engine, VkImage image, uint32_t width, uint32_t height, VkFormat format, uint32_t mip, const char* filename) {
+ResourceResult save_image_as_hdr(VulkanEngine* engine, VkImage image, uint32_t width, uint32_t height, VkFormat format, uint32_t mip, const char* filename) {
     if (!engine || image == VK_NULL_HANDLE)
-        return false;
+        return ResourceResult::ErrorInvalidFormat;
     int channels = 4;
     if (format == VK_FORMAT_R16G16_SFLOAT)
         channels = 2;
@@ -126,13 +126,13 @@ bool save_image_as_hdr(VulkanEngine* engine, VkImage image, uint32_t width, uint
 
     if (vmaCreateBuffer(engine->allocator, &bufferInfo, &allocInfo, &readbackBuffer, &readbackAllocation, nullptr) != VK_SUCCESS) {
         LOG_ERROR("ibl", "Failed to create readback buffer");
-        return false;
+        return ResourceResult::ErrorInvalidFormat;
     }
 
     VkCommandBuffer cb = begin_single_time_commands(engine);
     if (!cb) {
         vmaDestroyBuffer(engine->allocator, readbackBuffer, readbackAllocation);
-        return false;
+        return ResourceResult::ErrorInvalidFormat;
     }
 
     VkImageMemoryBarrier barrier{};
@@ -166,7 +166,7 @@ bool save_image_as_hdr(VulkanEngine* engine, VkImage image, uint32_t width, uint
     if (vmaMapMemory(engine->allocator, readbackAllocation, &mappedData) != VK_SUCCESS) {
         LOG_ERROR("ibl", "Failed to map readback buffer");
         vmaDestroyBuffer(engine->allocator, readbackBuffer, readbackAllocation);
-        return false;
+        return ResourceResult::ErrorInvalidFormat;
     }
     uint16_t* halfData = static_cast<uint16_t*>(mappedData);
     std::vector<float> floatData(static_cast<size_t>(width) * static_cast<size_t>(height) * static_cast<size_t>(channels));
@@ -198,7 +198,7 @@ bool save_image_as_hdr(VulkanEngine* engine, VkImage image, uint32_t width, uint
 
     bool ok = stbi_write_hdr(filename, (int)width, (int)height, writeChannels, finalData.data());
     vmaDestroyBuffer(engine->allocator, readbackBuffer, readbackAllocation);
-    return ok;
+    return ok ? ResourceResult::Success : ResourceResult::ErrorInvalidFormat;
 }
 
 void transition_image_layout(VulkanEngine* engine, VkCommandBuffer cb, VkImage image, uint32_t mipLevels, VkImageLayout oldLayout, VkImageLayout newLayout,
@@ -242,25 +242,25 @@ std::vector<uint32_t> read_shader_file(const char* path) {
 
 } // namespace
 
-static bool init_ibl_resources(VulkanEngine* engine) {
+static GfxResult init_ibl_resources(VulkanEngine* engine) {
     {
         engine->ibl.irradianceMap.Reset(engine->appState->rhi, engine->appState->rhi->CreateTexture(IBL_IRM_SIZE, IBL_IRM_SIZE, TextureFormat::RGBA16_SFLOAT,
                                                                                                     TextureUsage::Storage, 1, "IBL_IrradianceMap"));
         if (!engine->ibl.irradianceMap.is_valid())
-            return false;
+            return GfxResult::ErrorInitializationFailed;
     }
     {
         engine->ibl.prefilteredMap.Reset(engine->appState->rhi,
                                          engine->appState->rhi->CreateTexture(IBL_SPM_SIZE, IBL_SPM_SIZE, TextureFormat::RGBA16_SFLOAT, TextureUsage::Storage,
                                                                               IBL_SPM_MIPS, "IBL_PrefilteredMap"));
         if (!engine->ibl.prefilteredMap.is_valid())
-            return false;
+            return GfxResult::ErrorInitializationFailed;
     }
     {
         engine->ibl.brdfLut.Reset(engine->appState->rhi, engine->appState->rhi->CreateTexture(IBL_BRDF_SIZE, IBL_BRDF_SIZE, TextureFormat::RG16_SFLOAT,
                                                                                               TextureUsage::Storage, 1, "IBL_BrdfLut"));
         if (!engine->ibl.brdfLut.is_valid())
-            return false;
+            return GfxResult::ErrorInitializationFailed;
     }
     {
         VkBufferCreateInfo info{};
@@ -270,21 +270,21 @@ static bool init_ibl_resources(VulkanEngine* engine) {
         VmaAllocationCreateInfo allocInfo{};
         allocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
         if (vmaCreateBuffer(engine->allocator, &info, &allocInfo, &engine->ibl.lumGroupSumsBuffer, &engine->ibl.lumGroupSumsAllocation, nullptr) != VK_SUCCESS)
-            return false;
+            return GfxResult::ErrorInitializationFailed;
         info.size = sizeof(float);
         allocInfo.usage = VMA_MEMORY_USAGE_GPU_TO_CPU;
         if (vmaCreateBuffer(engine->allocator, &info, &allocInfo, &engine->ibl.lumMeanBuffer, &engine->ibl.lumMeanAllocation, nullptr) != VK_SUCCESS)
-            return false;
+            return GfxResult::ErrorInitializationFailed;
     }
-    return true;
+    return GfxResult::Success;
 }
 
-static bool init_ibl_pipelines(VulkanEngine* engine) {
+static GfxResult init_ibl_pipelines(VulkanEngine* engine) {
     engine->ibl.irradianceSampler.Reset(engine->appState->rhi, engine->appState->rhi->CreateSampler(1, true, "IBL_IrrSampler"));
     engine->ibl.prefilteredSampler.Reset(engine->appState->rhi, engine->appState->rhi->CreateSampler(13, true, "IBL_PrefSampler")); // maxLod 12 means 13 levels
     engine->ibl.brdfLutSampler.Reset(engine->appState->rhi, engine->appState->rhi->CreateSampler(1, true, "IBL_BrdfSampler"));
     if (!engine->ibl.irradianceSampler.is_valid() || !engine->ibl.prefilteredSampler.is_valid() || !engine->ibl.brdfLutSampler.is_valid())
-        return false;
+        return GfxResult::ErrorInitializationFailed;
 
     {
         DescriptorSetLayoutBinding b[2] = {{0, DescriptorType::CombinedImageSampler, 1, ShaderStage::Compute},
@@ -292,20 +292,20 @@ static bool init_ibl_pipelines(VulkanEngine* engine) {
         DescriptorLayoutDesc desc1{b, 2};
         engine->ibl.iblDescriptorSetLayout.Reset(engine->appState->rhi, engine->appState->rhi->CreateDescriptorLayout(desc1));
         if (!engine->ibl.iblDescriptorSetLayout.is_valid())
-            return false;
+            return GfxResult::ErrorInitializationFailed;
 
         b[1] = {1, DescriptorType::StorageBuffer, 1, ShaderStage::Compute};
         DescriptorLayoutDesc desc2{b, 2};
         engine->ibl.lum1DescriptorSetLayout.Reset(engine->appState->rhi, engine->appState->rhi->CreateDescriptorLayout(desc2));
         if (!engine->ibl.lum1DescriptorSetLayout.is_valid())
-            return false;
+            return GfxResult::ErrorInitializationFailed;
 
         DescriptorSetLayoutBinding b2[2] = {{0, DescriptorType::StorageBuffer, 1, ShaderStage::Compute},
                                             {1, DescriptorType::StorageBuffer, 1, ShaderStage::Compute}};
         DescriptorLayoutDesc desc3{b2, 2};
         engine->ibl.lum2DescriptorSetLayout.Reset(engine->appState->rhi, engine->appState->rhi->CreateDescriptorLayout(desc3));
         if (!engine->ibl.lum2DescriptorSetLayout.is_valid())
-            return false;
+            return GfxResult::ErrorInitializationFailed;
     }
     {
         PushConstantRange r{ShaderStage::Compute, 0, 64};
@@ -322,7 +322,7 @@ static bool init_ibl_pipelines(VulkanEngine* engine) {
         engine->ibl.lum2PipelineLayout.Reset(engine->appState->rhi, engine->appState->rhi->CreatePipelineLayout(plDesc3, "IBL_Lum2Layout"));
 
         if (!engine->ibl.iblPipelineLayout.is_valid() || !engine->ibl.lum1PipelineLayout.is_valid() || !engine->ibl.lum2PipelineLayout.is_valid())
-            return false;
+            return GfxResult::ErrorInitializationFailed;
     }
     {
         auto lumPass1Shader = read_shader_file("shaders/ibl_lum_pass1.spv");
@@ -332,7 +332,7 @@ static bool init_ibl_pipelines(VulkanEngine* engine) {
         auto brdfLutShader = read_shader_file("shaders/ibl_spbrdf.spv");
 
         if (lumPass1Shader.empty() || lumPass2Shader.empty() || irradianceShader.empty() || specularShader.empty() || brdfLutShader.empty())
-            return false;
+            return GfxResult::ErrorInitializationFailed;
 
         struct PipeDesc {
             const std::vector<uint32_t>& shader;
@@ -350,24 +350,24 @@ static bool init_ibl_pipelines(VulkanEngine* engine) {
             ComputePipelineDesc cpDesc{d.layout, d.shader.data(), d.shader.size() * 4, "main", d.debugName};
             d.outPipeline->Reset(engine->appState->rhi, engine->appState->rhi->CreateComputePipeline(cpDesc));
             if (*(d.outPipeline) == INVALID_HANDLE)
-                return false;
+                return GfxResult::ErrorInitializationFailed;
         }
     }
-    return true;
+    return GfxResult::Success;
 }
 
-bool init_ibl(VulkanEngine* engine) {
+GfxResult init_ibl(VulkanEngine* engine) {
     LOG_INFO("ibl", "Initializing IBL module...");
-    if (!init_ibl_resources(engine))
-        return false;
-    if (!init_ibl_pipelines(engine))
-        return false;
+    if (init_ibl_resources(engine) != GfxResult::Success)
+        return GfxResult::ErrorInitializationFailed;
+    if (init_ibl_pipelines(engine) != GfxResult::Success)
+        return GfxResult::ErrorInitializationFailed;
     {
         DescriptorPoolSize sizes[3] = {{DescriptorType::CombinedImageSampler, 10}, {DescriptorType::StorageImage, 20}, {DescriptorType::StorageBuffer, 20}};
         DescriptorPoolDesc desc{sizes, 3, 10};
         engine->ibl.computeDescriptorPool.Reset(engine->appState->rhi, engine->appState->rhi->CreateDescriptorPool(desc));
         if (!engine->ibl.computeDescriptorPool.is_valid())
-            return false;
+            return GfxResult::ErrorInitializationFailed;
 
         DescriptorLayoutHandle layouts[5] = {engine->ibl.lum1DescriptorSetLayout, engine->ibl.lum2DescriptorSetLayout, engine->ibl.iblDescriptorSetLayout,
                                              engine->ibl.iblDescriptorSetLayout, engine->ibl.iblDescriptorSetLayout};
@@ -378,8 +378,8 @@ bool init_ibl(VulkanEngine* engine) {
         ai.layouts = layouts;
 
         DescriptorSetHandle sets[5];
-        if (!engine->appState->rhi->AllocateDescriptorSets(ai, sets))
-            return false;
+        if (engine->appState->rhi->AllocateDescriptorSets(ai, sets) != RHIResult::Success)
+            return GfxResult::ErrorInitializationFailed;
         engine->ibl.lum1DescriptorSet = sets[0];
         engine->ibl.lum2DescriptorSet = sets[1];
         engine->ibl.irmapDescriptorSet = sets[2];
@@ -388,7 +388,7 @@ bool init_ibl(VulkanEngine* engine) {
     }
     engine->ibl.brdfLutBaked = false;
     engine->ibl.bakedMeanLuminance = 1.0f;
-    return true;
+    return GfxResult::Success;
 }
 
 void cleanup_ibl(VulkanEngine* engine) {
@@ -610,7 +610,7 @@ void vk_ibl_bake(VulkanEngine* engine) {
             ai.layouts = layouts.data();
 
             std::vector<DescriptorSetHandle> sets(IBL_SPM_MIPS);
-            if (engine->appState->rhi->AllocateDescriptorSets(ai, sets.data())) {
+            if (engine->appState->rhi->AllocateDescriptorSets(ai, sets.data()) == RHIResult::Success) {
                 for (uint32_t i = 0; i < IBL_SPM_MIPS; ++i) {
                     ImageViewHandle viewHandle = engine->appState->rhi->CreateImageView(engine->ibl.prefilteredMap, i, 1, 0, 1);
                     views.push_back(viewHandle);
@@ -679,15 +679,16 @@ void vk_ibl_export_maps(VulkanEngine* engine) {
     LOG_INFO("ibl", "Exporting IBL maps to HDR files in %s...", dump_dir);
     char path[512];
     snprintf(path, sizeof(path), "%s/brdf_lut.hdr", dump_dir);
-    save_image_as_hdr(engine, ((VulkanRHI*)engine->appState->rhi)->GetVkImage(engine->ibl.brdfLut), IBL_BRDF_SIZE, IBL_BRDF_SIZE, VK_FORMAT_R16G16_SFLOAT, 0,
-                      path);
+    (void)save_image_as_hdr(engine, ((VulkanRHI*)engine->appState->rhi)->GetVkImage(engine->ibl.brdfLut), IBL_BRDF_SIZE, IBL_BRDF_SIZE, VK_FORMAT_R16G16_SFLOAT,
+                            0, path);
     snprintf(path, sizeof(path), "%s/irradiance.hdr", dump_dir);
-    save_image_as_hdr(engine, ((VulkanRHI*)engine->appState->rhi)->GetVkImage(engine->ibl.irradianceMap), IBL_IRM_SIZE, IBL_IRM_SIZE,
-                      VK_FORMAT_R16G16B16A16_SFLOAT, 0, path);
+    (void)save_image_as_hdr(engine, ((VulkanRHI*)engine->appState->rhi)->GetVkImage(engine->ibl.irradianceMap), IBL_IRM_SIZE, IBL_IRM_SIZE,
+                            VK_FORMAT_R16G16B16A16_SFLOAT, 0, path);
     for (uint32_t i = 0; i < IBL_SPM_MIPS; ++i) {
         uint32_t sz = std::max(1u, IBL_SPM_SIZE >> i);
         snprintf(path, sizeof(path), "%s/prefiltered_mip%u.hdr", dump_dir, i);
-        save_image_as_hdr(engine, ((VulkanRHI*)engine->appState->rhi)->GetVkImage(engine->ibl.prefilteredMap), sz, sz, VK_FORMAT_R16G16B16A16_SFLOAT, i, path);
+        (void)save_image_as_hdr(engine, ((VulkanRHI*)engine->appState->rhi)->GetVkImage(engine->ibl.prefilteredMap), sz, sz, VK_FORMAT_R16G16B16A16_SFLOAT, i,
+                                path);
     }
     LOG_DEBUG("ibl", "Export Complete.");
 }

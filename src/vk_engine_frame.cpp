@@ -24,7 +24,7 @@ constexpr float kLegacyDefaultFov = 60.0f;
 #if defined(__GNUC__) || defined(__clang__)
 __attribute__((target("avx2,fma")))
 #endif
-bool vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recreateSwapchain) {
+GfxResult vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recreateSwapchain) {
     SVK_TRACY_ZONE_SCOPED("vk_draw_frame_internal");
 
     // Reset the TLS Scratch Arena for this frame
@@ -43,7 +43,7 @@ bool vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recreateSw
             return recreateSwapchain(engine);
         }
         if (status == SwapchainStatus::Error) {
-            return false;
+            return GfxResult::ErrorInitializationFailed;
         }
     }
     engine->lastRenderedImageIndex = idx;
@@ -102,8 +102,8 @@ bool vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recreateSw
 
     {
         SVK_TRACY_ZONE_SCOPED("Frame CPU Record");
-        if (!rhi->BeginFrame()) {
-            return false;
+        if (rhi->BeginFrame() != RHIResult::Success) {
+            return GfxResult::ErrorInitializationFailed;
         }
 
         IRenderCommandList* cmdList = rhi->GetMainCommandList();
@@ -219,6 +219,7 @@ bool vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recreateSw
         if (status == SwapchainStatus::NeedRecreate) {
             return recreateSwapchain(engine);
         }
-        return status == SwapchainStatus::Ok;
+        const GfxResult statusMap[3] = {GfxResult::Success, GfxResult::ErrorInitializationFailed, GfxResult::ErrorInitializationFailed};
+        return statusMap[static_cast<uint8_t>(status)];
     }
 }

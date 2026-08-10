@@ -53,32 +53,32 @@ bool runtime_is_key_pressed_once(GLFWwindow* window, int key, bool* wasDown, con
     return pressedOnce;
 }
 
-bool runtime_toggle_fullscreen(EngineState* state, const WindowOps* ops) {
+AppResult runtime_toggle_fullscreen(EngineState* state, const WindowOps* ops) {
     if (!state->core.window.isFullscreen) {
         ops->get_window_pos(state->window, &state->core.window.windowedPosX, &state->core.window.windowedPosY);
         ops->get_window_size(state->window, &state->core.window.windowedWidth, &state->core.window.windowedHeight);
 
         GLFWmonitor* monitor = ops->get_primary_monitor();
         if (monitor == nullptr) {
-            return false;
+            return AppResult::ErrorRuntime;
         }
 
         const GLFWvidmode* mode = ops->get_video_mode(monitor);
         if (mode == nullptr) {
-            return false;
+            return AppResult::ErrorRuntime;
         }
 
         ops->set_window_monitor(state->window, monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
         state->core.window.isFullscreen = true;
         LOG_INFO("runtime", "Mode fullscreen active");
-        return true;
+        return AppResult::Success;
     }
 
     ops->set_window_monitor(state->window, nullptr, state->core.window.windowedPosX, state->core.window.windowedPosY, state->core.window.windowedWidth,
                             state->core.window.windowedHeight, 0);
     state->core.window.isFullscreen = false;
     LOG_INFO("runtime", "Mode fenetre active");
-    return true;
+    return AppResult::Success;
 }
 
 void runtime_update_controls(EngineState* state, const WindowOps* ops) {
@@ -89,7 +89,7 @@ void runtime_update_controls(EngineState* state, const WindowOps* ops) {
     state->currentInput.speedDownPressed = runtime_is_key_pressed_once(state->window, GLFW_KEY_DOWN, &state->core.inputTracking.speedDownKeyWasDown, ops);
 
     if (runtime_is_key_pressed_once(state->window, GLFW_KEY_F11, &state->core.inputTracking.fullscreenKeyWasDown, ops)) {
-        if (runtime_toggle_fullscreen(state, ops)) {
+        if (runtime_toggle_fullscreen(state, ops) == AppResult::Success) {
             state->core.lastFrameTimestamp = std::chrono::steady_clock::now();
         }
     }

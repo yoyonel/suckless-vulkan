@@ -1,6 +1,7 @@
 #ifndef TRACY_VULKAN_H
 #define TRACY_VULKAN_H
 
+#include "result.h"
 #include "vk_engine.h"
 
 #ifdef TRACY_ENABLE
@@ -16,7 +17,7 @@
 #define SVK_RHI_GPU_ZONE(varname, rhi, name)
 #endif
 
-bool tracy_vk_context_init(VulkanEngine* engine);
+GfxResult tracy_vk_context_init(VulkanEngine* engine);
 void tracy_vk_context_destroy(VulkanEngine* engine);
 void tracy_vk_collect(VulkanEngine* engine, VkCommandBuffer commandBuffer);
 

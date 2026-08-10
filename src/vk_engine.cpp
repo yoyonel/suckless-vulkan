@@ -37,11 +37,11 @@ void vk_end_label(VkDevice device, VkCommandBuffer cb) {
 
 // --- FONCTIONS PUBLIQUES ---
 
-bool init_vulkan_engine(VulkanEngine* engine) {
+GfxResult init_vulkan_engine(VulkanEngine* engine) {
     return vk_init_vulkan_engine(engine);
 }
 
-bool draw_frame(VulkanEngine* engine) {
+GfxResult draw_frame(VulkanEngine* engine) {
     return vk_draw_frame_internal(engine, vk_recreate_swapchain);
 }
 

@@ -41,10 +41,10 @@ void operator delete[](void* ptr, std::size_t size) noexcept {
 
 bool g_tracyInitialized = false;
 
-bool tracy_client_startup(const char* programName) {
+AppResult tracy_client_startup(const char* programName) {
     if (g_tracyInitialized) {
         LOG_WARNING("tracy", "Tracy client deja initialise.");
-        return true;
+        return AppResult::Success;
     }
 
     if (programName != nullptr && programName[0] != '\0') {
@@ -55,15 +55,15 @@ bool tracy_client_startup(const char* programName) {
     TracyCSetThreadName("Main Thread");
     LOG_INFO("tracy", "Tracy client initialise (auto-lifecycle).");
     g_tracyInitialized = true;
-    return true;
+    return AppResult::Success;
 }
 
-bool tracy_client_poll_connection() {
+AppResult tracy_client_poll_connection() {
     if (!g_tracyInitialized) {
-        return true;
+        return AppResult::Success;
     }
     // With automatic lifecycle, no explicit connection polling needed
-    return true;
+    return AppResult::Success;
 }
 
 void tracy_client_mark_frame() {
@@ -86,13 +86,13 @@ void tracy_client_shutdown() {
 
 // Mock implementations when TRACY_ENABLE not defined
 
-bool tracy_client_startup(const char* programName) {
+AppResult tracy_client_startup(const char* programName) {
     (void)programName;
-    return true;
+    return AppResult::Success;
 }
 
-bool tracy_client_poll_connection() {
-    return true;
+AppResult tracy_client_poll_connection() {
+    return AppResult::Success;
 }
 
 void tracy_client_mark_frame() {}

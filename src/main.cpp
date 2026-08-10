@@ -6,34 +6,34 @@
 typedef IRHI* (*CreateRHIFunc)(EngineState*);
 typedef void (*DestroyRHIFunc)(IRHI*);
 
-bool handle_rhi_reload(EngineState* state, const std::string& libName, CreateRHIFunc& createFunc, DestroyRHIFunc& destroyFunc) {
+AppResult handle_rhi_reload(EngineState* state, const std::string& libName, CreateRHIFunc& createFunc, DestroyRHIFunc& destroyFunc) {
     LOG_INFO("app", "F5 pressed: Reloading RHI module...");
 
     state->rhi->Shutdown();
     destroyFunc(state->rhi);
     state->rhiModule.Unload();
 
-    if (!state->rhiModule.Load(libName)) {
+    if (state->rhiModule.Load(libName) != ResourceResult::Success) {
         LOG_CRITICAL("app", "Failed to reload RHI module %s", libName.c_str());
-        return false;
+        return AppResult::ErrorInitializationFailed;
     }
     createFunc = (CreateRHIFunc)state->rhiModule.GetSymbol("CreateRHI");
     destroyFunc = (DestroyRHIFunc)state->rhiModule.GetSymbol("DestroyRHI");
     if (!createFunc || !destroyFunc) {
         LOG_CRITICAL("app", "Failed to find symbols in reloaded RHI module");
-        return false;
+        return AppResult::ErrorInitializationFailed;
     }
 
     state->rhi = createFunc(state);
-    if (!state->rhi->Init()) {
+    if (state->rhi->Init() != RHIResult::Success) {
         LOG_CRITICAL("app", "Failed to initialize reloaded RHI");
-        return false;
+        return AppResult::ErrorInitializationFailed;
     }
     LOG_INFO("app", "RHI module reloaded successfully!");
-    return true;
+    return AppResult::Success;
 }
 
-bool parse_arguments(int argc, char** argv, EngineState* state) {
+AppResult parse_arguments(int argc, char** argv, EngineState* state) {
     state->core.vsync = false;
     const char* vsyncEnv = std::getenv("SVK_VSYNC");
     if (vsyncEnv != nullptr) {
@@ -48,36 +48,36 @@ bool parse_arguments(int argc, char** argv, EngineState* state) {
         else if (arg == "--nullrhi")
             state->useNullRHI = true;
     }
-    return true;
+    return AppResult::Success;
 }
 
-bool init_glfw(EngineState* state) {
+AppResult init_glfw(EngineState* state) {
     if (glfwInit() != GLFW_TRUE)
-        return false;
+        return AppResult::ErrorInitializationFailed;
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
     state->window = glfwCreateWindow(1024, 768, "Vulkan - Icosphere Full GPU", NULL, NULL);
-    return state->window != nullptr;
+    return state->window != nullptr ? AppResult::Success : AppResult::ErrorInitializationFailed;
 }
 
-bool load_initial_rhi(EngineState* state, std::string& libName, CreateRHIFunc& createFunc, DestroyRHIFunc& destroyFunc) {
+AppResult load_initial_rhi(EngineState* state, std::string& libName, CreateRHIFunc& createFunc, DestroyRHIFunc& destroyFunc) {
     libName = state->useNullRHI ? "libnull_rhi.so" : "libvulkan_rhi.so";
-    if (!state->rhiModule.Load(libName)) {
+    if (state->rhiModule.Load(libName) != ResourceResult::Success) {
         LOG_CRITICAL("app", "Failed to load RHI module %s", libName.c_str());
-        return false;
+        return AppResult::ErrorInitializationFailed;
     }
     createFunc = (CreateRHIFunc)state->rhiModule.GetSymbol("CreateRHI");
     destroyFunc = (DestroyRHIFunc)state->rhiModule.GetSymbol("DestroyRHI");
     if (!createFunc || !destroyFunc) {
         LOG_CRITICAL("app", "Failed to find CreateRHI/DestroyRHI symbols");
-        return false;
+        return AppResult::ErrorInitializationFailed;
     }
     state->rhi = createFunc(state);
-    if (!state->rhi->Init()) {
+    if (state->rhi->Init() != RHIResult::Success) {
         LOG_CRITICAL("app", "Echec de l'initialisation.");
-        return false;
+        return AppResult::ErrorInitializationFailed;
     }
-    return true;
+    return AppResult::Success;
 }
 
 #ifdef __linux__
@@ -94,9 +94,9 @@ int main(int argc, char** argv) {
 #endif
 
     EngineState state = {};
-    parse_arguments(argc, argv, &state);
+    (void)parse_arguments(argc, argv, &state);
 
-    if (!tracy_client_startup("suckless-vulkan")) {
+    if (tracy_client_startup("suckless-vulkan") != AppResult::Success) {
         LOG_CRITICAL("tracy", "Impossible d'initialiser le client Tracy pour cette session.");
         return -1;
     }
@@ -104,14 +104,14 @@ int main(int argc, char** argv) {
     arena_init(&state.rhiArena, RHI_ARENA_CAPACITY_BYTES);
     core_engine_init(&state.core);
 
-    if (!init_glfw(&state)) {
+    if (init_glfw(&state) != AppResult::Success) {
         return -1;
     }
 
     std::string libName;
     CreateRHIFunc createFunc = nullptr;
     DestroyRHIFunc destroyFunc = nullptr;
-    if (!load_initial_rhi(&state, libName, createFunc, destroyFunc)) {
+    if (load_initial_rhi(&state, libName, createFunc, destroyFunc) != AppResult::Success) {
         tracy_client_shutdown();
         return -1;
     }
@@ -124,16 +124,16 @@ int main(int argc, char** argv) {
 
         bool is_f5_down = (glfwGetKey(state.window, GLFW_KEY_F5) == GLFW_PRESS);
         if (is_f5_down && !f5_was_down) {
-            if (!handle_rhi_reload(&state, libName, createFunc, destroyFunc)) {
+            if (handle_rhi_reload(&state, libName, createFunc, destroyFunc) != AppResult::Success) {
                 break;
             }
         }
         f5_was_down = is_f5_down;
 
         runtime_update_controls(&state, runtime_default_window_ops());
-        tracy_client_poll_connection();
+        (void)tracy_client_poll_connection();
         state.rhi->HandleInputs(runtime_default_window_ops());
-        if (!state.rhi->DrawFrame()) {
+        if (state.rhi->DrawFrame() != RHIResult::Success) {
             LOG_ERROR("app", "Echec du rendu d'une frame.");
             break;
         }

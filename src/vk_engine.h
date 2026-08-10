@@ -216,15 +216,15 @@ struct VulkanEngine {
     EngineState* appState;
 };
 
-bool init_vulkan_engine(VulkanEngine* engine);
-bool draw_frame(VulkanEngine* engine);
+GfxResult init_vulkan_engine(VulkanEngine* engine);
+GfxResult draw_frame(VulkanEngine* engine);
 void vk_set_object_name(VkDevice device, uint64_t handle, VkObjectType type, const char* name);
 void vk_begin_label(VkDevice device, VkCommandBuffer cb, const char* name, float r, float g, float b);
 void vk_end_label(VkDevice device, VkCommandBuffer cb);
 void cleanup_vulkan_engine(VulkanEngine* engine);
 
 // IBL Module
-bool init_ibl(VulkanEngine* engine);
+GfxResult init_ibl(VulkanEngine* engine);
 void cleanup_ibl(VulkanEngine* engine);
 void vk_ibl_bake(VulkanEngine* engine);
 

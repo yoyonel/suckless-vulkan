@@ -10,7 +10,7 @@ public:
     VulkanRHI(struct VulkanEngine* engine);
     ~VulkanRHI() override;
 
-    bool Init() override;
+    RHIResult Init() override;
     void Shutdown() override;
     void HandleInputs(const struct WindowOps* ops) override;
 
@@ -36,7 +36,7 @@ public:
     DescriptorPoolHandle CreateDescriptorPool(const DescriptorPoolDesc& desc, const char* name = nullptr) override;
     void DestroyDescriptorPool(DescriptorPoolHandle handle) override;
 
-    bool AllocateDescriptorSets(const DescriptorSetAllocateDesc& desc, DescriptorSetHandle* outSets) override;
+    RHIResult AllocateDescriptorSets(const DescriptorSetAllocateDesc& desc, DescriptorSetHandle* outSets) override;
 
     void UpdateDescriptorSets(uint32_t writeCount, const WriteDescriptorSet* pDescriptorWrites) override;
     PipelineLayoutHandle CreatePipelineLayout(const PipelineLayoutDesc& desc, const char* name = nullptr) override;
@@ -55,7 +55,7 @@ public:
     VkPipelineLayout GetVkPipelineLayout(PipelineLayoutHandle handle) const;
     VkPipeline GetVkPipeline(PipelineHandle handle) const;
 
-    bool BeginFrame() override;
+    RHIResult BeginFrame() override;
     class IRenderCommandList* GetMainCommandList() override;
     void EndFrame() override;
 
@@ -142,7 +142,7 @@ private:
     std::vector<VulkanDescriptorSet> m_descriptorSets;
     uint32_t m_nextDescriptorSetHandle{1};
 
-    bool DrawFrame() override;
+    RHIResult DrawFrame() override;
 
 public:
     struct VulkanEngine* _engine;

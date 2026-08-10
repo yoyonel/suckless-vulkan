@@ -1,3 +1,4 @@
+#include "result.h"
 #ifndef MATERIAL_LOADER_H
 #define MATERIAL_LOADER_H
 
@@ -11,7 +12,7 @@ struct MaterialGpu {
 
 class MaterialLoader {
   public:
-    static bool load_materials(const std::string& filepath, std::vector<MaterialGpu>& out_materials);
+    static ResourceResult load_materials(const std::string& filepath, std::vector<MaterialGpu>& out_materials);
 };
 
 #endif
