@@ -203,6 +203,9 @@ benchmark-tracy: build-tracy build-tracy-capture build-tracy-csvexport
     @chmod +x scripts/benchmark_tracy.sh
     @scripts/benchmark_tracy.sh
 
+benchmark-analyze: benchmark-tracy
+    @scripts/analyze_fps.sh
+
 test: build
     @ctest --test-dir build/release --output-on-failure
 

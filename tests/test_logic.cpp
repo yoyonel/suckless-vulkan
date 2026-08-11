@@ -285,6 +285,12 @@ void fake_set_window_monitor(GLFWwindow* window, GLFWmonitor* monitor, int xpos,
     g_fake->lastRefresh = refresh_rate;
 }
 
+void fake_set_input_mode(GLFWwindow* window, int mode, int value) {
+    (void)window;
+    (void)mode;
+    (void)value;
+}
+
 WindowOps make_fake_ops() {
     WindowOps ops = {};
     ops.get_key = fake_get_key;
@@ -294,6 +300,7 @@ WindowOps make_fake_ops() {
     ops.get_window_pos = fake_get_window_pos;
     ops.get_window_size = fake_get_window_size;
     ops.set_window_monitor = fake_set_window_monitor;
+    ops.set_input_mode = fake_set_input_mode;
     return ops;
 }
 

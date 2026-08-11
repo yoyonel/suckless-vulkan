@@ -11,8 +11,8 @@ fi
 USE_XVFB=false
 if [[ "$CI" == "true" ]] || [[ -z "$DISPLAY" ]]; then
 	USE_XVFB=true
-	export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json
-	export VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+	export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json
+	export VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json
 fi
 
 echo "Exécution du smoke test (timeout 2s) : $APP_BIN"
@@ -20,10 +20,10 @@ echo "Exécution du smoke test (timeout 2s) : $APP_BIN"
 set +e
 if [ "$USE_XVFB" = true ]; then
 	echo "Utilisation de xvfb-run..."
-	xvfb-run -a -s "-screen 0 1920x1080x24" timeout -k 1s 2s "$APP_BIN" --no-vsync
+	xvfb-run -a -s "-screen 0 1920x1080x24" timeout -k 1s 2s "$APP_BIN" --no-vsync --no-focus
 else
 	echo "Serveur X détecté, exécution directe..."
-	timeout -k 1s 2s "$APP_BIN" --no-vsync
+	timeout -k 1s 2s "$APP_BIN" --no-vsync --no-focus
 fi
 EXIT_CODE=$?
 set -e

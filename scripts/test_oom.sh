@@ -11,8 +11,8 @@ fi
 USE_XVFB=false
 if [[ "$CI" == "true" ]] || [[ -z "$DISPLAY" ]]; then
 	USE_XVFB=true
-	export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json
-	export VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+	export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json
+	export VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json
 fi
 
 # Force une limite de mémoire virtuelle très basse (100MB)

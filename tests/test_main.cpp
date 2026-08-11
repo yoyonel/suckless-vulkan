@@ -214,12 +214,16 @@ static bool test_integration_rendering() {
 
     arena_init(&appState.rhiArena, RHI_ARENA_CAPACITY_BYTES);
     core_engine_init(&appState.core);
+    appState.core.cameraEnabled = false;
 
     if (glfwInit() != GLFW_TRUE) {
         return false;
     }
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+    glfwWindowHint(GLFW_FOCUSED, GLFW_FALSE);
+    glfwWindowHint(GLFW_FOCUS_ON_SHOW, GLFW_FALSE);
+    glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
     appState.window = glfwCreateWindow(1024, 768, "Test", NULL, NULL);
     if (!appState.window) {
         return false;
