@@ -94,9 +94,9 @@ Current pinned Tracy release: `v0.13.1`.
 
 ### Tracy Automated Benchmark
 
-You can run an automated headless benchmark to extract CPU cache misses (`perf stat`) and Tracy execution zones:
-
+You can run an automated headless benchmark to extract CPU cache misses (L1/L2/L3) and Tracy execution zones:
 ```bash
+just perf-benchmark
 just benchmark-tracy
 ```
 
