@@ -49,3 +49,7 @@ heaptrack.*
 *.log
 *.ktx2
 tests/failures/
+
+# VTune
+vtune_results/
+

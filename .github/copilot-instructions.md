@@ -10,6 +10,7 @@
 6. **NO suppression of warnings/errors** — Fix issues at the source; never bypass them
 7. **INTERDICTION ABSOLUE DE MERGER UNE PR** — Zéro action de merge tolérée. Le merge est la responsabilité stricte et exclusive du développeur.
 8. **Zéro commit/push sans accord explicite** — Toujours demander validation avant toute altération de l'historique distant.
+9. **INTERDICTION FORMELLE ET STRICTE DE TOUCHER AUX IMAGES DE RÉFÉRENCES** — Ne **jamais** modifier ni synchroniser le répertoire `tests/references/*` (ex: via `sync-test-references`). Si les tests échouent pour discordance d'images, le code source a généré une régression qu'il faut fixer.
 
 ---
 
@@ -241,6 +242,9 @@ just lint
 # Run all tests
 just test-all
 
+# Run sanitizers (AddressSanitizer)
+just test-asan
+
 # Optionally verify coverage
 just coverage-llvm
 ```
@@ -331,6 +335,7 @@ Before running `git commit`:
 - [ ] Code formatted: `just format` ✅
 - [ ] No lint errors: `just lint` ✅
 - [ ] All tests pass: `just test-all` ✅
+- [ ] No memory errors (ASan): `just test-asan` ✅
 - [ ] Git working tree reviewed: `git status --short --branch` ✅
 - [ ] No unexpected leftovers (unstaged/untracked) without explicit handling plan
 - [ ] Docs created/updated (if feature/design change)

@@ -591,7 +591,13 @@ docs-uv-build:
 check-docs: format-docs lint-docs
     @echo "Documentation propre et validée ! ✨"
 
-# Run performance benchmark using perf on unit_tests
+# Run performance benchmark and output comparison markdown
 perf-benchmark: build
-    @echo "--- 🚀 Running Perf Benchmark ---"
-    perf stat -e L1-dcache-load-misses,L1-dcache-loads,LLC-load-misses,LLC-loads,cache-misses,cache-references ./build/unit_tests > /dev/null
+    @echo "--- 🚀 Running Perf Benchmark Comparison ---"
+    python3 scripts/benchmark_compare.py
+
+# Run Intel VTune memory-access analysis (requires sudo permissions)
+benchmark-vtune: build
+    @echo "--- 🚀 Running VTune Memory Access Benchmark ---"
+    rm -rf ./vtune_results
+    bash -c '(source /opt/intel/oneapi/setvars.sh --force || true) && sudo -E /opt/intel/oneapi/vtune/2026.4/bin64/vtune -collect memory-access -result-dir ./vtune_results env TMP_DIR=/tmp ./scripts/interactive_runner.sh ./build/release/vulkan_app --no-vsync'
