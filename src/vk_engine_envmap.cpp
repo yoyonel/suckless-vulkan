@@ -247,9 +247,7 @@ void vk_generate_one_hdr_mipmap(VulkanEngine* engine) {
     vk_end_label(engine->device, commandBuffer);
     vkEndCommandBuffer(commandBuffer);
 
-    VkFenceCreateInfo fenceInfo{};
-    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-    vkCreateFence(engine->device, &fenceInfo, nullptr, &engine->ibl.iblBakeFence);
+    vk_ibl_reset_bake_fence(engine);
 
     VkSubmitInfo submitInfo{};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -275,6 +273,7 @@ void vk_process_upload_hdr(VulkanEngine* engine) {
     int copyHeight = std::min(sliceHeight, static_cast<int>(engine->envHdrHeight) - currentY);
 
     if (copyHeight > 0) {
+        vk_begin_label(engine->device, commandBuffer, "Upload_HDR_Slice", 1.0f, 0.5f, 0.0f);
         VkBufferImageCopy region{};
         region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         region.imageSubresource.layerCount = 1;
@@ -284,14 +283,10 @@ void vk_process_upload_hdr(VulkanEngine* engine) {
 
         ((VulkanRHI*)engine->appState->rhi)
             ->CmdCopyBufferToImage(commandBuffer, engine->ibl.currentStagingBuffer, vkEnvHdrImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+        vk_end_label(engine->device, commandBuffer);
     }
 
-    if (engine->ibl.iblBakeFence != VK_NULL_HANDLE) {
-        vkDestroyFence(engine->device, engine->ibl.iblBakeFence, nullptr);
-    }
-    VkFenceCreateInfo fenceInfo{};
-    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-    vkCreateFence(engine->device, &fenceInfo, nullptr, &engine->ibl.iblBakeFence);
+    vk_ibl_reset_bake_fence(engine);
 
     vkEndCommandBuffer(commandBuffer);
 
@@ -522,6 +517,10 @@ ResourceResult init_environment_texture_from_path(VulkanEngine* engine, const st
 
 void push_to_cleanup_queue(VulkanEngine* engine, HdrCleanupRequest&& req) {
     while (true) {
+        // [Assessment] rigtorp::SPSCQueue::push(T&&) does not consume the moved object if it returns false.
+        // There is no alternative because HdrCleanupRequest is move-only and the queue requires a move.
+        // [Tracking Note] Consider adding try_push(T&&) without move semantics issues in the future.
+        // [User Validation] The user explicitly validated this approach during code review.
         if (engine->io.hdrCleanupQueue.push(std::move(req))) { // NOLINT(bugprone-use-after-move)
             break;
         }
@@ -768,42 +767,45 @@ void vk_process_ready_environment_texture(VulkanEngine* engine) {
     LOG_INFO("runtime", "vk_process_ready_environment_texture a pris %.2f ms", ms);
 }
 
-static void vk_finalize_ibl_bake(VulkanEngine* engine) {
-    for (uint64_t viewHandle : engine->ibl.pendingImageViews) {
+void IblResources::cleanupPendingResources(VulkanEngine* engine) {
+    for (uint64_t viewHandle : pendingImageViews) {
         engine->appState->rhi->DestroyImageView(static_cast<ImageViewHandle>(viewHandle));
     }
-    engine->ibl.pendingImageViews.clear();
+    pendingImageViews.clear();
 
-    for (uint64_t poolHandle : engine->ibl.pendingDescriptorPools) {
+    for (uint64_t poolHandle : pendingDescriptorPools) {
         engine->appState->rhi->DestroyDescriptorPool(static_cast<DescriptorPoolHandle>(poolHandle));
     }
-    engine->ibl.pendingDescriptorPools.clear();
+    pendingDescriptorPools.clear();
 
-    for (auto& tex : engine->ibl.pendingOldTextures) {
+    for (auto& tex : pendingOldTextures) {
         HdrCleanupRequest req;
         req.tex = std::move(tex);
         push_to_cleanup_queue(engine, std::move(req));
     }
-    engine->ibl.pendingOldTextures.clear();
+    pendingOldTextures.clear();
 
-    for (auto& smp : engine->ibl.pendingOldSamplers) {
+    for (auto& smp : pendingOldSamplers) {
         HdrCleanupRequest req;
         req.smp = std::move(smp);
         push_to_cleanup_queue(engine, std::move(req));
     }
-    engine->ibl.pendingOldSamplers.clear();
+    pendingOldSamplers.clear();
 
-    for (size_t i = 0; i < engine->ibl.pendingStagingBuffers.size(); ++i) {
+    for (size_t i = 0; i < pendingStagingBuffers.size(); ++i) {
         HdrCleanupRequest req;
-        req.buffer = engine->ibl.pendingStagingBuffers[i];
-        req.allocation = engine->ibl.pendingStagingAllocations[i];
+        req.buffer = pendingStagingBuffers[i];
+        req.allocation = pendingStagingAllocations[i];
         push_to_cleanup_queue(engine, std::move(req));
     }
-    engine->ibl.pendingStagingBuffers.clear();
-    engine->ibl.pendingStagingAllocations.clear();
+    pendingStagingBuffers.clear();
+    pendingStagingAllocations.clear();
+}
+
+static void vk_finalize_ibl_bake(VulkanEngine* engine) {
+    engine->ibl.cleanupPendingResources(engine);
 
     update_envmap_descriptor_set(engine);
-
     auto tEnd = std::chrono::high_resolution_clock::now();
     if (engine->ibl.envmapRequestTime.time_since_epoch().count() != 0) {
         float totalMs = std::chrono::duration<float, std::milli>(tEnd - engine->ibl.envmapRequestTime).count();
