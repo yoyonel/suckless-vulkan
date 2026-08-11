@@ -41,6 +41,8 @@ struct BillboardSoA {
     int* materialIdx;
 };
 
+enum class InputState : uint8_t { Released = 0, Pressed, PressedOnce };
+
 struct CoreInput {
     bool moveForward;
     bool moveBackward;
@@ -53,30 +55,30 @@ struct CoreInput {
     float mouseDeltaY;
     float scrollDelta;
 
-    bool pausePressed;
-    bool resetPressed;
-    bool speedUpPressed;
-    bool speedDownPressed;
+    InputState pausePressed;
+    InputState resetPressed;
+    InputState speedUpPressed;
+    InputState speedDownPressed;
 
-    bool cameraTogglePressed;
-    bool showEnvmapTogglePressed;
-    bool envPageUpPressed;
-    bool envPageDownPressed;
+    InputState cameraTogglePressed;
+    InputState showEnvmapTogglePressed;
+    InputState envPageUpPressed;
+    InputState envPageDownPressed;
     bool envShiftDown;
 
-    bool iblDebugDigitPressed[10];
-    bool iblDebugPrevPressed;
-    bool iblDebugNextPressed;
-    bool iblExportPressed;
-    bool iblDebugF6Pressed;
+    InputState iblDebugDigitPressed[10];
+    InputState iblDebugPrevPressed;
+    InputState iblDebugNextPressed;
+    InputState iblExportPressed;
+    InputState iblDebugF6Pressed;
 
-    bool cameraResetPressed;
-    bool postResetPressed;
+    InputState cameraResetPressed;
+    InputState postResetPressed;
     bool postExposureAddDown;
     bool postExposureSubDown;
 
-    bool billboardPressed;
-    bool wireframePressed;
+    InputState billboardPressed;
+    InputState wireframePressed;
 };
 
 struct TimeState {

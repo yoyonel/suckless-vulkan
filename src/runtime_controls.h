@@ -17,7 +17,7 @@ struct WindowOps {
 };
 
 const WindowOps* runtime_default_window_ops();
-bool runtime_is_key_pressed_once(GLFWwindow* window, int key, bool* wasDown, const WindowOps* ops);
+InputState runtime_get_key_state(GLFWwindow* window, int key, bool* wasDown, const WindowOps* ops);
 AppResult runtime_toggle_fullscreen(EngineState* state, const WindowOps* ops);
 void runtime_update_controls(EngineState* state, const WindowOps* ops);
 

@@ -50,11 +50,15 @@ const WindowOps* runtime_default_window_ops() {
     return &k_default_ops;
 }
 
-bool runtime_is_key_pressed_once(GLFWwindow* window, int key, bool* wasDown, const WindowOps* ops) {
+InputState runtime_get_key_state(GLFWwindow* window, int key, bool* wasDown, const WindowOps* ops) {
     const bool isDown = ops->get_key(window, key) == GLFW_PRESS;
     const bool pressedOnce = isDown && !(*wasDown);
     *wasDown = isDown;
-    return pressedOnce;
+    if (pressedOnce)
+        return InputState::PressedOnce;
+    if (isDown)
+        return InputState::Pressed;
+    return InputState::Released;
 }
 
 AppResult runtime_toggle_fullscreen(EngineState* state, const WindowOps* ops) {
@@ -86,19 +90,19 @@ AppResult runtime_toggle_fullscreen(EngineState* state, const WindowOps* ops) {
 }
 
 void runtime_update_controls(EngineState* state, const WindowOps* ops) {
-    state->currentInput.pausePressed = runtime_is_key_pressed_once(state->window, GLFW_KEY_P, &state->core.inputTracking.pauseKeyWasDown, ops);
-    state->currentInput.cameraResetPressed = runtime_is_key_pressed_once(state->window, GLFW_KEY_SPACE, &state->core.inputTracking.cameraResetKeyWasDown, ops);
-    state->currentInput.resetPressed = runtime_is_key_pressed_once(state->window, GLFW_KEY_R, &state->core.inputTracking.resetKeyWasDown, ops);
-    state->currentInput.speedUpPressed = runtime_is_key_pressed_once(state->window, GLFW_KEY_UP, &state->core.inputTracking.speedUpKeyWasDown, ops);
-    state->currentInput.speedDownPressed = runtime_is_key_pressed_once(state->window, GLFW_KEY_DOWN, &state->core.inputTracking.speedDownKeyWasDown, ops);
+    state->currentInput.pausePressed = runtime_get_key_state(state->window, GLFW_KEY_P, &state->core.inputTracking.pauseKeyWasDown, ops);
+    state->currentInput.cameraResetPressed = runtime_get_key_state(state->window, GLFW_KEY_SPACE, &state->core.inputTracking.cameraResetKeyWasDown, ops);
+    state->currentInput.resetPressed = runtime_get_key_state(state->window, GLFW_KEY_R, &state->core.inputTracking.resetKeyWasDown, ops);
+    state->currentInput.speedUpPressed = runtime_get_key_state(state->window, GLFW_KEY_UP, &state->core.inputTracking.speedUpKeyWasDown, ops);
+    state->currentInput.speedDownPressed = runtime_get_key_state(state->window, GLFW_KEY_DOWN, &state->core.inputTracking.speedDownKeyWasDown, ops);
 
-    if (runtime_is_key_pressed_once(state->window, GLFW_KEY_F11, &state->core.inputTracking.fullscreenKeyWasDown, ops)) {
+    if (runtime_get_key_state(state->window, GLFW_KEY_F11, &state->core.inputTracking.fullscreenKeyWasDown, ops) == InputState::PressedOnce) {
         if (runtime_toggle_fullscreen(state, ops) == AppResult::Success) {
             state->core.lastFrameTimestamp = std::chrono::steady_clock::now();
         }
     }
 
-    if (runtime_is_key_pressed_once(state->window, GLFW_KEY_ESCAPE, &state->core.inputTracking.escapeKeyWasDown, ops)) {
+    if (runtime_get_key_state(state->window, GLFW_KEY_ESCAPE, &state->core.inputTracking.escapeKeyWasDown, ops) == InputState::PressedOnce) {
         ops->set_window_should_close(state->window, GLFW_TRUE);
     }
 }
