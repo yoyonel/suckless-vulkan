@@ -19,15 +19,9 @@
 #include <string>
 #include <vector>
 
-namespace {
+using namespace config;
 
-constexpr uint32_t kGridSize = 10;
-constexpr float kGridSpacing = 2.5f;
-constexpr float kGridOffset = (static_cast<float>(kGridSize) - 1.0f) * 0.5f * kGridSpacing;
-constexpr size_t kMaterialInstanceCount = static_cast<size_t>(kGridSize) * static_cast<size_t>(kGridSize);
-constexpr const char* kMaterialJsonPath = "assets/materials/pbr_materials.json";
-constexpr int kLegacyWindowWidth = 1024;
-constexpr int kLegacyWindowHeight = 768;
+namespace {
 
 MaterialGpu make_default_material() {
     MaterialGpu material{};
@@ -35,8 +29,8 @@ MaterialGpu make_default_material() {
     material.albedo_metallic[1] = 0.0f;
     material.albedo_metallic[2] = 0.0f;
     material.albedo_metallic[3] = 0.0f;
-    material.roughness_ao_pad[0] = 0.5f;
-    material.roughness_ao_pad[1] = 1.0f;
+    material.roughness_ao_pad[0] = kDefaultMaterialRoughness;
+    material.roughness_ao_pad[1] = kDefaultMaterialAo;
     material.roughness_ao_pad[2] = 0.0f;
     material.roughness_ao_pad[3] = 0.0f;
     return material;
@@ -584,7 +578,7 @@ GfxResult init_swapchain(VulkanEngine* engine) {
     LOG_INFO("engine", "Swapchain: minImageCount=%u, maxImageCount=%u, using imageCount=%u", capabilities.minImageCount, capabilities.maxImageCount,
              imageCount);
 
-    imageCount = std::min(imageCount, static_cast<uint32_t>(MAX_SWAPCHAIN_IMAGES));
+    imageCount = std::min(imageCount, static_cast<uint32_t>(config::kMaxSwapchainImages));
     if (imageCount < capabilities.minImageCount) {
         return GfxResult::ErrorInitializationFailed;
     }
@@ -624,7 +618,8 @@ GfxResult init_swapchain(VulkanEngine* engine) {
     if (vkGetSwapchainImagesKHR(engine->device, engine->swapchain, &engine->imageCount, NULL) != VK_SUCCESS) {
         return GfxResult::ErrorInitializationFailed;
     }
-    if (engine->imageCount > MAX_SWAPCHAIN_IMAGES) {
+    if (engine->imageCount > config::kMaxSwapchainImages) {
+        LOG_ERROR("init", "Swapchain image count (%u) exceeds MAX_SWAPCHAIN_IMAGES (%d)", engine->imageCount, config::kMaxSwapchainImages);
         return GfxResult::ErrorInitializationFailed;
     }
     if (vkGetSwapchainImagesKHR(engine->device, engine->swapchain, &engine->imageCount, engine->swapchainImages) != VK_SUCCESS) {
@@ -910,8 +905,8 @@ GfxResult create_instance_grid_buffers(VulkanEngine* engine, std::vector<glm::ve
     for (uint32_t row = 0; row < kGridSize; ++row) {
         for (uint32_t col = 0; col < kGridSize; ++col) {
             const size_t instanceIndex = (static_cast<size_t>(row) * static_cast<size_t>(kGridSize)) + static_cast<size_t>(col);
-            const float x = (static_cast<float>(col) * kGridSpacing) - kGridOffset;
-            const float y = -((static_cast<float>(row) * kGridSpacing) - kGridOffset);
+            const float x = (static_cast<float>(col) * kGridSpacingMeters) - kGridOffset;
+            const float y = -((static_cast<float>(row) * kGridSpacingMeters) - kGridOffset);
             engine->appState->core.scene.instancePositions[instanceIndex] = {x, y, 0.0f};
             instancePositions[instanceIndex] = {x, y, 0.0f};
         }

@@ -16,6 +16,7 @@
 
 #include "camera.h"
 #include "core_engine.h"
+#include "engine_config.h"
 #include "engine_state.h"
 #include "module_loader.h"
 #include "rhi/rhi.h"
@@ -27,8 +28,6 @@
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-
-#define MAX_SWAPCHAIN_IMAGES 8
 
 // Phase 2B: Async HDR Loading
 enum class HdrLoadRequestState : std::uint8_t {
@@ -216,9 +215,9 @@ struct VulkanEngine {
     VkExtent2D swapchainExtent;
 
     uint32_t imageCount;
-    VkImage swapchainImages[MAX_SWAPCHAIN_IMAGES];
-    VkImageView swapchainImageViews[MAX_SWAPCHAIN_IMAGES];
-    VkFramebuffer swapchainFramebuffers[MAX_SWAPCHAIN_IMAGES];
+    VkImage swapchainImages[config::kMaxSwapchainImages];
+    VkImageView swapchainImageViews[config::kMaxSwapchainImages];
+    VkFramebuffer swapchainFramebuffers[config::kMaxSwapchainImages];
 
     VkRenderPass renderPass;
     rhi::TexturePtr depthImage;
@@ -263,10 +262,8 @@ struct VulkanEngine {
     std::vector<std::string> hdrFiles;
     int currentHdrIndex;
 
-#define CACHE_LINE_SIZE 128
-
     // Phase 5.4: Async HDR loading infrastructure (Padding for false sharing)
-    alignas(CACHE_LINE_SIZE) struct AsyncIoState {
+    alignas(config::kCacheLineSize) struct AsyncIoState {
         SpscQueue<HdrLoadRequest, 16> hdrLoadQueue;       // Requests queued for I/O thread
         SpscQueue<HdrLoadRequest, 16> hdrReadyQueue;      // Ready/failed requests for render thread
         SpscQueue<HdrCleanupRequest, 16> hdrCleanupQueue; // Cleanup requests for I/O thread
@@ -276,7 +273,7 @@ struct VulkanEngine {
         int pendingHdrIndex;                              // Last requested HDR index (-1 if none)
     } io;
 
-    alignas(CACHE_LINE_SIZE) VkCommandPool commandPool;
+    alignas(config::kCacheLineSize) VkCommandPool commandPool;
     VkCommandBuffer commandBuffer;
 
     VkSemaphore imageAvailableSemaphore;
