@@ -24,6 +24,13 @@ bool is_key_pressed_once(GLFWwindow* window, int key, bool* wasDown, const Windo
 void handle_camera_and_envmap_toggles(VulkanEngine* engine, const WindowOps* ops) {
     engine->appState->currentInput.cameraTogglePressed =
         is_key_pressed_once(engine->appState->window, GLFW_KEY_C, &engine->appState->core.inputTracking.cameraToggleKeyWasDown, ops);
+
+    if (engine->appState->currentInput.cameraTogglePressed) {
+        if (ops->set_input_mode) {
+            bool newCameraState = !engine->appState->core.cameraEnabled;
+            ops->set_input_mode(engine->appState->window, GLFW_CURSOR, newCameraState ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
+        }
+    }
     engine->appState->currentInput.showEnvmapTogglePressed =
         is_key_pressed_once(engine->appState->window, GLFW_KEY_K, &engine->appState->core.inputTracking.showEnvmapToggleKeyWasDown, ops);
     engine->appState->currentInput.billboardPressed =

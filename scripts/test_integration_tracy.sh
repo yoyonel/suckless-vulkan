@@ -136,10 +136,10 @@ if [[ "${CI:-}" == "1" ]] || [[ "${USE_XVFB:-1}" == "1" ]]; then
 
 	export DISPLAY=":${DISPLAY_NUM}"
 
-	if [[ "${CI:-}" == "1" ]] && [[ -z "${VK_ICD_FILENAMES:-}" ]] && [[ -f "/usr/share/vulkan/icd.d/lvp_icd.x86_64.json" ]]; then
+	if [[ "${CI:-}" == "1" ]] && [[ -z "${VK_ICD_FILENAMES:-}" ]] && [[ -f "/usr/share/vulkan/icd.d/lvp_icd.json" ]]; then
 		echo "[info] CI environment detected, forcing llvmpipe"
-		export VK_ICD_FILENAMES="/usr/share/vulkan/icd.d/lvp_icd.x86_64.json"
-		export VK_DRIVER_FILES="/usr/share/vulkan/icd.d/lvp_icd.x86_64.json"
+		export VK_ICD_FILENAMES="/usr/share/vulkan/icd.d/lvp_icd.json"
+		export VK_DRIVER_FILES="/usr/share/vulkan/icd.d/lvp_icd.json"
 	fi
 else
 	echo "[info] using existing DISPLAY ($DISPLAY), hardware GPU will be used."

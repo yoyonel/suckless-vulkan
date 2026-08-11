@@ -1,6 +1,7 @@
 #include "app_log.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <chrono>
 #include <cstdint>
@@ -21,11 +22,31 @@ namespace {
 
 constexpr size_t TIME_BUFFER_SIZE = 24;
 constexpr size_t PREFIX_BUFFER_SIZE = 160;
+constexpr size_t MESSAGE_BUFFER_SIZE = 1024;
+constexpr size_t LOG_QUEUE_SIZE = 4096;
 
 LogLevel g_log_level = LogLevel::Info;
 bool g_log_initialized = false;
 LogCallback g_log_callback = nullptr;
 std::mutex g_log_mutex;
+
+struct LogEntry {
+    std::atomic<bool> ready{false};
+    LogLevel level;
+    char tag[32];
+    char message[MESSAGE_BUFFER_SIZE];
+    char time_buf[TIME_BUFFER_SIZE];
+    int32_t pid;
+    unsigned long long tid_hash;
+    long long millis;
+};
+
+LogEntry g_log_queue[LOG_QUEUE_SIZE];
+std::atomic<size_t> g_write_idx{0};
+std::atomic<size_t> g_read_idx{0};
+
+std::thread g_logger_thread;
+std::atomic<bool> g_logger_running{false};
 
 const char* level_to_string(LogLevel level) {
     switch (level) {
@@ -105,7 +126,49 @@ void get_local_time(std::time_t seconds, std::tm* out_tm) {
 #endif
 }
 
+void logger_thread_func() {
+    while (g_logger_running.load(std::memory_order_relaxed)) {
+        size_t read_idx = g_read_idx.load(std::memory_order_relaxed);
+        LogEntry& entry = g_log_queue[read_idx % LOG_QUEUE_SIZE];
+
+        if (entry.ready.load(std::memory_order_acquire)) {
+            char prefix[PREFIX_BUFFER_SIZE] = {};
+            (void)std::snprintf(prefix, sizeof(prefix), "%s,%03lld [%d:%llu] - %s - %-8s - ", entry.time_buf, entry.millis, entry.pid, entry.tid_hash,
+                                entry.tag[0] ? entry.tag : "app", level_to_string(entry.level));
+
+            FILE* out = (entry.level >= LogLevel::Error) ? stderr : stdout;
+            (void)std::fputs(prefix, out);
+            (void)std::fputs(entry.message, out);
+            (void)std::fputc('\n', out);
+            (void)std::fflush(out);
+
+            if (g_log_callback != nullptr) {
+                g_log_callback(entry.level, entry.tag, entry.message);
+            }
+
+            entry.ready.store(false, std::memory_order_release);
+            g_read_idx.fetch_add(1, std::memory_order_relaxed);
+        } else {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+}
+
 } // namespace
+
+void log_init() {
+    std::lock_guard<std::mutex> lock(g_log_mutex);
+    if (!g_logger_running.exchange(true)) {
+        g_logger_thread = std::thread(logger_thread_func);
+    }
+}
+
+void log_shutdown() {
+    g_logger_running.store(false);
+    if (g_logger_thread.joinable()) {
+        g_logger_thread.join();
+    }
+}
 
 void log_set_level(LogLevel level) {
     std::lock_guard<std::mutex> lock(g_log_mutex);
@@ -132,14 +195,16 @@ void log_message(LogLevel level, const char* tag, const char* format, ...) {
 }
 
 void log_message_v(LogLevel level, const char* tag, const char* format, va_list args) {
-    LogCallback callback = nullptr;
-    {
+    if (level < g_log_level) {
+        return;
+    }
+
+    if (!g_log_initialized) {
         std::lock_guard<std::mutex> lock(g_log_mutex);
         ensure_log_initialized_locked();
         if (level < g_log_level) {
             return;
         }
-        callback = g_log_callback;
     }
 
     const auto now = std::chrono::system_clock::now();
@@ -149,36 +214,63 @@ void log_message_v(LogLevel level, const char* tag, const char* format, va_list 
 
     std::tm local_tm{};
     get_local_time(seconds, &local_tm);
-
     char time_buf[TIME_BUFFER_SIZE] = {};
     (void)std::strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", &local_tm);
 
     const auto tid_hash = static_cast<unsigned long long>(std::hash<std::thread::id>{}(std::this_thread::get_id()));
     const int32_t pid = get_process_id();
 
-    char prefix[PREFIX_BUFFER_SIZE] = {};
-    (void)std::snprintf(prefix, sizeof(prefix), "%s,%03lld [%d:%llu] - %s - %-8s - ", time_buf, static_cast<long long>(millis), pid, tid_hash,
-                        tag != nullptr ? tag : "app", level_to_string(level));
+    if (!g_logger_running.load(std::memory_order_relaxed)) {
+        // Fallback to synchronous if logger thread is not running
+        char prefix[PREFIX_BUFFER_SIZE] = {};
+        (void)std::snprintf(prefix, sizeof(prefix), "%s,%03lld [%d:%llu] - %s - %-8s - ", time_buf, static_cast<long long>(millis), pid, tid_hash,
+                            tag != nullptr ? tag : "app", level_to_string(level));
 
-    va_list args_copy;
-    va_copy(args_copy, args);
-    const int required_size = std::vsnprintf(nullptr, 0, format, args_copy);
-    va_end(args_copy);
+        va_list args_copy;
+        va_copy(args_copy, args);
+        const int required_size = std::vsnprintf(nullptr, 0, format, args_copy);
+        va_end(args_copy);
 
-    if (required_size < 0) {
+        if (required_size < 0) {
+            return;
+        }
+
+        std::vector<char> message(static_cast<size_t>(required_size) + 1U, '\0');
+        (void)std::vsnprintf(message.data(), message.size(), format, args);
+
+        FILE* out = (level >= LogLevel::Error) ? stderr : stdout;
+        (void)std::fputs(prefix, out);
+        (void)std::fputs(message.data(), out);
+        (void)std::fputc('\n', out);
+        (void)std::fflush(out);
+
+        if (g_log_callback != nullptr) {
+            g_log_callback(level, tag, message.data());
+        }
         return;
     }
 
-    std::vector<char> message(static_cast<size_t>(required_size) + 1U, '\0');
-    (void)std::vsnprintf(message.data(), message.size(), format, args);
+    size_t write_idx = g_write_idx.fetch_add(1, std::memory_order_relaxed);
 
-    FILE* out = (level >= LogLevel::Error) ? stderr : stdout;
-    (void)std::fputs(prefix, out);
-    (void)std::fputs(message.data(), out);
-    (void)std::fputc('\n', out);
-    (void)std::fflush(out);
-
-    if (callback != nullptr) {
-        callback(level, tag, message.data());
+    // If the queue is full, spin until space is available
+    while (write_idx - g_read_idx.load(std::memory_order_acquire) >= LOG_QUEUE_SIZE) {
+        std::this_thread::yield();
     }
+
+    LogEntry& entry = g_log_queue[write_idx % LOG_QUEUE_SIZE];
+    entry.level = level;
+    if (tag) {
+        strncpy(entry.tag, tag, sizeof(entry.tag) - 1);
+        entry.tag[sizeof(entry.tag) - 1] = '\0';
+    } else {
+        entry.tag[0] = '\0';
+    }
+
+    std::vsnprintf(entry.message, sizeof(entry.message), format, args);
+    std::memcpy(entry.time_buf, time_buf, sizeof(entry.time_buf));
+    entry.pid = pid;
+    entry.tid_hash = tid_hash;
+    entry.millis = static_cast<long long>(millis);
+
+    entry.ready.store(true, std::memory_order_release);
 }

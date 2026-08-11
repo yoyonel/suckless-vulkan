@@ -203,6 +203,9 @@ benchmark-tracy: build-tracy build-tracy-capture build-tracy-csvexport
     @chmod +x scripts/benchmark_tracy.sh
     @scripts/benchmark_tracy.sh
 
+benchmark-analyze: benchmark-tracy
+    @scripts/analyze_fps.sh
+
 test: build
     @ctest --test-dir build/release --output-on-failure
 
@@ -591,4 +594,4 @@ check-docs: format-docs lint-docs
 # Run performance benchmark using perf on unit_tests
 perf-benchmark: build
     @echo "--- 🚀 Running Perf Benchmark ---"
-    perf stat -e L1-dcache-load-misses,L1-dcache-loads ./build/unit_tests > /dev/null
+    perf stat -e L1-dcache-load-misses,L1-dcache-loads,LLC-load-misses,LLC-loads,cache-misses,cache-references ./build/unit_tests > /dev/null

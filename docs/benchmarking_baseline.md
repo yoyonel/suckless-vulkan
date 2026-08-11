@@ -139,3 +139,20 @@ Commande : `perf c2c record ./vulkan_app && perf c2c report`
 
 **Conclusion Architecturale :**
 L'optimisation était prématurée. `perf c2c` a formellement prouvé qu'il n'y avait aucun Faux Partage en pratique. Bien que le padding `alignas(128)` ait été implémenté et conservé pour des raisons de sécurité architecturale (au cas où le thread I/O deviendrait plus agressif), l'absence de baisse des L2-misses sur `perf stat` est logiquement validée. Le trafic CPU était déjà fluide à ce niveau.
+
+### Mise à jour: Profiling L1/L2/L3 & Tracy (11 Août 2026)
+
+Suite à la correction de l'état asynchrone IBL, un nouveau benchmark automatisé (`just perf-benchmark` et `just benchmark-analyze`) a été effectué en environnement purifié (`unit_tests`).
+
+**1. Métriques Cache (`perf stat`) :**
+
+- **L1-dcache-load-misses (P-Core)** : **0.53%** (10.9 Millions misses / 2.08 Milliards loads).
+  - *Bilan* : Le taux de miss s'est effondré (précédemment à ~4.30%). Les allocations linéaires (Arena/AoS) et le padding `alignas(128)` portent leurs fruits.
+- **LLC-loads (L3)** : Seulement **5.4 Millions** de requêtes LLC sur P-Core.
+  - *Bilan* : L'architecture est ultra cache-friendly. La quasi-totalité de la géométrie/états tient dans le L1/L2, évitant drastiquement le recours à la RAM.
+
+**2. Métriques Tracy Profiler :**
+
+- **FPS Global** : Médiane à **1063 FPS** (99e percentile à 3754 FPS).
+- **Spikes IBL** : 19 frames sous 30 FPS repérées (pire frame : **143.41 ms**).
+  - *Bilan* : Le Compute Shader IBL ne bloque plus le CPU. Le spike restant correspond au goulot PCIe (transfert de 134 Mo vers la VRAM via la Graphics Queue sur architecture UMA).

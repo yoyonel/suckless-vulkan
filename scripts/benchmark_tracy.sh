@@ -10,8 +10,8 @@ fi
 USE_XVFB=""
 if [[ "$CI" == "true" ]] || [[ -z "$DISPLAY" ]]; then
 	USE_XVFB="xvfb-run -a -s \"-screen 0 1920x1080x24\""
-	export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json
-	export VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+	export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json
+	export VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json
 fi
 
 TMP_DIR=$(mktemp -d)
@@ -71,8 +71,13 @@ if [ -f "$TRACE_FILE" ]; then
 	echo "--- STATISTIQUES TRACY ---"
 	grep -E "(Frames:|Zones:|Memory events:)" "$CAPTURE_LOG" || echo "Memory stats not explicitly in capture log."
 
+	mkdir -p profiling
 	echo "Extraction des statistiques principales via csvexport..."
-	"$CSVEXPORT_BIN" "$TRACE_FILE" >"$TMP_DIR/tracy_stats.csv" 2>/dev/null
+	"$CSVEXPORT_BIN" "$TRACE_FILE" >"profiling/tracy_stats.csv" 2>/dev/null
+
+	echo "----------------------------------------"
+	"$CSVEXPORT_BIN" -u "$TRACE_FILE" >"profiling/all_zones.csv" 2>/dev/null
+	python3 scripts/analyze_worst_frames.py
 
 	awk '
 	BEGIN {
@@ -92,12 +97,11 @@ if [ -f "$TRACE_FILE" ]; then
 		}
         
 		printf "%-35s | %5.2f %% | %10d | %10.3f | %10.3f\n", name, total_perc, counts, mean_ms, max_ms
-	}
-	' "$TMP_DIR/tracy_stats.csv" | sort -t '|' -k2 -nr
+	' "profiling/tracy_stats.csv" | sort -t '|' -k2 -nr
 
 	echo ""
-	TOP_ZONE=$(tail -n +2 "$TMP_DIR/tracy_stats.csv" | sort -t ',' -k5 -nr | head -n 1 | awk -F',' '{print $1}')
-	TOP_PERC=$(tail -n +2 "$TMP_DIR/tracy_stats.csv" | sort -t ',' -k5 -nr | head -n 1 | awk -F',' '{printf "%.1f", $5}')
+	TOP_ZONE=$(tail -n +2 "profiling/tracy_stats.csv" | sort -t ',' -k5 -nr | head -n 1 | awk -F',' '{print $1}')
+	TOP_PERC=$(tail -n +2 "profiling/tracy_stats.csv" | sort -t ',' -k5 -nr | head -n 1 | awk -F',' '{printf "%.1f", $5}')
 
 	echo "🔍 Interprétation Rapide :"
 	echo "- La zone la plus gourmande est '${TOP_ZONE}' consommant ~${TOP_PERC}% du temps processeur capturé."
@@ -107,7 +111,6 @@ else
 	cat "$CAPTURE_LOG"
 fi
 
-rm -rf "$TMP_DIR"
 echo "========================================="
 echo "   BENCHMARK TERMINÉ                     "
 echo "========================================="

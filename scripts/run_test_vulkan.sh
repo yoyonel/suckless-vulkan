@@ -13,8 +13,8 @@ USE_XVFB=false
 if [[ "$CI" == "true" ]] || [[ -z "$DISPLAY" ]]; then
 	USE_XVFB=true
 	# Force Lavapipe (CPU) en CI pour éviter les soucis de drivers GPU
-	export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json
-	export VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+	export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json
+	export VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json
 fi
 
 echo "Exécution du test : $TEST_EXEC"
