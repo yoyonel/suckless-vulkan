@@ -154,6 +154,8 @@ struct IblResources {
     std::vector<rhi::SamplerPtr> pendingOldSamplers;
     std::vector<VkBuffer> pendingStagingBuffers;
     std::vector<VmaAllocation> pendingStagingAllocations;
+
+    void cleanupPendingResources(struct VulkanEngine* engine);
 };
 
 struct Vertex {

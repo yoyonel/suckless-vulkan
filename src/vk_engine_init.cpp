@@ -989,12 +989,14 @@ GfxResult init_buffers(VulkanEngine* engine) {
         if (vkCreateCommandPool(engine->device, &tcpIn, nullptr, &engine->transferCommandPool) != VK_SUCCESS) {
             return GfxResult::ErrorInitializationFailed;
         }
+        vk_set_object_name(engine->device, (uint64_t)engine->transferCommandPool, VK_OBJECT_TYPE_COMMAND_POOL, "Transfer_CommandPool");
 
         VkSemaphoreCreateInfo semInfo{};
         semInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
         if (vkCreateSemaphore(engine->device, &semInfo, nullptr, &engine->transferCompleteSemaphore) != VK_SUCCESS) {
             return GfxResult::ErrorInitializationFailed;
         }
+        vk_set_object_name(engine->device, (uint64_t)engine->transferCompleteSemaphore, VK_OBJECT_TYPE_SEMAPHORE, "Transfer_CompleteSemaphore");
     }
     vk_set_object_name(engine->device, (uint64_t)engine->commandPool, VK_OBJECT_TYPE_COMMAND_POOL, "Main_Command_Pool");
 

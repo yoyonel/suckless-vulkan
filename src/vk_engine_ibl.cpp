@@ -515,12 +515,7 @@ void vk_ibl_bake_luminance(VulkanEngine* engine) {
         vk_end_label(engine->device, cb);
     }
 
-    if (engine->ibl.iblBakeFence != VK_NULL_HANDLE) {
-        vkDestroyFence(engine->device, engine->ibl.iblBakeFence, nullptr);
-    }
-    VkFenceCreateInfo fenceInfo{};
-    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-    vkCreateFence(engine->device, &fenceInfo, nullptr, &engine->ibl.iblBakeFence);
+    vk_ibl_reset_bake_fence(engine);
 
     engine->ibl.iblBakeCommandBuffer = cb;
     end_single_time_commands(engine, cb, engine->ibl.iblBakeFence);
@@ -548,25 +543,25 @@ void vk_ibl_bake_brdf(VulkanEngine* engine) {
     SVK_TRACY_VK_NAMED_ZONE(gpuIblBrdfZone, engine, cb, "GPU IBL BRDF LUT");
     cmdList2.BindPipeline(engine->ibl.brdfLutPipeline, true);
 
-    DescriptorImageInfo iI{engine->envHdrSampler, INVALID_HANDLE, engine->envHdrImage, TextureLayout::ShaderReadOnlyOptimal};
-    DescriptorImageInfo oI{INVALID_HANDLE, INVALID_HANDLE, engine->ibl.brdfLut, TextureLayout::General};
+    DescriptorImageInfo inputImage{engine->envHdrSampler, INVALID_HANDLE, engine->envHdrImage, TextureLayout::ShaderReadOnlyOptimal};
+    DescriptorImageInfo outputImage{INVALID_HANDLE, INVALID_HANDLE, engine->ibl.brdfLut, TextureLayout::General};
 
-    WriteDescriptorSet ws[2] = {};
-    ws[0].dstSet = engine->ibl.brdfLutDescriptorSet;
-    ws[0].dstBinding = 0;
-    ws[0].dstArrayElement = 0;
-    ws[0].descriptorCount = 1;
-    ws[0].descriptorType = DescriptorType::CombinedImageSampler;
-    ws[0].pImageInfo = &iI;
+    WriteDescriptorSet writeSets[2] = {};
+    writeSets[0].dstSet = engine->ibl.brdfLutDescriptorSet;
+    writeSets[0].dstBinding = 0;
+    writeSets[0].dstArrayElement = 0;
+    writeSets[0].descriptorCount = 1;
+    writeSets[0].descriptorType = DescriptorType::CombinedImageSampler;
+    writeSets[0].pImageInfo = &inputImage;
 
-    ws[1].dstSet = engine->ibl.brdfLutDescriptorSet;
-    ws[1].dstBinding = 1;
-    ws[1].dstArrayElement = 0;
-    ws[1].descriptorCount = 1;
-    ws[1].descriptorType = DescriptorType::StorageImage;
-    ws[1].pImageInfo = &oI;
+    writeSets[1].dstSet = engine->ibl.brdfLutDescriptorSet;
+    writeSets[1].dstBinding = 1;
+    writeSets[1].dstArrayElement = 0;
+    writeSets[1].descriptorCount = 1;
+    writeSets[1].descriptorType = DescriptorType::StorageImage;
+    writeSets[1].pImageInfo = &outputImage;
 
-    engine->appState->rhi->UpdateDescriptorSets(2, ws);
+    engine->appState->rhi->UpdateDescriptorSets(2, writeSets);
     cmdList2.BindDescriptorSets(engine->ibl.iblPipelineLayout, 0, 1, &engine->ibl.brdfLutDescriptorSet, true);
     cmdList2.Dispatch(IBL_BRDF_SIZE / 32, IBL_BRDF_SIZE / 32, 1);
 
@@ -576,12 +571,7 @@ void vk_ibl_bake_brdf(VulkanEngine* engine) {
 
     vk_end_label(engine->device, cb);
 
-    if (engine->ibl.iblBakeFence != VK_NULL_HANDLE) {
-        vkDestroyFence(engine->device, engine->ibl.iblBakeFence, nullptr);
-    }
-    VkFenceCreateInfo fenceInfo{};
-    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-    vkCreateFence(engine->device, &fenceInfo, nullptr, &engine->ibl.iblBakeFence);
+    vk_ibl_reset_bake_fence(engine);
 
     engine->ibl.iblBakeCommandBuffer = cb;
     end_single_time_commands(engine, cb, engine->ibl.iblBakeFence);
@@ -611,25 +601,25 @@ void vk_ibl_bake_irradiance(VulkanEngine* engine) {
     LOG_INFO("ibl", "Baking Irradiance Map (Slice %d/%d)...", engine->ibl.currentSlice + 1, engine->ibl.totalSlices);
 
     cmdList2.BindPipeline(engine->ibl.irmapPipeline, true);
-    DescriptorImageInfo iI{engine->envHdrSampler, INVALID_HANDLE, engine->envHdrImage, TextureLayout::ShaderReadOnlyOptimal};
-    DescriptorImageInfo oI{INVALID_HANDLE, INVALID_HANDLE, engine->ibl.irradianceMap, TextureLayout::General};
+    DescriptorImageInfo inputImage{engine->envHdrSampler, INVALID_HANDLE, engine->envHdrImage, TextureLayout::ShaderReadOnlyOptimal};
+    DescriptorImageInfo outputImage{INVALID_HANDLE, INVALID_HANDLE, engine->ibl.irradianceMap, TextureLayout::General};
 
-    WriteDescriptorSet ws[2] = {};
-    ws[0].dstSet = engine->ibl.irmapDescriptorSet;
-    ws[0].dstBinding = 0;
-    ws[0].dstArrayElement = 0;
-    ws[0].descriptorCount = 1;
-    ws[0].descriptorType = DescriptorType::CombinedImageSampler;
-    ws[0].pImageInfo = &iI;
+    WriteDescriptorSet writeSets[2] = {};
+    writeSets[0].dstSet = engine->ibl.irmapDescriptorSet;
+    writeSets[0].dstBinding = 0;
+    writeSets[0].dstArrayElement = 0;
+    writeSets[0].descriptorCount = 1;
+    writeSets[0].descriptorType = DescriptorType::CombinedImageSampler;
+    writeSets[0].pImageInfo = &inputImage;
 
-    ws[1].dstSet = engine->ibl.irmapDescriptorSet;
-    ws[1].dstBinding = 1;
-    ws[1].dstArrayElement = 0;
-    ws[1].descriptorCount = 1;
-    ws[1].descriptorType = DescriptorType::StorageImage;
-    ws[1].pImageInfo = &oI;
+    writeSets[1].dstSet = engine->ibl.irmapDescriptorSet;
+    writeSets[1].dstBinding = 1;
+    writeSets[1].dstArrayElement = 0;
+    writeSets[1].descriptorCount = 1;
+    writeSets[1].descriptorType = DescriptorType::StorageImage;
+    writeSets[1].pImageInfo = &outputImage;
 
-    engine->appState->rhi->UpdateDescriptorSets(2, ws);
+    engine->appState->rhi->UpdateDescriptorSets(2, writeSets);
 
     int lines_per_slice = ((int)IBL_IRM_SIZE + engine->ibl.totalSlices - 1) / engine->ibl.totalSlices;
     int start_y = engine->ibl.currentSlice * lines_per_slice;
@@ -656,12 +646,7 @@ void vk_ibl_bake_irradiance(VulkanEngine* engine) {
 
     vk_end_label(engine->device, cb);
 
-    if (engine->ibl.iblBakeFence != VK_NULL_HANDLE) {
-        vkDestroyFence(engine->device, engine->ibl.iblBakeFence, nullptr);
-    }
-    VkFenceCreateInfo fenceInfo{};
-    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-    vkCreateFence(engine->device, &fenceInfo, nullptr, &engine->ibl.iblBakeFence);
+    vk_ibl_reset_bake_fence(engine);
 
     engine->ibl.iblBakeCommandBuffer = cb;
     end_single_time_commands(engine, cb, engine->ibl.iblBakeFence);
@@ -712,24 +697,24 @@ void vk_ibl_bake_prefilter(VulkanEngine* engine) {
                 ImageViewHandle viewHandle = engine->appState->rhi->CreateImageView(engine->ibl.prefilteredMap, i, 1, 0, 1);
                 views.push_back(viewHandle);
 
-                DescriptorImageInfo iI{engine->envHdrSampler, INVALID_HANDLE, engine->envHdrImage, TextureLayout::ShaderReadOnlyOptimal};
-                DescriptorImageInfo oI{INVALID_HANDLE, viewHandle, INVALID_HANDLE, TextureLayout::General};
+                DescriptorImageInfo inputImage{engine->envHdrSampler, INVALID_HANDLE, engine->envHdrImage, TextureLayout::ShaderReadOnlyOptimal};
+                DescriptorImageInfo outputImage{INVALID_HANDLE, viewHandle, INVALID_HANDLE, TextureLayout::General};
 
-                WriteDescriptorSet ws[2] = {};
-                ws[0].dstSet = sets[0];
-                ws[0].dstBinding = 0;
-                ws[0].dstArrayElement = 0;
-                ws[0].descriptorCount = 1;
-                ws[0].descriptorType = DescriptorType::CombinedImageSampler;
-                ws[0].pImageInfo = &iI;
-                ws[1].dstSet = sets[0];
-                ws[1].dstBinding = 1;
-                ws[1].dstArrayElement = 0;
-                ws[1].descriptorCount = 1;
-                ws[1].descriptorType = DescriptorType::StorageImage;
-                ws[1].pImageInfo = &oI;
+                WriteDescriptorSet writeSets[2] = {};
+                writeSets[0].dstSet = sets[0];
+                writeSets[0].dstBinding = 0;
+                writeSets[0].dstArrayElement = 0;
+                writeSets[0].descriptorCount = 1;
+                writeSets[0].descriptorType = DescriptorType::CombinedImageSampler;
+                writeSets[0].pImageInfo = &inputImage;
+                writeSets[1].dstSet = sets[0];
+                writeSets[1].dstBinding = 1;
+                writeSets[1].dstArrayElement = 0;
+                writeSets[1].descriptorCount = 1;
+                writeSets[1].descriptorType = DescriptorType::StorageImage;
+                writeSets[1].pImageInfo = &outputImage;
 
-                engine->appState->rhi->UpdateDescriptorSets(2, ws);
+                engine->appState->rhi->UpdateDescriptorSets(2, writeSets);
 
                 uint32_t sz = std::max(1u, IBL_SPM_SIZE >> i);
                 int lines_per_slice = ((int)sz + engine->ibl.totalSlices - 1) / engine->ibl.totalSlices;
@@ -763,13 +748,7 @@ void vk_ibl_bake_prefilter(VulkanEngine* engine) {
 
     vk_end_label(engine->device, cb);
 
-    if (engine->ibl.iblBakeFence == VK_NULL_HANDLE) {
-        VkFenceCreateInfo fenceInfo{};
-        fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-        vkCreateFence(engine->device, &fenceInfo, nullptr, &engine->ibl.iblBakeFence);
-    } else {
-        vkResetFences(engine->device, 1, &engine->ibl.iblBakeFence);
-    }
+    vk_ibl_reset_bake_fence(engine);
 
     engine->ibl.iblBakeCommandBuffer = cb;
     if (poolHandle != INVALID_HANDLE) {
@@ -808,4 +787,14 @@ void vk_ibl_export_maps(VulkanEngine* engine) {
                                 path);
     }
     LOG_DEBUG("ibl", "Export Complete.");
+}
+
+void vk_ibl_reset_bake_fence(VulkanEngine* engine) {
+    if (engine->ibl.iblBakeFence != VK_NULL_HANDLE) {
+        vkDestroyFence(engine->device, engine->ibl.iblBakeFence, nullptr);
+    }
+    VkFenceCreateInfo fenceInfo{};
+    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    vkCreateFence(engine->device, &fenceInfo, nullptr, &engine->ibl.iblBakeFence);
+    vk_set_object_name(engine->device, (uint64_t)engine->ibl.iblBakeFence, VK_OBJECT_TYPE_FENCE, "IBL_Bake_Fence");
 }
