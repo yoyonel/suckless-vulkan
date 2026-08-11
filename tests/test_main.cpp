@@ -119,7 +119,7 @@ static bool readback_frame(VulkanEngine* engine, const FrameBufferData& outFrame
     barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
     barrier.srcAccessMask = 0;
     barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-    barrier.image = engine->swapchainImages[engine->lastRenderedImageIndex];
+    barrier.image = engine->swapchainMgr.swapchainImages[engine->lastRenderedImageIndex];
     barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
     vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
@@ -129,7 +129,8 @@ static bool readback_frame(VulkanEngine* engine, const FrameBufferData& outFrame
     region.imageSubresource.layerCount = 1;
     region.imageExtent = {(uint32_t)outFrame.width, (uint32_t)outFrame.height, 1};
 
-    vkCmdCopyImageToBuffer(cb, engine->swapchainImages[engine->lastRenderedImageIndex], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readbackBuffer, 1, &region);
+    vkCmdCopyImageToBuffer(cb, engine->swapchainMgr.swapchainImages[engine->lastRenderedImageIndex], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readbackBuffer, 1,
+                           &region);
 
     vkEndCommandBuffer(cb);
 
@@ -196,12 +197,12 @@ static bool validate_frame(const FrameBufferData& frame, const char* filename) {
 }
 
 static bool verify_and_capture_frame(VulkanEngine* engine, const char* filename) {
-    if (vkDeviceWaitIdle(engine->device) != VK_SUCCESS || engine->lastRenderedImageIndex >= engine->imageCount) {
+    if (vkDeviceWaitIdle(engine->device) != VK_SUCCESS || engine->lastRenderedImageIndex >= engine->swapchainMgr.imageCount) {
         return false;
     }
 
-    const int width = static_cast<int>(engine->swapchainExtent.width);
-    const int height = static_cast<int>(engine->swapchainExtent.height);
+    const int width = static_cast<int>(engine->swapchainMgr.swapchainExtent.width);
+    const int height = static_cast<int>(engine->swapchainMgr.swapchainExtent.height);
     const VkDeviceSize imageSize = static_cast<VkDeviceSize>(width) * static_cast<VkDeviceSize>(height) * 4;
 
     std::vector<unsigned char> pixels(imageSize);
