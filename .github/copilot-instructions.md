@@ -317,6 +317,11 @@ When explicitly requested, follow this sequence:
 - **STRICT MANDATORY RULE**: You are STRICTLY FORBIDDEN from executing `git commit` or `git push` automatically without first presenting your changes and asking for explicit human validation.
 - Always wait for the user to explicitly confirm before running any commit or push command.
 
+### Real-Time Truth & Zero Anticipation Policy
+- **STRICT MANDATORY RULE**: NEVER anticipate that an action is finished or successful before it actually is in real-time.
+- DO NOT say "I have committed" or "The push is successful" if the background task or command has not completed successfully yet.
+- You must WAIT for the empirical, real-time result of your actions (e.g., CI jobs, commit hooks) before claiming success.
+
 ### Coverage Requirements
 - Minimum **70% line coverage** for commits to be acceptable
 - Use `just coverage-llvm` for detailed analysis (recommended over `gcovr`)
