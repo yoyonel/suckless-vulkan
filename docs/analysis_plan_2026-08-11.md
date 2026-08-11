@@ -31,6 +31,32 @@ ______________________________________________________________________
 - `just test-validation-layers` (Traque les erreurs de cycle de vie Vulkan).
 - `just test-oom` (Valide la robustesse des nouvelles structures).
 
+**Blocs d'Itérations (Branche `refactor/god-objects`)** :
+
+- **Bloc 1 : Extraction SwapchainManager (`swapchain_init.cpp`)**
+  - **Action** : Extraire la logique de cycle de vie de la swapchain (création, destruction, récréation) de `VulkanEngine` vers une classe `SwapchainManager`. Séparer dans `swapchain_init.cpp/h`.
+  - **Valeur ajoutée** : Cohésion forte, séparation des responsabilités. Le Swapchain n'est plus mêlé à l'initialisation du pipeline graphique.
+  - **KPI** : Aucun accès direct à `engine->swapchain` depuis l'extérieur de `SwapchainManager`. Réduction de la taille de `vk_engine_init.cpp`.
+  - **Tests & Évaluation** : `just test-integration-tracy` (passe avec succès). `just test-validation-layers` (0 erreur Vulkan à la création/destruction).
+  - **Benchmark/Profiling** : Validation des temps d'initialisation via logs Tracy.
+- **Bloc 2 : Extraction IblBaker (`vk_engine_ibl.cpp`)**
+  - **Action** : Extraire la logique de calcul de l'IBL (Irradiance, Specular, BRDF LUT) de `VulkanEngine` vers une classe dédiée `IblBaker`.
+  - **Valeur ajoutée** : Isolation du code de pre-calcul. Facilite la gestion de la mémoire et limite la pollution de la structure principale.
+  - **KPI** : Suppression des variables IBL globales de pre-processing dans `VulkanEngine`.
+  - **Tests & Évaluation** : `just verify-ibl` valide mathématiquement que les maps générées sont identiques.
+  - **Benchmark/Profiling** : Analyse de la mémoire allouée (spikes) lors du bake via Tracy Memory Profiler.
+- **Bloc 3 : RendererContext & Dependency Injection (`vk_engine_runtime.cpp`)**
+  - **Action** : Créer un `RendererContext` abstrait et retirer le God-Object `VulkanEngine*` des paramètres de rendu.
+  - **Valeur ajoutée** : Couplage faible, abstraction RHI renforcée, testabilité accrue par mocks.
+  - **KPI** : Zéro `#include <vulkan/vulkan.h>` dans `vk_engine_runtime.cpp` et `vk_engine_frame.cpp`.
+  - **Tests & Évaluation** : `just check-rhi-leaks` (zéro fuite de headers backend).
+  - **Benchmark/Profiling** : `just benchmark-analyze` valide l'absence d'overhead significatif lié aux virtual calls.
+
+**Validation Finale (Post-Bloc 3)** :
+
+- Tests COMPLETS : unitaires, fonctionnels, intégrations, end2end.
+- Benchmark et profiling COMPLETS : analyses de traces Tracy Profiler, grep de logs applicatifs pour surveiller les temps de chargement, analyse de l'utilisation de la mémoire et des caches L1/L2/L3/RAM et des Misses Caches via `perf`.
+
 ______________________________________________________________________
 
 ## 2. Retours Booléens au lieu de Structures (Result)

@@ -25,6 +25,7 @@ nav:
   - Pipeline Envmap HDR: envmap_hdr_pipeline.md
   - CI/CD GitHub Actions: ci_cd.md
   - Outillage & Qualité: tooling.md
+  - Tests d'Intégration (GPU/Display): testing_integration.md
   - Code Difficile à Tester: hard_to_test_20260807.md
   - Analyse Job Systems (Architecture): job_systems_analysis_20260807.md
   - Analyse Abstraction RHI (Architecture): rhi_analysis_20260807.md

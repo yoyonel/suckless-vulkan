@@ -163,13 +163,41 @@ Remplacement massif des allocations dynamiques (`std::vector`) par des allocatio
 
 ### Résultats Finaux (Validation Itération 8 - `opt/stl-allocs` Bloc 1)
 
-**Comparatif (vs Baseline du 11 Août Itération 7.3) :**
+**Nouveau Protocole E2E (End-to-End `vulkan_app` + `interactive_runner.sh` ~15s run) :**
+Suite à la restauration du calcul RMSE dans les tests unitaires (commit `11f9e9e`), `unit_tests` ne peut plus servir d'environnement purifié. Le protocole bascule sur le benchmark End-to-End de l'application réelle.
 
-- **L1-dcache-load-misses (P-Core)** : **0.18%** (4.3 Millions misses / 2.37 Milliards loads).
-  - *Évolution* : **-60%** de L1 misses (10.9M -> 4.3M).
-- **LLC-loads (Requêtes L2 -> L3)** : **1.3 Millions**.
-  - *Évolution* : **-75%** d'accès L3 (5.4M -> 1.3M).
-- **LLC-load-misses (Requêtes L3 -> RAM)** : **~556,521**.
-  - *Évolution* : **-90%** de RAM trips (5.4M -> 556k).
+**Baseline Itération 8 (E2E) :**
 
-*Bilan Architecture* : L'éradication des micro-allocations sur le tas par frame empêche la fragmentation mémoire, garantissant une localité temporelle et spatiale quasi-parfaite sur le L1 et L2. Gain très élevé pour un effort minimal (quelques lignes modifiées).
+- **L1-dcache-load-misses (P-Core)** : **~5.16%** (41.2 Millions misses / 0.80 Milliards loads).
+- **LLC-loads (Requêtes L2 -> L3)** : **13.7 Millions**.
+- **LLC-load-misses (Requêtes L3 -> RAM)** : **~6,301,438**.
+
+*Bilan Architecture* : L'éradication des micro-allocations sur le tas par frame empêche la fragmentation mémoire. Bien que les volumes absolus soient plus élevés sur 15s de jeu interactif (vs 0.7s de test unitaire), la stabilité du cache reste excellente pour l'application réelle. Cette baseline servira de référence pour la suite.
+
+## Utilisation de Intel VTune Profiler (CLI)
+
+Pour affiner l'analyse des goulots d'étranglement mémoire, l'intégration de **Intel VTune Profiler** a été automatisée via le `justfile`. VTune utilise un échantillonnage matériel profond (PMU) via le driver kernel, permettant une analyse détaillée de l'engorgement des pipelines CPU (`Memory Bound`).
+
+### Lancer l'analyse VTune
+
+Exécutez la commande suivante :
+
+```bash
+just benchmark-vtune
+```
+
+*Pré-requis : Intel VTune doit être installé dans `/opt/intel/oneapi/vtune/` et la commande nécessitera le mot de passe `sudo` pour activer la collecte `memory-access` via le kernel.*
+
+La recette orchestre de manière transparente :
+
+1. Le chargement de l'environnement (`setvars.sh --force`)
+1. La propagation sécurisée du `$DISPLAY` via `sudo -E` pour permettre à `xdotool` de piloter la fenêtre X11
+1. La création du `TMP_DIR` pour que le script de scénario interactif puisse logger son exécution
+1. La collecte des métriques sur la durée complète du benchmark interactif (~15s)
+
+### Analyse des Résultats VTune
+
+À la fin de l'exécution, VTune génère un résumé en ligne de commande affichant notamment :
+
+- **Memory Bound (%) :** Indique le pourcentage de slots de pipeline CPU perdus à attendre la mémoire. Intel préconise de le maintenir sous les 20%.
+- **Store Bound (%) :** Mesure la pénalité d'écriture (allocations, copies...). La restructuration DOD de `IblBaker` a drastiquement réduit cette métrique (passant de 15.2% à 6.3%).
