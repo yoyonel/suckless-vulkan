@@ -1,4 +1,4 @@
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 
 ARG JUST_VERSION=1.46.0
 ARG HADOLINT_VERSION=2.12.0
@@ -16,7 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     cmake \
     curl \
     git \
-    libclang-rt-14-dev \
+    libclang-rt-dev \
     llvm \
     ninja-build \
     pkg-config \
@@ -34,6 +34,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip \
     gdb \
     && rm -rf /var/lib/apt/lists/*
+
+ENV XDG_RUNTIME_DIR=/tmp
+ENV XDG_SESSION_TYPE=x11
 
 # Use pipefail so pipe errors propagate correctly in subsequent RUN steps
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]

@@ -40,15 +40,20 @@ jobs:
 
       - name: Resolve CI image (GHCR or local fallback)
         run: |
-          REGISTRY="ghcr.io/${{ github.repository_owner }}"
-          IMAGE="$REGISTRY/suckless-vulkan-ci:latest"
-          if docker pull "$IMAGE"; then
-            echo "CI_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          TARGET_BRANCH="${{ github.base_ref || github.ref_name }}"
+          if [ "$TARGET_BRANCH" = "master" ]; then
+            TAG="latest"
           else
-            docker build --network=host -t local/suckless-vulkan-ci:latest \
-              -f docker/ci/Dockerfile .
-            echo "CI_IMAGE=local/suckless-vulkan-ci:latest" >> "$GITHUB_ENV"
+            TAG="$TARGET_BRANCH"
           fi
+          REGISTRY="ghcr.io/${{ github.repository_owner }}"
+          IMAGE="$REGISTRY/suckless-vulkan-ci:$TAG"
+          FALLBACK="$REGISTRY/suckless-vulkan-ci:latest"
+          docker pull "$IMAGE" || docker pull "$FALLBACK" || true
+          docker build --network=host -t local/suckless-vulkan-ci:latest \
+            --cache-from "$IMAGE" --cache-from "$FALLBACK" \
+            -f docker/ci/Dockerfile .
+          echo "CI_IMAGE=local/suckless-vulkan-ci:latest" >> "$GITHUB_ENV"
 
       - name: Run lint inside CI container
         run: |
@@ -75,15 +80,20 @@ jobs:
 
       - name: Resolve CI image (GHCR or local fallback)
         run: |
-          REGISTRY="ghcr.io/${{ github.repository_owner }}"
-          IMAGE="$REGISTRY/suckless-vulkan-ci:latest"
-          if docker pull "$IMAGE"; then
-            echo "CI_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          TARGET_BRANCH="${{ github.base_ref || github.ref_name }}"
+          if [ "$TARGET_BRANCH" = "master" ]; then
+            TAG="latest"
           else
-            docker build --network=host -t local/suckless-vulkan-ci:latest \
-              -f docker/ci/Dockerfile .
-            echo "CI_IMAGE=local/suckless-vulkan-ci:latest" >> "$GITHUB_ENV"
+            TAG="$TARGET_BRANCH"
           fi
+          REGISTRY="ghcr.io/${{ github.repository_owner }}"
+          IMAGE="$REGISTRY/suckless-vulkan-ci:$TAG"
+          FALLBACK="$REGISTRY/suckless-vulkan-ci:latest"
+          docker pull "$IMAGE" || docker pull "$FALLBACK" || true
+          docker build --network=host -t local/suckless-vulkan-ci:latest \
+            --cache-from "$IMAGE" --cache-from "$FALLBACK" \
+            -f docker/ci/Dockerfile .
+          echo "CI_IMAGE=local/suckless-vulkan-ci:latest" >> "$GITHUB_ENV"
 
       - name: Build and test inside CI container (${{ matrix.build_type }})
         run: |
@@ -115,15 +125,20 @@ jobs:
 
       - name: Resolve CI image (GHCR or local fallback)
         run: |
-          REGISTRY="ghcr.io/${{ github.repository_owner }}"
-          IMAGE="$REGISTRY/suckless-vulkan-ci:latest"
-          if docker pull "$IMAGE"; then
-            echo "CI_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          TARGET_BRANCH="${{ github.base_ref || github.ref_name }}"
+          if [ "$TARGET_BRANCH" = "master" ]; then
+            TAG="latest"
           else
-            docker build --network=host -t local/suckless-vulkan-ci:latest \
-              -f docker/ci/Dockerfile .
-            echo "CI_IMAGE=local/suckless-vulkan-ci:latest" >> "$GITHUB_ENV"
+            TAG="$TARGET_BRANCH"
           fi
+          REGISTRY="ghcr.io/${{ github.repository_owner }}"
+          IMAGE="$REGISTRY/suckless-vulkan-ci:$TAG"
+          FALLBACK="$REGISTRY/suckless-vulkan-ci:latest"
+          docker pull "$IMAGE" || docker pull "$FALLBACK" || true
+          docker build --network=host -t local/suckless-vulkan-ci:latest \
+            --cache-from "$IMAGE" --cache-from "$FALLBACK" \
+            -f docker/ci/Dockerfile .
+          echo "CI_IMAGE=local/suckless-vulkan-ci:latest" >> "$GITHUB_ENV"
 
       - name: Test with AddressSanitizer (ASan/UBSan)
         run: |
@@ -147,15 +162,20 @@ jobs:
 
       - name: Resolve CI image (GHCR or local fallback)
         run: |
-          REGISTRY="ghcr.io/${{ github.repository_owner }}"
-          IMAGE="$REGISTRY/suckless-vulkan-ci:latest"
-          if docker pull "$IMAGE"; then
-            echo "CI_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          TARGET_BRANCH="${{ github.base_ref || github.ref_name }}"
+          if [ "$TARGET_BRANCH" = "master" ]; then
+            TAG="latest"
           else
-            docker build --network=host -t local/suckless-vulkan-ci:latest \
-              -f docker/ci/Dockerfile .
-            echo "CI_IMAGE=local/suckless-vulkan-ci:latest" >> "$GITHUB_ENV"
+            TAG="$TARGET_BRANCH"
           fi
+          REGISTRY="ghcr.io/${{ github.repository_owner }}"
+          IMAGE="$REGISTRY/suckless-vulkan-ci:$TAG"
+          FALLBACK="$REGISTRY/suckless-vulkan-ci:latest"
+          docker pull "$IMAGE" || docker pull "$FALLBACK" || true
+          docker build --network=host -t local/suckless-vulkan-ci:latest \
+            --cache-from "$IMAGE" --cache-from "$FALLBACK" \
+            -f docker/ci/Dockerfile .
+          echo "CI_IMAGE=local/suckless-vulkan-ci:latest" >> "$GITHUB_ENV"
 
       - name: Build with Tracy enabled
         run: |
@@ -180,15 +200,20 @@ jobs:
 
       - name: Resolve CI image (GHCR or local fallback)
         run: |
-          REGISTRY="ghcr.io/${{ github.repository_owner }}"
-          IMAGE="$REGISTRY/suckless-vulkan-ci:latest"
-          if docker pull "$IMAGE"; then
-            echo "CI_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          TARGET_BRANCH="${{ github.base_ref || github.ref_name }}"
+          if [ "$TARGET_BRANCH" = "master" ]; then
+            TAG="latest"
           else
-            docker build --network=host -t local/suckless-vulkan-ci:latest \
-              -f docker/ci/Dockerfile .
-            echo "CI_IMAGE=local/suckless-vulkan-ci:latest" >> "$GITHUB_ENV"
+            TAG="$TARGET_BRANCH"
           fi
+          REGISTRY="ghcr.io/${{ github.repository_owner }}"
+          IMAGE="$REGISTRY/suckless-vulkan-ci:$TAG"
+          FALLBACK="$REGISTRY/suckless-vulkan-ci:latest"
+          docker pull "$IMAGE" || docker pull "$FALLBACK" || true
+          docker build --network=host -t local/suckless-vulkan-ci:latest \
+            --cache-from "$IMAGE" --cache-from "$FALLBACK" \
+            -f docker/ci/Dockerfile .
+          echo "CI_IMAGE=local/suckless-vulkan-ci:latest" >> "$GITHUB_ENV"
 
       - name: Test with Vulkan Validation Layers
         run: |
@@ -211,15 +236,20 @@ jobs:
 
       - name: Resolve CI image (GHCR or local fallback)
         run: |
-          REGISTRY="ghcr.io/${{ github.repository_owner }}"
-          IMAGE="$REGISTRY/suckless-vulkan-ci:latest"
-          if docker pull "$IMAGE"; then
-            echo "CI_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          TARGET_BRANCH="${{ github.base_ref || github.ref_name }}"
+          if [ "$TARGET_BRANCH" = "master" ]; then
+            TAG="latest"
           else
-            docker build --network=host -t local/suckless-vulkan-ci:latest \
-              -f docker/ci/Dockerfile .
-            echo "CI_IMAGE=local/suckless-vulkan-ci:latest" >> "$GITHUB_ENV"
+            TAG="$TARGET_BRANCH"
           fi
+          REGISTRY="ghcr.io/${{ github.repository_owner }}"
+          IMAGE="$REGISTRY/suckless-vulkan-ci:$TAG"
+          FALLBACK="$REGISTRY/suckless-vulkan-ci:latest"
+          docker pull "$IMAGE" || docker pull "$FALLBACK" || true
+          docker build --network=host -t local/suckless-vulkan-ci:latest \
+            --cache-from "$IMAGE" --cache-from "$FALLBACK" \
+            -f docker/ci/Dockerfile .
+          echo "CI_IMAGE=local/suckless-vulkan-ci:latest" >> "$GITHUB_ENV"
 
       - name: Build tests and generate LLVM coverage report
         run: |
