@@ -235,17 +235,17 @@ void log_message_v(LogLevel level, const char* tag, const char* format, va_list 
             return;
         }
 
-        std::vector<char> message(static_cast<size_t>(required_size) + 1U, '\0');
-        (void)std::vsnprintf(message.data(), message.size(), format, args);
+        char* message = static_cast<char*>(__builtin_alloca(required_size + 1));
+        (void)std::vsnprintf(message, required_size + 1, format, args);
 
         FILE* out = (level >= LogLevel::Error) ? stderr : stdout;
         (void)std::fputs(prefix, out);
-        (void)std::fputs(message.data(), out);
+        (void)std::fputs(message, out);
         (void)std::fputc('\n', out);
         (void)std::fflush(out);
 
         if (g_log_callback != nullptr) {
-            g_log_callback(level, tag, message.data());
+            g_log_callback(level, tag, message);
         }
         return;
     }

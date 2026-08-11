@@ -670,7 +670,7 @@ void vk_ibl_bake_prefilter(VulkanEngine* engine) {
                                 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
     }
 
-    std::vector<ImageViewHandle> views;
+    ImageViewHandle finalViewHandle = INVALID_HANDLE;
     DescriptorPoolHandle poolHandle = INVALID_HANDLE;
 
     {
@@ -685,17 +685,17 @@ void vk_ibl_bake_prefilter(VulkanEngine* engine) {
         DescriptorPoolDesc desc{ps, 2, 1};
         poolHandle = engine->appState->rhi->CreateDescriptorPool(desc);
         if (poolHandle != INVALID_HANDLE) {
-            std::vector<DescriptorLayoutHandle> layouts(1, engine->ibl.iblDescriptorSetLayout);
+            DescriptorLayoutHandle layouts[1] = {engine->ibl.iblDescriptorSetLayout};
             DescriptorSetAllocateDesc ai{};
             ai.pool = poolHandle;
             ai.setCount = 1;
-            ai.layouts = layouts.data();
+            ai.layouts = layouts;
 
-            std::vector<DescriptorSetHandle> sets(1);
-            if (engine->appState->rhi->AllocateDescriptorSets(ai, sets.data()) == RHIResult::Success) {
+            DescriptorSetHandle sets[1] = {INVALID_HANDLE};
+            if (engine->appState->rhi->AllocateDescriptorSets(ai, sets) == RHIResult::Success) {
                 uint32_t i = engine->ibl.currentMip;
                 ImageViewHandle viewHandle = engine->appState->rhi->CreateImageView(engine->ibl.prefilteredMap, i, 1, 0, 1);
-                views.push_back(viewHandle);
+                finalViewHandle = viewHandle;
 
                 DescriptorImageInfo inputImage{engine->envHdrSampler, INVALID_HANDLE, engine->envHdrImage, TextureLayout::ShaderReadOnlyOptimal};
                 DescriptorImageInfo outputImage{INVALID_HANDLE, viewHandle, INVALID_HANDLE, TextureLayout::General};
@@ -731,7 +731,7 @@ void vk_ibl_bake_prefilter(VulkanEngine* engine) {
                         int maxY;
                     } pc = {(float)i / (float)(IBL_SPM_MIPS - 1), (int)i, threshold, offsetY, maxY};
                     cmdList2.PushConstants(engine->ibl.iblPipelineLayout, ShaderStage::Compute, 0, sizeof(pc), &pc);
-                    cmdList2.BindDescriptorSets(engine->ibl.iblPipelineLayout, 0, 1, sets.data(), true);
+                    cmdList2.BindDescriptorSets(engine->ibl.iblPipelineLayout, 0, 1, sets, true);
 
                     uint32_t groups_y = (actual_lines + 31) / 32;
                     cmdList2.Dispatch((sz + 31) / 32, groups_y, 1);
@@ -754,8 +754,8 @@ void vk_ibl_bake_prefilter(VulkanEngine* engine) {
     if (poolHandle != INVALID_HANDLE) {
         engine->ibl.pendingDescriptorPools.push_back((uint64_t)poolHandle);
     }
-    for (auto v : views) {
-        engine->ibl.pendingImageViews.push_back((uint64_t)v);
+    if (finalViewHandle != INVALID_HANDLE) {
+        engine->ibl.pendingImageViews.push_back((uint64_t)finalViewHandle);
     }
 
     end_single_time_commands(engine, cb, engine->ibl.iblBakeFence);
