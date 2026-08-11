@@ -70,24 +70,24 @@ struct QueueFamilySelection {
     }
 };
 
-bool has_required_device_extensions(VkPhysicalDevice physicalDevice) {
+GfxResult has_required_device_extensions(VkPhysicalDevice physicalDevice) {
     uint32_t extensionCount = 0;
     if (vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &extensionCount, nullptr) != VK_SUCCESS) {
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     }
 
     std::vector<VkExtensionProperties> extensions(extensionCount);
     if (vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &extensionCount, extensions.data()) != VK_SUCCESS) {
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     }
 
     for (const auto& extension : extensions) {
         if (strcmp(extension.extensionName, VK_KHR_SWAPCHAIN_EXTENSION_NAME) == 0) {
-            return true;
+            return GfxResult::Success;
         }
     }
 
-    return false;
+    return GfxResult::ErrorUnsupportedFeature;
 }
 
 QueueFamilySelection find_queue_families(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface) {
@@ -136,18 +136,21 @@ QueueFamilySelection find_queue_families(VkPhysicalDevice physicalDevice, VkSurf
     return selection;
 }
 
-bool device_supports_swapchain(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface) {
+GfxResult device_supports_swapchain(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface) {
     uint32_t formatCount = 0;
     uint32_t presentModeCount = 0;
 
     if (vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, nullptr) != VK_SUCCESS) {
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     }
     if (vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &presentModeCount, nullptr) != VK_SUCCESS) {
-        return false;
+        return GfxResult::ErrorInitializationFailed;
     }
 
-    return formatCount > 0 && presentModeCount > 0;
+    if (formatCount > 0 && presentModeCount > 0) {
+        return GfxResult::Success;
+    }
+    return GfxResult::ErrorUnsupportedFeature;
 }
 
 VkSurfaceFormatKHR choose_surface_format(const std::vector<VkSurfaceFormatKHR>& availableFormats) {
@@ -382,10 +385,10 @@ bool is_uma_architecture(VkPhysicalDevice physicalDevice) {
     return false;
 }
 
-bool select_physical_device(VulkanEngine* engine, const std::vector<VkPhysicalDevice>& devices) {
+GfxResult select_physical_device(VulkanEngine* engine, const std::vector<VkPhysicalDevice>& devices) {
     QueueFamilySelection queueSelection;
     for (const auto& physicalDevice : devices) {
-        if (!has_required_device_extensions(physicalDevice)) {
+        if (has_required_device_extensions(physicalDevice) != GfxResult::Success) {
             continue;
         }
 
@@ -394,7 +397,7 @@ bool select_physical_device(VulkanEngine* engine, const std::vector<VkPhysicalDe
             continue;
         }
 
-        if (!device_supports_swapchain(physicalDevice, engine->surface)) {
+        if (device_supports_swapchain(physicalDevice, engine->surface) != GfxResult::Success) {
             continue;
         }
 
@@ -412,9 +415,9 @@ bool select_physical_device(VulkanEngine* engine, const std::vector<VkPhysicalDe
         if (engine->computeQueueFamilyIndex != engine->graphicsQueueFamilyIndex) {
             engine->hasDedicatedComputeQueue = true;
         }
-        return true;
+        return GfxResult::Success;
     }
-    return false;
+    return GfxResult::ErrorUnsupportedFeature;
 }
 
 GfxResult init_core(VulkanEngine* engine) {
@@ -455,8 +458,8 @@ GfxResult init_core(VulkanEngine* engine) {
         return GfxResult::ErrorInitializationFailed;
     }
 
-    if (!select_physical_device(engine, devices)) {
-        return GfxResult::ErrorInitializationFailed;
+    if (GfxResult res = select_physical_device(engine, devices); res != GfxResult::Success) {
+        return res;
     }
 
     float queuePriority = 1.0f;

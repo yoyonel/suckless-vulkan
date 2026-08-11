@@ -14,43 +14,47 @@ bool is_shift_down(GLFWwindow* window, const WindowOps* ops) {
     return ops->get_key(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS || ops->get_key(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS;
 }
 
-bool is_key_pressed_once(GLFWwindow* window, int key, bool* wasDown, const WindowOps* ops) {
+InputState get_key_state(GLFWwindow* window, int key, bool* wasDown, const WindowOps* ops) {
     const bool isDown = ops->get_key(window, key) == GLFW_PRESS;
     const bool pressedOnce = isDown && !(*wasDown);
     *wasDown = isDown;
-    return pressedOnce;
+    if (pressedOnce)
+        return InputState::PressedOnce;
+    if (isDown)
+        return InputState::Pressed;
+    return InputState::Released;
 }
 
 void handle_camera_and_envmap_toggles(VulkanEngine* engine, const WindowOps* ops) {
     engine->appState->currentInput.cameraTogglePressed =
-        is_key_pressed_once(engine->appState->window, GLFW_KEY_C, &engine->appState->core.inputTracking.cameraToggleKeyWasDown, ops);
+        get_key_state(engine->appState->window, GLFW_KEY_C, &engine->appState->core.inputTracking.cameraToggleKeyWasDown, ops);
 
-    if (engine->appState->currentInput.cameraTogglePressed) {
+    if (engine->appState->currentInput.cameraTogglePressed == InputState::PressedOnce) {
         if (ops->set_input_mode) {
             bool newCameraState = !engine->appState->core.cameraEnabled;
             ops->set_input_mode(engine->appState->window, GLFW_CURSOR, newCameraState ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
         }
     }
     engine->appState->currentInput.showEnvmapTogglePressed =
-        is_key_pressed_once(engine->appState->window, GLFW_KEY_K, &engine->appState->core.inputTracking.showEnvmapToggleKeyWasDown, ops);
+        get_key_state(engine->appState->window, GLFW_KEY_K, &engine->appState->core.inputTracking.showEnvmapToggleKeyWasDown, ops);
     engine->appState->currentInput.billboardPressed =
-        is_key_pressed_once(engine->appState->window, GLFW_KEY_B, &engine->appState->core.inputTracking.billboardKeyWasDown, ops);
+        get_key_state(engine->appState->window, GLFW_KEY_B, &engine->appState->core.inputTracking.billboardKeyWasDown, ops);
     engine->appState->currentInput.wireframePressed =
-        is_key_pressed_once(engine->appState->window, GLFW_KEY_Z, &engine->appState->core.inputTracking.wireframeKeyWasDown, ops);
+        get_key_state(engine->appState->window, GLFW_KEY_Z, &engine->appState->core.inputTracking.wireframeKeyWasDown, ops);
 }
 
 void handle_env_navigation(VulkanEngine* engine, bool shiftDown, const WindowOps* ops) {
     engine->appState->currentInput.envPageUpPressed =
-        is_key_pressed_once(engine->appState->window, GLFW_KEY_PAGE_UP, &engine->appState->core.inputTracking.envPageUpKeyWasDown, ops);
+        get_key_state(engine->appState->window, GLFW_KEY_PAGE_UP, &engine->appState->core.inputTracking.envPageUpKeyWasDown, ops);
     engine->appState->currentInput.envPageDownPressed =
-        is_key_pressed_once(engine->appState->window, GLFW_KEY_PAGE_DOWN, &engine->appState->core.inputTracking.envPageDownKeyWasDown, ops);
+        get_key_state(engine->appState->window, GLFW_KEY_PAGE_DOWN, &engine->appState->core.inputTracking.envPageDownKeyWasDown, ops);
 
     engine->appState->currentInput.envShiftDown = shiftDown;
 
-    if (engine->appState->currentInput.envPageUpPressed && !shiftDown) {
+    if (engine->appState->currentInput.envPageUpPressed == InputState::PressedOnce && !shiftDown) {
         vk_switch_environment_texture(engine, 1);
     }
-    if (engine->appState->currentInput.envPageDownPressed && !shiftDown) {
+    if (engine->appState->currentInput.envPageDownPressed == InputState::PressedOnce && !shiftDown) {
         vk_switch_environment_texture(engine, -1);
     }
 }
@@ -59,19 +63,19 @@ void handle_ibl_debug_inputs(VulkanEngine* engine, const WindowOps* ops) {
     for (int digit = 0; digit <= 9; ++digit) {
         const int key = GLFW_KEY_0 + digit;
         engine->appState->currentInput.iblDebugDigitPressed[digit] =
-            is_key_pressed_once(engine->appState->window, key, &engine->appState->core.inputTracking.iblDebugDigitKeyWasDown[digit], ops);
+            get_key_state(engine->appState->window, key, &engine->appState->core.inputTracking.iblDebugDigitKeyWasDown[digit], ops);
     }
 
     engine->appState->currentInput.iblDebugPrevPressed =
-        is_key_pressed_once(engine->appState->window, GLFW_KEY_LEFT_BRACKET, &engine->appState->core.inputTracking.iblDebugPrevKeyWasDown, ops);
+        get_key_state(engine->appState->window, GLFW_KEY_LEFT_BRACKET, &engine->appState->core.inputTracking.iblDebugPrevKeyWasDown, ops);
     engine->appState->currentInput.iblDebugNextPressed =
-        is_key_pressed_once(engine->appState->window, GLFW_KEY_RIGHT_BRACKET, &engine->appState->core.inputTracking.iblDebugNextKeyWasDown, ops);
+        get_key_state(engine->appState->window, GLFW_KEY_RIGHT_BRACKET, &engine->appState->core.inputTracking.iblDebugNextKeyWasDown, ops);
     engine->appState->currentInput.iblDebugF6Pressed =
-        is_key_pressed_once(engine->appState->window, GLFW_KEY_F6, &engine->appState->core.inputTracking.iblDebugF6KeyWasDown, ops);
+        get_key_state(engine->appState->window, GLFW_KEY_F6, &engine->appState->core.inputTracking.iblDebugF6KeyWasDown, ops);
     engine->appState->currentInput.iblExportPressed =
-        is_key_pressed_once(engine->appState->window, GLFW_KEY_O, &engine->appState->core.inputTracking.iblExportKeyWasDown, ops);
+        get_key_state(engine->appState->window, GLFW_KEY_O, &engine->appState->core.inputTracking.iblExportKeyWasDown, ops);
 
-    if (engine->appState->currentInput.iblExportPressed) {
+    if (engine->appState->currentInput.iblExportPressed == InputState::PressedOnce) {
         vk_ibl_export_maps(engine);
         LOG_INFO("runtime", "IBL maps export requested (/tmp/ibl_tests/vk)");
     }
@@ -81,9 +85,10 @@ void handle_postprocess_inputs(VulkanEngine* engine, const WindowOps* ops) {
     engine->appState->currentInput.postExposureAddDown = ops->get_key(engine->appState->window, GLFW_KEY_KP_ADD) == GLFW_PRESS;
     engine->appState->currentInput.postExposureSubDown = ops->get_key(engine->appState->window, GLFW_KEY_KP_SUBTRACT) == GLFW_PRESS;
 
+    InputState post1 = get_key_state(engine->appState->window, GLFW_KEY_0, &engine->appState->core.inputTracking.postResetKeyWasDown, ops);
+    InputState post2 = get_key_state(engine->appState->window, GLFW_KEY_KP_0, &engine->appState->core.inputTracking.postResetKeyWasDown, ops);
     engine->appState->currentInput.postResetPressed =
-        is_key_pressed_once(engine->appState->window, GLFW_KEY_0, &engine->appState->core.inputTracking.postResetKeyWasDown, ops) ||
-        is_key_pressed_once(engine->appState->window, GLFW_KEY_KP_0, &engine->appState->core.inputTracking.postResetKeyWasDown, ops);
+        (post1 == InputState::PressedOnce || post2 == InputState::PressedOnce) ? InputState::PressedOnce : InputState::Released;
 }
 
 } // namespace
@@ -105,7 +110,7 @@ void vk_handle_runtime_input(VulkanEngine* engine, const WindowOps* ops) {
     handle_ibl_debug_inputs(engine, ops);
     handle_postprocess_inputs(engine, ops);
 
-    if (is_key_pressed_once(engine->appState->window, GLFW_KEY_V, &engine->appState->core.inputTracking.vsyncKeyWasDown, ops)) {
+    if (get_key_state(engine->appState->window, GLFW_KEY_V, &engine->appState->core.inputTracking.vsyncKeyWasDown, ops) == InputState::PressedOnce) {
         engine->appState->core.vsync = !engine->appState->core.vsync;
         LOG_INFO("runtime", "VSync toggle: %s (recreating swapchain...)", engine->appState->core.vsync ? "ON" : "OFF");
         (void)vk_recreate_swapchain(engine);

@@ -450,6 +450,8 @@ void test_vk_engine_runtime(TestStats* stats) {
     fakeState.keyStates[GLFW_KEY_Z] = GLFW_PRESS;
     UPDATE_CONTROLS();
     check(stats, appState.core.render.wireframeMode, "Z toggles wireframe ON");
+    UPDATE_CONTROLS();
+    check(stats, appState.core.render.wireframeMode, "Z held down does not toggle wireframe OFF");
     fakeState.keyStates[GLFW_KEY_Z] = GLFW_RELEASE;
     UPDATE_CONTROLS();
 
