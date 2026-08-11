@@ -292,8 +292,8 @@ When explicitly requested, follow this sequence:
 2. Push feature branch (never `origin/master`):
    - `git push -u origin <feature-branch>`
 3. Create PR with title + detailed description:
-   - Use GitHub CLI (`gh pr create`) or equivalent tool integration
-   - Base branch must be `master`
+   - Use GitHub CLI (`gh pr create --base dev`) or equivalent tool integration
+   - Base branch must be `dev` (NEVER target `master` directly for PRs)
 4. **Parallel validation strategy** (CRITICAL for speed):
    - **Immediately after push**, launch local CI in background: `just ci-docker-all` (runs full matrix locally)
    - **Simultaneously**, monitor GitHub Actions remotely (check runs, job status)
