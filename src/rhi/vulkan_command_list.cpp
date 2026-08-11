@@ -20,11 +20,11 @@ void VulkanCommandList::BindPipeline(PipelineHandle pipeline, bool isCompute) {
 }
 
 void VulkanCommandList::BindDescriptorSets(PipelineLayoutHandle layout, uint32_t firstSet, uint32_t count, const DescriptorSetHandle* sets, bool isCompute) {
-    std::vector<VkDescriptorSet> vkSets(count);
+    VkDescriptorSet* vkSets = static_cast<VkDescriptorSet*>(__builtin_alloca(count * sizeof(VkDescriptorSet)));
     for (uint32_t i = 0; i < count; ++i) {
         vkSets[i] = m_rhi->GetVkDescriptorSet(sets[i]);
     }
-    vkCmdBindDescriptorSets(m_cmdBuffer, isCompute ? VK_PIPELINE_BIND_POINT_COMPUTE : VK_PIPELINE_BIND_POINT_GRAPHICS, m_rhi->GetVkPipelineLayout(layout), firstSet, count, vkSets.data(), 0, nullptr);
+    vkCmdBindDescriptorSets(m_cmdBuffer, isCompute ? VK_PIPELINE_BIND_POINT_COMPUTE : VK_PIPELINE_BIND_POINT_GRAPHICS, m_rhi->GetVkPipelineLayout(layout), firstSet, count, vkSets, 0, nullptr);
 }
 
 void VulkanCommandList::PushConstants(PipelineLayoutHandle layout, ShaderStage stage, uint32_t offset, uint32_t size, const void* values) {
@@ -36,11 +36,11 @@ void VulkanCommandList::PushConstants(PipelineLayoutHandle layout, ShaderStage s
 }
 
 void VulkanCommandList::BindVertexBuffers(uint32_t firstBinding, uint32_t bindingCount, const BufferHandle* buffers, const uint64_t* offsets) {
-    std::vector<VkBuffer> vkBuffers(bindingCount);
+    VkBuffer* vkBuffers = static_cast<VkBuffer*>(__builtin_alloca(bindingCount * sizeof(VkBuffer)));
     for (uint32_t i = 0; i < bindingCount; ++i) {
         vkBuffers[i] = m_rhi->GetVkBuffer(buffers[i]);
     }
-    vkCmdBindVertexBuffers(m_cmdBuffer, firstBinding, bindingCount, vkBuffers.data(), offsets);
+    vkCmdBindVertexBuffers(m_cmdBuffer, firstBinding, bindingCount, vkBuffers, offsets);
 }
 
 void VulkanCommandList::BindIndexBuffer(BufferHandle buffer, uint64_t offset, uint32_t indexType) {

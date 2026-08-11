@@ -156,3 +156,20 @@ Suite à la correction de l'état asynchrone IBL, un nouveau benchmark automatis
 - **FPS Global** : Médiane à **1063 FPS** (99e percentile à 3754 FPS).
 - **Spikes IBL** : 19 frames sous 30 FPS repérées (pire frame : **143.41 ms**).
   - *Bilan* : Le Compute Shader IBL ne bloque plus le CPU. Le spike restant correspond au goulot PCIe (transfert de 134 Mo vers la VRAM via la Graphics Queue sur architecture UMA).
+
+## Itération 8 : Zero-Allocation RHI Hot Path (11 Août 2026)
+
+Remplacement massif des allocations dynamiques (`std::vector`) par des allocations sur la pile (`__builtin_alloca`) dans les chemins critiques de soumission Vulkan (`BindDescriptorSets`, `BindVertexBuffers`).
+
+### Résultats Finaux (Validation Itération 8 - `opt/stl-allocs` Bloc 1)
+
+**Comparatif (vs Baseline du 11 Août Itération 7.3) :**
+
+- **L1-dcache-load-misses (P-Core)** : **0.18%** (4.3 Millions misses / 2.37 Milliards loads).
+  - *Évolution* : **-60%** de L1 misses (10.9M -> 4.3M).
+- **LLC-loads (Requêtes L2 -> L3)** : **1.3 Millions**.
+  - *Évolution* : **-75%** d'accès L3 (5.4M -> 1.3M).
+- **LLC-load-misses (Requêtes L3 -> RAM)** : **~556,521**.
+  - *Évolution* : **-90%** de RAM trips (5.4M -> 556k).
+
+*Bilan Architecture* : L'éradication des micro-allocations sur le tas par frame empêche la fragmentation mémoire, garantissant une localité temporelle et spatiale quasi-parfaite sur le L1 et L2. Gain très élevé pour un effort minimal (quelques lignes modifiées).
