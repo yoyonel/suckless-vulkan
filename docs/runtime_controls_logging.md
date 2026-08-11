@@ -113,6 +113,15 @@ Exemple :
 VULKAN_LOG_LEVEL=DEBUG just run
 ```
 
+## Options CLI
+
+L'exécutable (`vulkan_app`) accepte les arguments suivants :
+
+- `--no-vsync` : Désactive le VSync.
+- `--vsync` : Force le VSync.
+- `--nullrhi` : Démarre avec le NullRHI.
+- `--no-focus` : Empêche la fenêtre de prendre le focus, cache la fenêtre (off-screen) et désactive la capture de la souris au démarrage. Utilisé principalement pour l'exécution silencieuse des tests.
+
 ## Tests Associes
 
 Tests d'integration :

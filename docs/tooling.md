@@ -81,6 +81,20 @@ Plusieurs règles ont été consciemment désactivées dans `.clang-tidy` pour s
 | `readability-implicit-bool-conversion` | Permet d'écrire `if (!file)` au lieu de l'encombrant `if (file == nullptr)`. |
 | `bugprone-invalid-enum-default-initialization` | Désactivée car l'initialisation globale `{}` des structures Vulkan initialise les énumérations à `0`, ce qui provoque de faux positifs pour les flags qui n'ont pas de valeur `0` explicite (comme `VkSampleCountFlagBits`). |
 
+### Exceptions et Suppressions (NOLINT)
+
+La politique stricte du projet interdit de masquer silencieusement un warning. Toute utilisation de `// NOLINT(...)` **doit obligatoirement être accompagnée d'une justification en 4 points dans le code** :
+
+1. **Assessment** : Analyse de la cause profonde confirmant qu'il s'agit d'un faux positif ou d'une erreur d'analyse du linter.
+1. **Alternative** : Explication de l'absence d'alternative viable (le refactoring est impossible).
+1. **Tracking Note** : Note de suivi (évolutions futures de l'API, de la librairie, etc.).
+1. **User Validation** : Accord explicite suite à une code review.
+
+**Exemple d'exception légitime (`bugprone-use-after-move`) :**
+Dans le code de transfert asynchrone (e.g. upload IBL), l'utilisation d'une file lockfree SPSC (`rigtorp::SPSCQueue`) requiert le déplacement sémantique de structures move-only (`HdrCleanupRequest`).
+La signature `push(T&&)` de cette librairie ne consomme l'objet déplacé **que si l'insertion réussit**. Si la file est pleine (retourne `false`), l'objet reste intact.
+Par conséquent, boucler avec un `std::move()` dans la condition est sûr, bien que `clang-tidy` détecte un faux positif `bugprone-use-after-move`. Ce cas spécifique justifie l'utilisation du mécanisme formel `// NOLINT`.
+
 ## 🧪 Strategie de Tests
 
 Le projet contient maintenant deux types de tests CTest complementaires :

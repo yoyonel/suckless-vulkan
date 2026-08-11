@@ -41,12 +41,16 @@ AppResult parse_arguments(int argc, char** argv, EngineState* state) {
     }
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
-        if (arg == "--no-vsync")
+        if (arg == "--no-vsync") {
             state->core.vsync = false;
-        else if (arg == "--vsync")
+        } else if (arg == "--vsync") {
             state->core.vsync = true;
-        else if (arg == "--nullrhi")
+        } else if (arg == "--nullrhi") {
             state->useNullRHI = true;
+        } else if (arg == "--no-focus") {
+            state->noFocus = true;
+            state->core.cameraEnabled = false;
+        }
     }
     return AppResult::Success;
 }
@@ -56,6 +60,11 @@ AppResult init_glfw(EngineState* state) {
         return AppResult::ErrorInitializationFailed;
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+    if (state->noFocus) {
+        glfwWindowHint(GLFW_FOCUSED, GLFW_FALSE);
+        glfwWindowHint(GLFW_FOCUS_ON_SHOW, GLFW_FALSE);
+        glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+    }
     state->window = glfwCreateWindow(1024, 768, "Vulkan - Icosphere Full GPU", NULL, NULL);
     return state->window != nullptr ? AppResult::Success : AppResult::ErrorInitializationFailed;
 }
@@ -92,6 +101,8 @@ int main(int argc, char** argv) {
     CPU_SET(0, &cpuset); // Lock to P-Core 0
     pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
 #endif
+
+    log_init();
 
     EngineState state = {};
     (void)parse_arguments(argc, argv, &state);
@@ -154,5 +165,6 @@ int main(int argc, char** argv) {
     arena_free(&state.core.scene.arena);
 
     tracy_client_shutdown();
+    log_shutdown();
     return 0;
 }

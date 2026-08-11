@@ -20,7 +20,6 @@ void* arena_alloc(LinearArena* arena, std::size_t size, std::size_t align) {
     if (arena->offset + padding + size > arena->capacity) {
         LOG_ERROR("memory", "FATAL OOM: LinearArena capacity exceeded! (Capacity: %zu bytes, Requested offset: %zu)", arena->capacity,
                   arena->offset + padding + size);
-        assert(false && "LinearArena Out Of Memory");
         std::abort();
         return nullptr;
     }
@@ -113,56 +112,56 @@ void core_engine_init(CoreEngine* core) {
 }
 
 static void process_animation_inputs(CoreEngine* core, const CoreInput* input) {
-    if (input->pausePressed)
+    if (input->pausePressed == InputState::PressedOnce)
         core->time.animationPaused = !core->time.animationPaused;
-    if (input->resetPressed) {
+    if (input->resetPressed == InputState::PressedOnce) {
         core->time.animationTimeSeconds = 0.0f;
         core->time.animationSpeed = 1.0f;
     }
-    if (input->speedUpPressed)
+    if (input->speedUpPressed == InputState::PressedOnce)
         core->time.animationSpeed *= 1.25f;
-    if (input->speedDownPressed) {
+    if (input->speedDownPressed == InputState::PressedOnce) {
         core->time.animationSpeed *= 0.8f;
         core->time.animationSpeed = std::max(core->time.animationSpeed, 0.1f);
     }
 }
 
 static void process_toggles_and_env_inputs(CoreEngine* core, const CoreInput* input) {
-    if (input->cameraTogglePressed) {
+    if (input->cameraTogglePressed == InputState::PressedOnce) {
         core->cameraEnabled = !core->cameraEnabled;
         core->camera.firstMouse = true;
     }
-    if (input->showEnvmapTogglePressed)
+    if (input->showEnvmapTogglePressed == InputState::PressedOnce)
         core->render.showEnvmap = !core->render.showEnvmap;
-    if (input->billboardPressed)
+    if (input->billboardPressed == InputState::PressedOnce)
         core->render.billboardMode = !core->render.billboardMode;
-    if (input->wireframePressed)
+    if (input->wireframePressed == InputState::PressedOnce)
         core->render.wireframeMode = !core->render.wireframeMode;
 
     constexpr float kEnvLodStep = 0.5f;
-    if (input->envPageUpPressed && input->envShiftDown) {
+    if (input->envPageUpPressed == InputState::PressedOnce && input->envShiftDown) {
         core->render.envLod += kEnvLodStep;
     }
-    if (input->envPageDownPressed && input->envShiftDown) {
+    if (input->envPageDownPressed == InputState::PressedOnce && input->envShiftDown) {
         core->render.envLod = std::max(0.0f, core->render.envLod - kEnvLodStep);
     }
 }
 
 static void process_ibl_inputs(CoreEngine* core, const CoreInput* input) {
     for (int i = 0; i < 10; ++i) {
-        if (input->iblDebugDigitPressed[i])
+        if (input->iblDebugDigitPressed[i] == InputState::PressedOnce)
             core->render.iblDebugMode = i;
     }
-    if (input->iblDebugPrevPressed)
+    if (input->iblDebugPrevPressed == InputState::PressedOnce)
         core->render.iblDebugMode = std::max(0, core->render.iblDebugMode - 1);
-    if (input->iblDebugNextPressed)
+    if (input->iblDebugNextPressed == InputState::PressedOnce)
         core->render.iblDebugMode = std::min(9, core->render.iblDebugMode + 1);
-    if (input->iblDebugF6Pressed)
+    if (input->iblDebugF6Pressed == InputState::PressedOnce)
         core->render.iblDebugMode = (core->render.iblDebugMode + 1) % 10;
 }
 
 static void process_camera_inputs(CoreEngine* core, const CoreInput* input) {
-    if (input->cameraResetPressed)
+    if (input->cameraResetPressed == InputState::PressedOnce)
         camera_init(&core->camera);
 
     if (core->cameraEnabled) {
@@ -189,7 +188,7 @@ static void process_postprocess_inputs(CoreEngine* core, const CoreInput* input,
     if (input->postExposureSubDown) {
         core->render.exposure = std::max(0.01f, core->render.exposure - (0.1f * deltaSeconds * 2.0f));
     }
-    if (input->postResetPressed) {
+    if (input->postResetPressed == InputState::PressedOnce) {
         core->render.exposure = 1.0f;
         core->render.saturation = 1.0f;
         core->render.contrast = 1.0f;

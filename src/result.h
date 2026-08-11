@@ -9,7 +9,14 @@ enum class [[nodiscard]] RHIResult : uint8_t { Success = 0, ErrorOutOfMemory, Er
 
 enum class [[nodiscard]] ResourceResult : uint8_t { Success = 0, ErrorFileNotFound, ErrorInvalidFormat, ErrorParseFailed, ErrorCorruptedData };
 
-enum class [[nodiscard]] GfxResult : uint8_t { Success = 0, ErrorInitializationFailed, ErrorInvalidState, ErrorOutOfMemory, ErrorUnsupportedFormat };
+enum class [[nodiscard]] GfxResult : uint8_t {
+    Success = 0,
+    ErrorInitializationFailed,
+    ErrorInvalidState,
+    ErrorOutOfMemory,
+    ErrorUnsupportedFormat,
+    ErrorUnsupportedFeature
+};
 
 // Helpers for logging
 constexpr const char* to_string(AppResult res) {
@@ -73,6 +80,8 @@ constexpr const char* to_string(GfxResult res) {
         return "ErrorOutOfMemory";
     case GfxResult::ErrorUnsupportedFormat:
         return "ErrorUnsupportedFormat";
+    case GfxResult::ErrorUnsupportedFeature:
+        return "ErrorUnsupportedFeature";
     default:
         return "Unknown GfxResult";
     }
