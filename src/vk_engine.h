@@ -20,6 +20,7 @@
 #include "module_loader.h"
 #include "rhi/rhi.h"
 #include "rhi/rhi_ptr.h"
+#include "spsc_queue.h"
 
 // Configuration de GLM pour Vulkan
 #define GLM_FORCE_RADIANS
@@ -38,17 +39,62 @@ enum class HdrLoadRequestState : std::uint8_t {
 };
 
 struct HdrLoadRequest {
-    int hdrIndex;                                     // Index in hdrFiles array
-    HdrLoadRequestState state;                        // Current load state
-    VkBuffer stagingBuffer = VK_NULL_HANDLE;          // Direct mapped VRAM staging buffer
-    VmaAllocation stagingAllocation = VK_NULL_HANDLE; // Allocation handle
-    uint32_t width;                                   // Image width
-    uint32_t height;                                  // Image height
-    uint32_t channels;                                // Channels (typically 4)
-    std::string sourcePathOrLabel;                    // Source file path or fallback label
+    int hdrIndex;              // Index in hdrFiles array
+    HdrLoadRequestState state; // Current load state
+    uint32_t width;            // Image width
+    uint32_t height;           // Image height
+    uint32_t channels;         // Channels (typically 4)
+    std::string sourcePathOrLabel;
+    int targetIndex{-1};
+    rhi::TexturePtr envHdrImage;
+    rhi::SamplerPtr envHdrSampler;
+    rhi::TexturePtr irradianceMap;
+    rhi::TexturePtr prefilteredMap;
+    VkBuffer stagingBuffer{VK_NULL_HANDLE};
+    VmaAllocation stagingAllocation{VK_NULL_HANDLE};
+    uint32_t envHdrMipLevels;
+    bool isFallback{false};
+    bool loadFailed{false};
+    std::chrono::high_resolution_clock::time_point requestTime;
+
+    HdrLoadRequest() = default;
+    HdrLoadRequest(const HdrLoadRequest&) = delete;
+    HdrLoadRequest& operator=(const HdrLoadRequest&) = delete;
+    HdrLoadRequest(HdrLoadRequest&&) = default;
+    HdrLoadRequest& operator=(HdrLoadRequest&&) = default;
+};
+
+struct HdrCleanupRequest {
+    rhi::TexturePtr tex;
+    rhi::SamplerPtr smp;
+    VkBuffer buffer{VK_NULL_HANDLE};
+    VmaAllocation allocation{VK_NULL_HANDLE};
+
+    HdrCleanupRequest() = default;
+    HdrCleanupRequest(const HdrCleanupRequest&) = delete;
+    HdrCleanupRequest& operator=(const HdrCleanupRequest&) = delete;
+    HdrCleanupRequest(HdrCleanupRequest&&) = default;
+    HdrCleanupRequest& operator=(HdrCleanupRequest&&) = default;
 };
 
 // Phase IBL-0: Synchronous Bake Resources
+enum class IblBakeState : uint8_t {
+    Idle,
+    UploadHdr,
+    UploadHdrWait,
+    GenerateMipmap,
+    GenerateMipmapWait,
+    Luminance,
+    LuminanceWait,
+    Brdf,
+    BrdfWait,
+    Irradiance,
+    IrradianceWait,
+    Prefilter,
+    PrefilterWait,
+    Finalize
+};
+
 struct IblResources {
     rhi::TexturePtr irradianceMap;
     rhi::SamplerPtr irradianceSampler;
@@ -87,8 +133,27 @@ struct IblResources {
     DescriptorSetHandle spmapDescriptorSet{INVALID_HANDLE};
     DescriptorSetHandle brdfLutDescriptorSet{INVALID_HANDLE};
 
-    bool brdfLutBaked;
-    float bakedMeanLuminance;
+    bool brdfLutBaked{false};
+    float bakedMeanLuminance{1.0f};
+
+    // State machine & Slicing tracking
+    std::chrono::high_resolution_clock::time_point envmapRequestTime;
+    IblBakeState bakeState{IblBakeState::Idle};
+    int currentSlice{0};
+    int totalSlices{0};
+    int currentMip{0};
+    VkBuffer currentStagingBuffer{VK_NULL_HANDLE};
+
+    VkFence iblBakeFence{VK_NULL_HANDLE};
+    VkCommandBuffer iblBakeCommandBuffer{VK_NULL_HANDLE};
+    std::vector<uint64_t> pendingDescriptorPools;
+    std::vector<uint64_t> pendingImageViews;
+
+    // Deferred resource cleanup
+    std::vector<rhi::TexturePtr> pendingOldTextures;
+    std::vector<rhi::SamplerPtr> pendingOldSamplers;
+    std::vector<VkBuffer> pendingStagingBuffers;
+    std::vector<VmaAllocation> pendingStagingAllocations;
 };
 
 struct Vertex {
@@ -130,6 +195,17 @@ struct VulkanEngine {
     VkQueue presentQueue;
     uint32_t graphicsQueueFamilyIndex;
     uint32_t presentQueueFamilyIndex;
+
+    bool isUMA{false};
+    bool hasDedicatedTransferQueue{false};
+    bool hasDedicatedComputeQueue{false};
+    uint32_t transferQueueFamilyIndex{UINT32_MAX};
+    uint32_t computeQueueFamilyIndex{UINT32_MAX};
+    VkQueue transferQueue{VK_NULL_HANDLE};
+    VkQueue computeQueue{VK_NULL_HANDLE};
+
+    VkCommandPool transferCommandPool{VK_NULL_HANDLE};
+    VkSemaphore transferCompleteSemaphore{VK_NULL_HANDLE};
 
     VmaAllocator allocator;
 
@@ -187,15 +263,16 @@ struct VulkanEngine {
 
 #define CACHE_LINE_SIZE 128
 
-    // Phase 2B: Async HDR loading infrastructure
-    std::queue<HdrLoadRequest> hdrLoadQueue;          // Requests queued for I/O thread
-    std::queue<HdrLoadRequest> hdrReadyQueue;         // Ready/failed requests for render thread
-    std::thread hdrIoThread;                          // I/O worker thread
-    alignas(CACHE_LINE_SIZE) std::mutex hdrLoadMutex; // Protect queue state
-    std::condition_variable hdrLoadCV;                // Signal I/O thread on new requests
-    bool hdrIoThreadRunning;                          // Control flag for I/O thread
-    bool hdrLoadInFlight;                             // True while worker decodes one request
-    int pendingHdrIndex;                              // Last requested HDR index (-1 if none)
+    // Phase 5.4: Async HDR loading infrastructure (Padding for false sharing)
+    alignas(CACHE_LINE_SIZE) struct AsyncIoState {
+        SpscQueue<HdrLoadRequest, 16> hdrLoadQueue;       // Requests queued for I/O thread
+        SpscQueue<HdrLoadRequest, 16> hdrReadyQueue;      // Ready/failed requests for render thread
+        SpscQueue<HdrCleanupRequest, 16> hdrCleanupQueue; // Cleanup requests for I/O thread
+        std::thread hdrIoThread;                          // I/O worker thread
+        std::atomic<bool> hdrIoThreadRunning;             // Control flag for I/O thread
+        bool hdrLoadInFlight;                             // True while worker decodes one request
+        int pendingHdrIndex;                              // Last requested HDR index (-1 if none)
+    } io;
 
     alignas(CACHE_LINE_SIZE) VkCommandPool commandPool;
     VkCommandBuffer commandBuffer;

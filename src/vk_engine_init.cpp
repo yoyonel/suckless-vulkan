@@ -62,6 +62,8 @@ ResourceResult load_legacy_materials_for_grid(std::vector<MaterialGpu>& material
 struct QueueFamilySelection {
     uint32_t graphicsFamily = UINT32_MAX;
     uint32_t presentFamily = UINT32_MAX;
+    uint32_t transferFamily = UINT32_MAX;
+    uint32_t computeFamily = UINT32_MAX;
 
     bool isComplete() const {
         return graphicsFamily != UINT32_MAX && presentFamily != UINT32_MAX;
@@ -106,14 +108,29 @@ QueueFamilySelection find_queue_families(VkPhysicalDevice physicalDevice, VkSurf
             selection.graphicsFamily = index;
         }
 
+        // Dedicated Compute (has compute but NOT graphics)
+        if ((queueFamily.queueFlags & VK_QUEUE_COMPUTE_BIT) != 0 && (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT) == 0) {
+            selection.computeFamily = index;
+        }
+
+        // Dedicated Transfer (has transfer but NOT graphics and NOT compute)
+        if ((queueFamily.queueFlags & VK_QUEUE_TRANSFER_BIT) != 0 && (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT) == 0 &&
+            (queueFamily.queueFlags & VK_QUEUE_COMPUTE_BIT) == 0) {
+            selection.transferFamily = index;
+        }
+
         VkBool32 presentSupport = VK_FALSE;
         if (vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, index, surface, &presentSupport) == VK_SUCCESS && presentSupport == VK_TRUE) {
             selection.presentFamily = index;
         }
+    }
 
-        if (selection.isComplete()) {
-            break;
-        }
+    // Fallbacks if dedicated queues aren't found
+    if (selection.computeFamily == UINT32_MAX) {
+        selection.computeFamily = selection.graphicsFamily;
+    }
+    if (selection.transferFamily == UINT32_MAX) {
+        selection.transferFamily = selection.computeFamily;
     }
 
     return selection;
@@ -276,6 +293,8 @@ void cleanup_buffer_resources(VulkanEngine* engine) {
 
 void cleanup_render_resources(VulkanEngine* engine) {
     cleanup_swapchain_dependent_resources(engine);
+    destroy_device_handle(engine->device, engine->transferCompleteSemaphore, vkDestroySemaphore);
+    destroy_device_handle(engine->device, engine->transferCommandPool, vkDestroyCommandPool);
     destroy_device_handle(engine->device, engine->commandPool, vkDestroyCommandPool);
 }
 
@@ -351,6 +370,53 @@ void cleanup_core_resources(VulkanEngine* engine) {
     }
 }
 
+bool is_uma_architecture(VkPhysicalDevice physicalDevice) {
+    VkPhysicalDeviceMemoryProperties memProps;
+    vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProps);
+    for (uint32_t i = 0; i < memProps.memoryTypeCount; ++i) {
+        if ((memProps.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) &&
+            (memProps.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool select_physical_device(VulkanEngine* engine, const std::vector<VkPhysicalDevice>& devices) {
+    QueueFamilySelection queueSelection;
+    for (const auto& physicalDevice : devices) {
+        if (!has_required_device_extensions(physicalDevice)) {
+            continue;
+        }
+
+        queueSelection = find_queue_families(physicalDevice, engine->surface);
+        if (!queueSelection.isComplete()) {
+            continue;
+        }
+
+        if (!device_supports_swapchain(physicalDevice, engine->surface)) {
+            continue;
+        }
+
+        engine->physicalDevice = physicalDevice;
+        engine->graphicsQueueFamilyIndex = queueSelection.graphicsFamily;
+        engine->presentQueueFamilyIndex = queueSelection.presentFamily;
+        engine->transferQueueFamilyIndex = queueSelection.transferFamily;
+        engine->computeQueueFamilyIndex = queueSelection.computeFamily;
+
+        engine->isUMA = is_uma_architecture(physicalDevice);
+
+        if (engine->transferQueueFamilyIndex != engine->graphicsQueueFamilyIndex && engine->transferQueueFamilyIndex != engine->computeQueueFamilyIndex) {
+            engine->hasDedicatedTransferQueue = true;
+        }
+        if (engine->computeQueueFamilyIndex != engine->graphicsQueueFamilyIndex) {
+            engine->hasDedicatedComputeQueue = true;
+        }
+        return true;
+    }
+    return false;
+}
+
 GfxResult init_core(VulkanEngine* engine) {
     if (engine->appState->window == nullptr) {
         return GfxResult::ErrorInitializationFailed;
@@ -362,7 +428,7 @@ GfxResult init_core(VulkanEngine* engine) {
 
     VkApplicationInfo appInfo{};
     appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-    appInfo.apiVersion = VK_API_VERSION_1_0;
+    appInfo.apiVersion = VK_API_VERSION_1_4;
 
     uint32_t glfwExtCount = 0;
     const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtCount);
@@ -389,58 +455,53 @@ GfxResult init_core(VulkanEngine* engine) {
         return GfxResult::ErrorInitializationFailed;
     }
 
-    QueueFamilySelection queueSelection;
-    for (const auto& physicalDevice : devices) {
-        if (!has_required_device_extensions(physicalDevice)) {
-            continue;
-        }
-
-        queueSelection = find_queue_families(physicalDevice, engine->surface);
-        if (!queueSelection.isComplete()) {
-            continue;
-        }
-
-        if (!device_supports_swapchain(physicalDevice, engine->surface)) {
-            continue;
-        }
-
-        engine->physicalDevice = physicalDevice;
-        engine->graphicsQueueFamilyIndex = queueSelection.graphicsFamily;
-        engine->presentQueueFamilyIndex = queueSelection.presentFamily;
-        break;
-    }
-
-    if (engine->physicalDevice == VK_NULL_HANDLE) {
+    if (!select_physical_device(engine, devices)) {
         return GfxResult::ErrorInitializationFailed;
     }
 
     float queuePriority = 1.0f;
-    VkDeviceQueueCreateInfo queueInfos[2] = {};
-    queueInfos[0].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-    queueInfos[0].queueFamilyIndex = engine->graphicsQueueFamilyIndex;
-    queueInfos[0].queueCount = 1;
-    queueInfos[0].pQueuePriorities = &queuePriority;
+    VkDeviceQueueCreateInfo queueInfos[4] = {};
+    uint32_t queueInfoCount = 0;
 
-    uint32_t queueInfoCount = 1;
-    if (engine->presentQueueFamilyIndex != engine->graphicsQueueFamilyIndex) {
-        queueInfos[1].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-        queueInfos[1].queueFamilyIndex = engine->presentQueueFamilyIndex;
-        queueInfos[1].queueCount = 1;
-        queueInfos[1].pQueuePriorities = &queuePriority;
-        queueInfoCount = 2;
+    std::vector<uint32_t> uniqueQueueFamilies = {engine->graphicsQueueFamilyIndex};
+
+    auto add_unique = [&](uint32_t qf) {
+        if (std::find(uniqueQueueFamilies.begin(), uniqueQueueFamilies.end(), qf) == uniqueQueueFamilies.end()) {
+            uniqueQueueFamilies.push_back(qf);
+        }
+    };
+    add_unique(engine->presentQueueFamilyIndex);
+    add_unique(engine->transferQueueFamilyIndex);
+    add_unique(engine->computeQueueFamilyIndex);
+
+    for (uint32_t qf : uniqueQueueFamilies) {
+        queueInfos[queueInfoCount].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        queueInfos[queueInfoCount].queueFamilyIndex = qf;
+        queueInfos[queueInfoCount].queueCount = 1;
+        queueInfos[queueInfoCount].pQueuePriorities = &queuePriority;
+        queueInfoCount++;
     }
 
     const char* deviceExt[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
-    VkPhysicalDeviceFeatures deviceFeatures{};
-    deviceFeatures.samplerAnisotropy = VK_TRUE;
-    deviceFeatures.fillModeNonSolid = VK_TRUE;
+
+    VkPhysicalDeviceVulkan14Features features14{};
+    features14.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES;
+    features14.hostImageCopy = VK_TRUE;
+
+    VkPhysicalDeviceFeatures2 deviceFeatures2{};
+    deviceFeatures2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+    deviceFeatures2.features.samplerAnisotropy = VK_TRUE;
+    deviceFeatures2.features.fillModeNonSolid = VK_TRUE;
+    deviceFeatures2.pNext = &features14;
+
     VkDeviceCreateInfo deviceInfo{};
     deviceInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+    deviceInfo.pNext = &deviceFeatures2;
     deviceInfo.queueCreateInfoCount = queueInfoCount;
     deviceInfo.pQueueCreateInfos = queueInfos;
     deviceInfo.enabledExtensionCount = 1;
     deviceInfo.ppEnabledExtensionNames = deviceExt;
-    deviceInfo.pEnabledFeatures = &deviceFeatures;
+    deviceInfo.pEnabledFeatures = nullptr;
 
     if (vkCreateDevice(engine->physicalDevice, &deviceInfo, NULL, &engine->device) != VK_SUCCESS)
         return GfxResult::ErrorInitializationFailed;
@@ -452,11 +513,24 @@ GfxResult init_core(VulkanEngine* engine) {
     LOG_INFO("suckless-vulkan.window", "Context Version: %u.%u", VK_API_VERSION_MAJOR(props.apiVersion), VK_API_VERSION_MINOR(props.apiVersion));
     LOG_INFO("suckless-vulkan.window", "Renderer: %s", props.deviceName);
     LOG_INFO("suckless-vulkan.window", "Version: %u.%u.%u (Driver)", VK_API_VERSION_MAJOR(v), VK_API_VERSION_MINOR(v), VK_API_VERSION_PATCH(v));
+    LOG_INFO("suckless-vulkan.window", "Architecture UMA: %s", engine->isUMA ? "Yes" : "No");
+    LOG_INFO("suckless-vulkan.window", "Dedicated Transfer Queue: %s (Family %u)", engine->hasDedicatedTransferQueue ? "Yes" : "No",
+             engine->transferQueueFamilyIndex);
+    LOG_INFO("suckless-vulkan.window", "Dedicated Compute Queue: %s (Family %u)", engine->hasDedicatedComputeQueue ? "Yes" : "No",
+             engine->computeQueueFamilyIndex);
 
     vkGetDeviceQueue(engine->device, engine->graphicsQueueFamilyIndex, 0, &engine->graphicsQueue);
     vkGetDeviceQueue(engine->device, engine->presentQueueFamilyIndex, 0, &engine->presentQueue);
+    vkGetDeviceQueue(engine->device, engine->transferQueueFamilyIndex, 0, &engine->transferQueue);
+    vkGetDeviceQueue(engine->device, engine->computeQueueFamilyIndex, 0, &engine->computeQueue);
+
     vk_set_object_name(engine->device, (uint64_t)engine->graphicsQueue, VK_OBJECT_TYPE_QUEUE, "Graphics_Queue");
     vk_set_object_name(engine->device, (uint64_t)engine->presentQueue, VK_OBJECT_TYPE_QUEUE, "Present_Queue");
+    if (engine->hasDedicatedTransferQueue)
+        vk_set_object_name(engine->device, (uint64_t)engine->transferQueue, VK_OBJECT_TYPE_QUEUE, "Transfer_Queue");
+    if (engine->hasDedicatedComputeQueue)
+        vk_set_object_name(engine->device, (uint64_t)engine->computeQueue, VK_OBJECT_TYPE_QUEUE, "Compute_Queue");
+
     return GfxResult::Success;
 }
 
@@ -906,6 +980,22 @@ GfxResult init_buffers(VulkanEngine* engine) {
     if (vkCreateCommandPool(engine->device, &cpIn, nullptr, &engine->commandPool) != VK_SUCCESS) {
         return GfxResult::ErrorInitializationFailed;
     }
+
+    if (engine->hasDedicatedTransferQueue) {
+        VkCommandPoolCreateInfo tcpIn{};
+        tcpIn.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+        tcpIn.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT | VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+        tcpIn.queueFamilyIndex = engine->transferQueueFamilyIndex;
+        if (vkCreateCommandPool(engine->device, &tcpIn, nullptr, &engine->transferCommandPool) != VK_SUCCESS) {
+            return GfxResult::ErrorInitializationFailed;
+        }
+
+        VkSemaphoreCreateInfo semInfo{};
+        semInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+        if (vkCreateSemaphore(engine->device, &semInfo, nullptr, &engine->transferCompleteSemaphore) != VK_SUCCESS) {
+            return GfxResult::ErrorInitializationFailed;
+        }
+    }
     vk_set_object_name(engine->device, (uint64_t)engine->commandPool, VK_OBJECT_TYPE_COMMAND_POOL, "Main_Command_Pool");
 
     std::vector<glm::vec3> instancePositions;
@@ -1228,11 +1318,11 @@ GfxResult vk_init_vulkan_engine(VulkanEngine* engine) {
 
     LOG_INFO("app", "Initialization complete.");
 
-    engine->hdrIoThreadRunning = false;
-    engine->hdrLoadInFlight = false;
-    engine->pendingHdrIndex = -1;
+    engine->io.hdrIoThreadRunning = false;
+    engine->io.hdrLoadInFlight = false;
+    engine->io.pendingHdrIndex = -1;
 
-    glfwSetInputMode(engine->appState->window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    glfwSetInputMode(engine->appState->window, GLFW_CURSOR, engine->appState->core.cameraEnabled ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
 
     // Some values still depend on window layout
     glfwGetWindowPos(engine->appState->window, &engine->appState->core.window.windowedPosX, &engine->appState->core.window.windowedPosY);

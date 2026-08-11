@@ -35,9 +35,13 @@ void default_set_window_monitor(GLFWwindow* window, GLFWmonitor* monitor, int xp
     glfwSetWindowMonitor(window, monitor, xpos, ypos, width, height, refresh_rate);
 }
 
+void default_set_input_mode(GLFWwindow* window, int mode, int value) {
+    glfwSetInputMode(window, mode, value);
+}
+
 const WindowOps k_default_ops = {
     default_get_key,        default_set_window_should_close, default_get_primary_monitor, default_get_video_mode,
-    default_get_window_pos, default_get_window_size,         default_set_window_monitor,
+    default_get_window_pos, default_get_window_size,         default_set_window_monitor,  default_set_input_mode,
 };
 
 } // namespace

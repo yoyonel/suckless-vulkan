@@ -13,6 +13,7 @@ struct WindowOps {
     void (*get_window_pos)(GLFWwindow* window, int* xpos, int* ypos);
     void (*get_window_size)(GLFWwindow* window, int* width, int* height);
     void (*set_window_monitor)(GLFWwindow* window, GLFWmonitor* monitor, int xpos, int ypos, int width, int height, int refresh_rate);
+    void (*set_input_mode)(GLFWwindow* window, int mode, int value);
 };
 
 const WindowOps* runtime_default_window_ops();

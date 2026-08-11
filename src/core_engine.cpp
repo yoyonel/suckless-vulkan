@@ -20,7 +20,6 @@ void* arena_alloc(LinearArena* arena, std::size_t size, std::size_t align) {
     if (arena->offset + padding + size > arena->capacity) {
         LOG_ERROR("memory", "FATAL OOM: LinearArena capacity exceeded! (Capacity: %zu bytes, Requested offset: %zu)", arena->capacity,
                   arena->offset + padding + size);
-        assert(false && "LinearArena Out Of Memory");
         std::abort();
         return nullptr;
     }

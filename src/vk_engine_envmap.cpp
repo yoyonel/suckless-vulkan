@@ -1,5 +1,6 @@
 #include "vk_engine_envmap.h"
 #include "asset_ktx.h"
+#include "vk_engine_ibl.h"
 #include <sys/stat.h>
 
 #include "app_log.h"
@@ -118,26 +119,6 @@ VkCommandBuffer begin_one_time_commands(VulkanEngine* engine) {
     return commandBuffer;
 }
 
-ResourceResult end_one_time_commands(VulkanEngine* engine, VkCommandBuffer commandBuffer) {
-    if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
-        vkFreeCommandBuffers(engine->device, engine->commandPool, 1, &commandBuffer);
-        return ResourceResult::ErrorParseFailed;
-    }
-
-    VkSubmitInfo submitInfo{};
-    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &commandBuffer;
-
-    if (vkQueueSubmit(engine->graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE) != VK_SUCCESS || vkQueueWaitIdle(engine->graphicsQueue) != VK_SUCCESS) {
-        vkFreeCommandBuffers(engine->device, engine->commandPool, 1, &commandBuffer);
-        return ResourceResult::ErrorParseFailed;
-    }
-
-    vkFreeCommandBuffers(engine->device, engine->commandPool, 1, &commandBuffer);
-    return ResourceResult::Success;
-}
-
 ResourceResult transition_hdr_image_layout(VulkanEngine* engine, VkCommandBuffer commandBuffer, uint32_t baseMipLevel, uint32_t levelCount,
                                            VkImageLayout oldLayout, VkImageLayout newLayout, VkAccessFlags srcAccessMask, VkAccessFlags dstAccessMask,
                                            VkPipelineStageFlags srcStage, VkPipelineStageFlags dstStage) {
@@ -198,10 +179,37 @@ namespace {
 
 // Staging buffer now directly created in I/O thread
 
-void generate_hdr_mipmaps(VulkanEngine* engine, VkCommandBuffer commandBuffer, int32_t width, int32_t height) {
-    int32_t mipWidth = width;
-    int32_t mipHeight = height;
-    for (uint32_t i = 1; i < engine->envHdrMipLevels; ++i) {
+void vk_generate_one_hdr_mipmap(VulkanEngine* engine) {
+    uint32_t i = engine->ibl.currentMip;
+    if (i > engine->envHdrMipLevels)
+        return;
+
+    VkCommandBufferAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.commandPool = engine->commandPool;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.commandBufferCount = 1;
+
+    VkCommandBuffer commandBuffer;
+    vkAllocateCommandBuffers(engine->device, &allocInfo, &commandBuffer);
+    engine->ibl.iblBakeCommandBuffer = commandBuffer;
+
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(commandBuffer, &beginInfo);
+
+    SVK_TRACY_ZONE_SCOPED("Record_Generate_EnvHDR_Mipmap_Slice");
+    vk_begin_label(engine->device, commandBuffer, "Generate_EnvHDR_Mipmap_Slice", 0.0f, 0.4f, 0.8f);
+
+    if (engine->envHdrMipLevels == 1) {
+        (void)transition_hdr_image_layout(engine, commandBuffer, 0, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                                          VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                          VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+    } else if (i < engine->envHdrMipLevels) {
+        int32_t mipWidth = std::max(1, static_cast<int>(engine->envHdrWidth) >> (i - 1));
+        int32_t mipHeight = std::max(1, static_cast<int>(engine->envHdrHeight) >> (i - 1));
+
         (void)transition_hdr_image_layout(engine, commandBuffer, i - 1, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                                           VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
                                           VK_PIPELINE_STAGE_TRANSFER_BIT);
@@ -229,93 +237,160 @@ void generate_hdr_mipmaps(VulkanEngine* engine, VkCommandBuffer commandBuffer, i
                                           VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
                                           VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
 
-        mipWidth = std::max(1, mipWidth / 2);
-        mipHeight = std::max(1, mipHeight / 2);
+        if (i == engine->envHdrMipLevels - 1) {
+            (void)transition_hdr_image_layout(engine, commandBuffer, i, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                                              VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                              VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+        }
     }
 
-    (void)transition_hdr_image_layout(engine, commandBuffer, engine->envHdrMipLevels - 1, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
-                                      VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+    vk_end_label(engine->device, commandBuffer);
+    vkEndCommandBuffer(commandBuffer);
+
+    VkFenceCreateInfo fenceInfo{};
+    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    vkCreateFence(engine->device, &fenceInfo, nullptr, &engine->ibl.iblBakeFence);
+
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer;
+
+    vkQueueSubmit(engine->graphicsQueue, 1, &submitInfo, engine->ibl.iblBakeFence);
+
+    engine->ibl.currentMip++;
 }
 
-} // namespace
+void vk_process_upload_hdr(VulkanEngine* engine) {
+    VkCommandBuffer commandBuffer = begin_one_time_commands(engine);
+    VkImage vkEnvHdrImage = ((VulkanRHI*)engine->appState->rhi)->GetVkImage(engine->envHdrImage);
 
-ResourceResult init_environment_texture_from_staging(VulkanEngine* engine, VkBuffer stagingBuffer, int width, int height, const std::string& sourceLabel,
-                                                     bool isFallback) {
-    SVK_TRACY_ZONE_SCOPED("init_environment_texture_from_staging");
-    if (stagingBuffer == VK_NULL_HANDLE || width <= 0 || height <= 0) {
-        return ResourceResult::ErrorParseFailed;
+    if (engine->ibl.currentSlice == 0) {
+        (void)transition_hdr_image_layout(engine, commandBuffer, 0, engine->envHdrMipLevels, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0,
+                                          VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
     }
 
-    engine->envHdrMipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(width, height)))) + 1;
+    int sliceHeight = 128;
+    int currentY = engine->ibl.currentSlice * sliceHeight;
+    int copyHeight = std::min(sliceHeight, static_cast<int>(engine->envHdrHeight) - currentY);
+
+    if (copyHeight > 0) {
+        VkBufferImageCopy region{};
+        region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        region.imageSubresource.layerCount = 1;
+        region.imageOffset = {0, currentY, 0};
+        region.imageExtent = {engine->envHdrWidth, static_cast<uint32_t>(copyHeight), 1};
+        region.bufferOffset = static_cast<VkDeviceSize>(currentY) * engine->envHdrWidth * 16; // 16 bytes per pixel for RGBA32_SFLOAT
+
+        ((VulkanRHI*)engine->appState->rhi)
+            ->CmdCopyBufferToImage(commandBuffer, engine->ibl.currentStagingBuffer, vkEnvHdrImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+    }
+
+    if (engine->ibl.iblBakeFence != VK_NULL_HANDLE) {
+        vkDestroyFence(engine->device, engine->ibl.iblBakeFence, nullptr);
+    }
+    VkFenceCreateInfo fenceInfo{};
+    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    vkCreateFence(engine->device, &fenceInfo, nullptr, &engine->ibl.iblBakeFence);
+
+    vkEndCommandBuffer(commandBuffer);
+
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer;
+
+    vkQueueSubmit(engine->graphicsQueue, 1, &submitInfo, engine->ibl.iblBakeFence);
+
+    engine->ibl.iblBakeCommandBuffer = commandBuffer;
+    engine->ibl.bakeState = IblBakeState::UploadHdrWait;
+}
+
+void start_hdr_bake(VulkanEngine* engine, bool asyncUpload, HdrLoadRequest& request) {
+    if (engine->ibl.irradianceMap.is_valid()) {
+        engine->ibl.pendingOldTextures.push_back(std::move(engine->ibl.irradianceMap));
+    }
+    engine->ibl.irradianceMap = std::move(request.irradianceMap);
+
+    if (engine->ibl.prefilteredMap.is_valid()) {
+        engine->ibl.pendingOldTextures.push_back(std::move(engine->ibl.prefilteredMap));
+    }
+    engine->ibl.prefilteredMap = std::move(request.prefilteredMap);
+
+    engine->ibl.bakeState = IblBakeState::UploadHdr;
+
+    if (!asyncUpload) {
+        while (engine->ibl.bakeState != IblBakeState::Idle) {
+            if (engine->ibl.iblBakeFence != VK_NULL_HANDLE) {
+                vkWaitForFences(engine->device, 1, &engine->ibl.iblBakeFence, VK_TRUE, UINT64_MAX);
+            }
+            vk_check_ibl_bake_status(engine);
+        }
+    }
+}
+} // namespace
+
+void allocate_hdr_resources_async(VulkanEngine* engine, HdrLoadRequest& request) {
+    SVK_TRACY_ZONE_SCOPED("allocate_hdr_resources_async");
+    uint32_t envHdrMipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(request.width, request.height)))) + 1;
 
     VkFormatProperties hdrFormatProps{};
     vkGetPhysicalDeviceFormatProperties(engine->physicalDevice, VK_FORMAT_R32G32B32A32_SFLOAT, &hdrFormatProps);
     const bool canLinearBlit = (hdrFormatProps.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT) != 0;
     if (!canLinearBlit) {
-        engine->envHdrMipLevels = 1;
+        envHdrMipLevels = 1;
+    }
+    request.envHdrMipLevels = envHdrMipLevels;
+
+    request.envHdrImage.Reset(engine->appState->rhi, engine->appState->rhi->CreateTexture(request.width, request.height, TextureFormat::RGBA32_SFLOAT,
+                                                                                          TextureUsage::Sampled, envHdrMipLevels, "EnvHDR_Image"));
+
+    request.envHdrSampler.Reset(engine->appState->rhi, engine->appState->rhi->CreateSampler(envHdrMipLevels, "EnvHDR_Sampler"));
+
+    request.irradianceMap.Reset(engine->appState->rhi, engine->appState->rhi->CreateTexture(IBL_IRM_SIZE, IBL_IRM_SIZE, TextureFormat::RGBA16_SFLOAT,
+                                                                                            TextureUsage::Storage, 1, "IBL_IrradianceMap"));
+
+    request.prefilteredMap.Reset(engine->appState->rhi, engine->appState->rhi->CreateTexture(IBL_SPM_SIZE, IBL_SPM_SIZE, TextureFormat::RGBA16_SFLOAT,
+                                                                                             TextureUsage::Storage, IBL_SPM_MIPS, "IBL_PrefilteredMap"));
+}
+
+ResourceResult init_environment_texture_from_staging(VulkanEngine* engine, HdrLoadRequest& request, bool isFallback, bool asyncUpload = false) {
+    SVK_TRACY_ZONE_SCOPED("init_environment_texture_from_staging");
+    if (request.stagingBuffer == VK_NULL_HANDLE || request.width <= 0 || request.height <= 0) {
+        return ResourceResult::ErrorParseFailed;
     }
 
-    vk_set_object_name(engine->device, (uint64_t)stagingBuffer, VK_OBJECT_TYPE_BUFFER, "EnvHDR_Staging_Buffer");
+    engine->envHdrMipLevels = request.envHdrMipLevels;
 
-    engine->envHdrWidth = static_cast<uint32_t>(width);
-    engine->envHdrHeight = static_cast<uint32_t>(height);
+    vk_set_object_name(engine->device, (uint64_t)request.stagingBuffer, VK_OBJECT_TYPE_BUFFER, "EnvHDR_Staging_Buffer");
 
-    engine->envHdrImage.Reset(engine->appState->rhi,
-                              engine->appState->rhi->CreateTexture(engine->envHdrWidth, engine->envHdrHeight, TextureFormat::RGBA32_SFLOAT,
-                                                                   TextureUsage::Sampled, engine->envHdrMipLevels, "EnvHDR_Image"));
+    engine->envHdrWidth = request.width;
+    engine->envHdrHeight = request.height;
+
+    engine->envHdrImage = std::move(request.envHdrImage);
     if (!engine->envHdrImage.is_valid()) {
         return ResourceResult::ErrorParseFailed;
     }
 
-    VkImage vkEnvHdrImage = ((VulkanRHI*)engine->appState->rhi)->GetVkImage(engine->envHdrImage);
+    engine->ibl.currentStagingBuffer = request.stagingBuffer;
+    engine->ibl.currentSlice = 0;
+    engine->ibl.totalSlices = static_cast<int>((engine->envHdrHeight + 127) / 128);
 
-    VkCommandBuffer commandBuffer = begin_one_time_commands(engine);
-    if (commandBuffer == VK_NULL_HANDLE) {
-        return ResourceResult::ErrorParseFailed;
-    }
-
-    vk_begin_label(engine->device, commandBuffer, "Upload_EnvHDR_Texture", 0.0f, 0.8f, 1.0f);
-
-    (void)transition_hdr_image_layout(engine, commandBuffer, 0, engine->envHdrMipLevels, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0,
-                                      VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
-
-    vk_begin_label(engine->device, commandBuffer, "Copy_EnvHDR_Staging_To_Image", 0.0f, 0.6f, 1.0f);
-    VkBufferImageCopy region{};
-    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    region.imageSubresource.mipLevel = 0;
-    region.imageSubresource.baseArrayLayer = 0;
-    region.imageSubresource.layerCount = 1;
-    region.imageExtent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1};
-    ((VulkanRHI*)engine->appState->rhi)->CmdCopyBufferToImage(commandBuffer, stagingBuffer, vkEnvHdrImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-    vk_end_label(engine->device, commandBuffer);
-
-    vk_begin_label(engine->device, commandBuffer, "Generate_EnvHDR_Mipmaps", 0.0f, 0.4f, 0.8f);
-    generate_hdr_mipmaps(engine, commandBuffer, width, height);
-    vk_end_label(engine->device, commandBuffer);
-    vk_end_label(engine->device, commandBuffer);
-
-    if (end_one_time_commands(engine, commandBuffer) != ResourceResult::Success) {
-        return ResourceResult::ErrorParseFailed;
-    }
-
-    engine->envHdrSampler.Reset(engine->appState->rhi, engine->appState->rhi->CreateSampler(engine->envHdrMipLevels, "EnvHDR_Sampler"));
+    engine->envHdrSampler = std::move(request.envHdrSampler);
     if (!engine->envHdrSampler.is_valid()) {
         return ResourceResult::ErrorParseFailed;
     }
 
     if (isFallback) {
-        LOG_INFO("engine", "HDR map fallback 1x1 initialisee (%dx%d, mips=%u)", width, height, engine->envHdrMipLevels);
+        LOG_INFO("engine", "HDR map fallback 1x1 initialisee (%dx%d, mips=%u)", request.width, request.height, engine->envHdrMipLevels);
     } else {
-        LOG_INFO("engine", "HDR map chargee: %s (%dx%d, mips=%u)", sourceLabel.c_str(), width, height, engine->envHdrMipLevels);
+        LOG_INFO("engine", "HDR map chargee: %s (%dx%d, mips=%u)", request.sourcePathOrLabel.c_str(), request.width, request.height, engine->envHdrMipLevels);
     }
 
-    // Phase IBL-0: Synchronous Bake
-    // The envHdrImageView is now valid, we can bake IBL maps
-    vk_ibl_bake(engine);
-
-    // Update global descriptor set with the new IBL maps
-    update_envmap_descriptor_set(engine);
+    {
+        SVK_TRACY_ZONE_SCOPED("start_hdr_bake_allocations");
+        start_hdr_bake(engine, asyncUpload, request);
+    }
 
     return ResourceResult::Success;
 }
@@ -398,6 +473,7 @@ ResourceResult load_hdr_with_ktx2_cache(VulkanEngine* engine, const std::string&
 } // namespace
 
 ResourceResult init_environment_texture_from_path(VulkanEngine* engine, const std::string& hdrPath) {
+    engine->ibl.envmapRequestTime = std::chrono::high_resolution_clock::now();
     HdrLoadRequest request{};
 
     if (hdrPath.empty()) {
@@ -413,7 +489,8 @@ ResourceResult init_environment_texture_from_path(VulkanEngine* engine, const st
         vmaMapMemory(engine->allocator, request.stagingAllocation, &mapped);
         memcpy(mapped, fallbackPixel, 16);
         vmaUnmapMemory(engine->allocator, request.stagingAllocation);
-        ResourceResult res = init_environment_texture_from_staging(engine, request.stagingBuffer, 1, 1, "fallback-1x1", true);
+        allocate_hdr_resources_async(engine, request);
+        ResourceResult res = init_environment_texture_from_staging(engine, request, true);
         vmaDestroyBuffer(engine->allocator, request.stagingBuffer, request.stagingAllocation);
         return res;
     }
@@ -430,15 +507,26 @@ ResourceResult init_environment_texture_from_path(VulkanEngine* engine, const st
         vmaMapMemory(engine->allocator, request.stagingAllocation, &mapped);
         memcpy(mapped, fallbackPixel, 16);
         vmaUnmapMemory(engine->allocator, request.stagingAllocation);
-        ResourceResult res = init_environment_texture_from_staging(engine, request.stagingBuffer, 1, 1, "fallback-1x1", true);
+        allocate_hdr_resources_async(engine, request);
+        ResourceResult res = init_environment_texture_from_staging(engine, request, true);
         vmaDestroyBuffer(engine->allocator, request.stagingBuffer, request.stagingAllocation);
         return res;
     }
 
-    ResourceResult res =
-        init_environment_texture_from_staging(engine, request.stagingBuffer, static_cast<int>(request.width), static_cast<int>(request.height), hdrPath, false);
+    request.sourcePathOrLabel = hdrPath;
+    allocate_hdr_resources_async(engine, request);
+    ResourceResult res = init_environment_texture_from_staging(engine, request, false);
     vmaDestroyBuffer(engine->allocator, request.stagingBuffer, request.stagingAllocation);
     return res;
+}
+
+void push_to_cleanup_queue(VulkanEngine* engine, HdrCleanupRequest&& req) {
+    while (true) {
+        if (engine->io.hdrCleanupQueue.push(std::move(req))) { // NOLINT(bugprone-use-after-move)
+            break;
+        }
+        std::this_thread::yield();
+    }
 }
 
 void request_environment_texture_async(VulkanEngine* engine, int newHdrIndex) {
@@ -447,13 +535,18 @@ void request_environment_texture_async(VulkanEngine* engine, int newHdrIndex) {
         return;
     }
 
-    std::lock_guard<std::mutex> lock(engine->hdrLoadMutex);
-    if (engine->pendingHdrIndex == newHdrIndex) {
+    if (engine->io.pendingHdrIndex == newHdrIndex) {
         return;
     }
 
-    while (!engine->hdrLoadQueue.empty()) {
-        engine->hdrLoadQueue.pop();
+    HdrLoadRequest dummy;
+    while (engine->io.hdrLoadQueue.pop(dummy)) {
+        if (dummy.stagingBuffer != VK_NULL_HANDLE) {
+            HdrCleanupRequest req;
+            req.buffer = dummy.stagingBuffer;
+            req.allocation = dummy.stagingAllocation;
+            push_to_cleanup_queue(engine, std::move(req));
+        }
     }
 
     HdrLoadRequest request{};
@@ -462,11 +555,27 @@ void request_environment_texture_async(VulkanEngine* engine, int newHdrIndex) {
     request.width = 0;
     request.height = 0;
     request.channels = 0;
-    engine->hdrLoadQueue.push(std::move(request));
-    engine->pendingHdrIndex = newHdrIndex;
-    engine->hdrLoadCV.notify_one();
+    engine->io.hdrLoadQueue.push(std::move(request));
+    engine->io.pendingHdrIndex = newHdrIndex;
+    engine->ibl.envmapRequestTime = std::chrono::high_resolution_clock::now();
 
     LOG_INFO("runtime", "Chargement HDR async demande: %s", get_filename_from_path(engine->hdrFiles[static_cast<size_t>(newHdrIndex)]).c_str());
+}
+
+void process_hdr_cleanup_queue(VulkanEngine* engine) {
+    HdrCleanupRequest cleanupReq;
+    while (engine->io.hdrCleanupQueue.pop(cleanupReq)) {
+        SVK_TRACY_ZONE_SCOPED("hdr_io_thread_cleanup");
+        if (cleanupReq.buffer != VK_NULL_HANDLE) {
+            vmaDestroyBuffer(engine->allocator, cleanupReq.buffer, cleanupReq.allocation);
+        }
+        if (cleanupReq.tex.is_valid()) {
+            engine->appState->rhi->DestroyTexture(cleanupReq.tex);
+        }
+        if (cleanupReq.smp.is_valid()) {
+            engine->appState->rhi->DestroySampler(cleanupReq.smp);
+        }
+    }
 }
 
 void hdr_io_thread_main(VulkanEngine* engine) {
@@ -476,20 +585,20 @@ void hdr_io_thread_main(VulkanEngine* engine) {
 
     for (;;) {
         SVK_TRACY_ZONE_SCOPED("hdr_io_thread_iteration");
-        HdrLoadRequest request{};
 
-        {
-            std::unique_lock<std::mutex> lock(engine->hdrLoadMutex);
-            engine->hdrLoadCV.wait(lock, [engine] { return !engine->hdrIoThreadRunning || !engine->hdrLoadQueue.empty(); });
-            if (!engine->hdrIoThreadRunning && engine->hdrLoadQueue.empty()) {
-                return;
-            }
-
-            request = std::move(engine->hdrLoadQueue.front());
-            engine->hdrLoadQueue.pop();
-            request.state = HdrLoadRequestState::Loading;
-            engine->hdrLoadInFlight = true;
+        if (!engine->io.hdrIoThreadRunning.load(std::memory_order_relaxed)) {
+            break;
         }
+
+        HdrLoadRequest request{};
+        if (!engine->io.hdrLoadQueue.pop(request)) {
+            process_hdr_cleanup_queue(engine);
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            continue;
+        }
+
+        request.state = HdrLoadRequestState::Loading;
+        engine->io.hdrLoadInFlight = true;
 
         if (request.hdrIndex >= 0 && request.hdrIndex < static_cast<int>(engine->hdrFiles.size())) {
             SVK_TRACY_ZONE_SCOPED("hdr_io_thread_decode");
@@ -498,6 +607,7 @@ void hdr_io_thread_main(VulkanEngine* engine) {
             if (load_hdr_with_ktx2_cache(engine, hdrPath, &request) == ResourceResult::Success && request.width > 0 && request.height > 0) {
                 request.channels = 4;
                 request.sourcePathOrLabel = hdrPath;
+                allocate_hdr_resources_async(engine, request);
                 request.state = HdrLoadRequestState::Ready;
             } else {
                 request.state = HdrLoadRequestState::Failed;
@@ -506,11 +616,10 @@ void hdr_io_thread_main(VulkanEngine* engine) {
             request.state = HdrLoadRequestState::Failed;
         }
 
-        {
-            std::lock_guard<std::mutex> lock(engine->hdrLoadMutex);
-            engine->hdrReadyQueue.push(std::move(request));
-            engine->hdrLoadInFlight = false;
-        }
+        engine->io.hdrReadyQueue.push(std::move(request));
+        engine->io.hdrLoadInFlight = false;
+
+        process_hdr_cleanup_queue(engine);
     }
 }
 
@@ -564,18 +673,14 @@ GfxResult vk_init_environment_texture(VulkanEngine* engine) {
 }
 
 GfxResult vk_start_hdr_io_thread(VulkanEngine* engine) {
-    {
-        std::lock_guard<std::mutex> lock(engine->hdrLoadMutex);
-        engine->hdrIoThreadRunning = true;
-        engine->hdrLoadInFlight = false;
-        engine->pendingHdrIndex = -1;
-    }
+    engine->io.hdrIoThreadRunning.store(true, std::memory_order_relaxed);
+    engine->io.hdrLoadInFlight = false;
+    engine->io.pendingHdrIndex = -1;
 
     try {
-        engine->hdrIoThread = std::thread(hdr_io_thread_main, engine);
+        engine->io.hdrIoThread = std::thread(hdr_io_thread_main, engine);
     } catch (...) {
-        std::lock_guard<std::mutex> lock(engine->hdrLoadMutex);
-        engine->hdrIoThreadRunning = false;
+        engine->io.hdrIoThreadRunning.store(false, std::memory_order_relaxed);
         return GfxResult::ErrorInitializationFailed;
     }
 
@@ -583,48 +688,47 @@ GfxResult vk_start_hdr_io_thread(VulkanEngine* engine) {
 }
 
 void vk_stop_hdr_io_thread(VulkanEngine* engine) {
-    {
-        std::lock_guard<std::mutex> lock(engine->hdrLoadMutex);
-        engine->hdrIoThreadRunning = false;
-        engine->pendingHdrIndex = -1;
-    }
-    engine->hdrLoadCV.notify_all();
+    engine->io.hdrIoThreadRunning.store(false, std::memory_order_relaxed);
 
-    if (engine->hdrIoThread.joinable()) {
-        engine->hdrIoThread.join();
+    if (engine->io.hdrIoThread.joinable()) {
+        engine->io.hdrIoThread.join();
     }
 
-    std::lock_guard<std::mutex> lock(engine->hdrLoadMutex);
-    engine->hdrLoadInFlight = false;
-    while (!engine->hdrLoadQueue.empty()) {
-        if (engine->hdrLoadQueue.front().stagingBuffer != VK_NULL_HANDLE) {
-            vmaDestroyBuffer(engine->allocator, engine->hdrLoadQueue.front().stagingBuffer, engine->hdrLoadQueue.front().stagingAllocation);
+    engine->io.pendingHdrIndex = -1;
+    engine->io.hdrLoadInFlight = false;
+
+    HdrLoadRequest req;
+    while (engine->io.hdrLoadQueue.pop(req)) {
+        if (req.stagingBuffer != VK_NULL_HANDLE) {
+            vmaDestroyBuffer(engine->allocator, req.stagingBuffer, req.stagingAllocation);
         }
-        engine->hdrLoadQueue.pop();
     }
-    while (!engine->hdrReadyQueue.empty()) {
-        if (engine->hdrReadyQueue.front().stagingBuffer != VK_NULL_HANDLE) {
-            vmaDestroyBuffer(engine->allocator, engine->hdrReadyQueue.front().stagingBuffer, engine->hdrReadyQueue.front().stagingAllocation);
+    while (engine->io.hdrReadyQueue.pop(req)) {
+        if (req.stagingBuffer != VK_NULL_HANDLE) {
+            vmaDestroyBuffer(engine->allocator, req.stagingBuffer, req.stagingAllocation);
         }
-        engine->hdrReadyQueue.pop();
     }
+
+    process_hdr_cleanup_queue(engine);
 }
 
 void vk_process_ready_environment_texture(VulkanEngine* engine) {
     SVK_TRACY_ZONE_SCOPED("vk_process_ready_environment_texture");
+    auto t0 = std::chrono::high_resolution_clock::now();
     HdrLoadRequest ready{};
     bool hasReady = false;
 
-    {
-        std::lock_guard<std::mutex> lock(engine->hdrLoadMutex);
-        while (!engine->hdrReadyQueue.empty()) {
-            ready = std::move(engine->hdrReadyQueue.front());
-            engine->hdrReadyQueue.pop();
-            hasReady = true;
+    HdrLoadRequest req;
+    while (engine->io.hdrReadyQueue.pop(req)) {
+        if (hasReady && ready.stagingBuffer != VK_NULL_HANDLE) {
+            vmaDestroyBuffer(engine->allocator, ready.stagingBuffer, ready.stagingAllocation);
         }
-        if (hasReady && engine->pendingHdrIndex == ready.hdrIndex) {
-            engine->pendingHdrIndex = -1;
-        }
+        ready = std::move(req);
+        hasReady = true;
+    }
+
+    if (hasReady && engine->io.pendingHdrIndex == ready.hdrIndex) {
+        engine->io.pendingHdrIndex = -1;
     }
 
     if (!hasReady) {
@@ -638,33 +742,218 @@ void vk_process_ready_environment_texture(VulkanEngine* engine) {
         return;
     }
 
-    if (vkDeviceWaitIdle(engine->device) != VK_SUCCESS) {
-        LOG_ERROR("runtime", "Impossible de synchroniser le device avant upload HDR async");
-        vmaDestroyBuffer(engine->allocator, ready.stagingBuffer, ready.stagingAllocation);
-        return;
+    if (engine->envHdrSampler.is_valid()) {
+        engine->ibl.pendingOldSamplers.push_back(std::move(engine->envHdrSampler));
+    }
+    if (engine->envHdrImage.is_valid()) {
+        engine->ibl.pendingOldTextures.push_back(std::move(engine->envHdrImage));
     }
 
-    vk_cleanup_environment_resources(engine);
-    if (init_environment_texture_from_staging(engine, ready.stagingBuffer, static_cast<int>(ready.width), static_cast<int>(ready.height),
-                                              ready.sourcePathOrLabel, false) != ResourceResult::Success) {
+    if (init_environment_texture_from_staging(engine, ready, false, true) != ResourceResult::Success) {
         LOG_ERROR("runtime", "Upload GPU HDR async echoue");
         vmaDestroyBuffer(engine->allocator, ready.stagingBuffer, ready.stagingAllocation);
         return;
     }
-    vmaDestroyBuffer(engine->allocator, ready.stagingBuffer, ready.stagingAllocation);
 
+    engine->ibl.pendingStagingBuffers.push_back(ready.stagingBuffer);
+    engine->ibl.pendingStagingAllocations.push_back(ready.stagingAllocation);
     engine->currentHdrIndex = ready.hdrIndex;
-
-    // Phase IBL-0: Synchronous Bake
-    // The envHdrImageView is now valid, we can bake IBL maps
-    vk_ibl_bake(engine);
-
-    // Update descriptors including IBL maps
-    update_envmap_descriptor_set(engine);
 
     engine->appState->core.render.envLod =
         std::clamp(engine->appState->core.render.envLod, kMinEnvLod, static_cast<float>(engine->envHdrMipLevels > 0 ? engine->envHdrMipLevels - 1 : 0));
     LOG_INFO("runtime", "HDR actif: %s", get_filename_from_path(ready.sourcePathOrLabel).c_str());
+
+    auto t1 = std::chrono::high_resolution_clock::now();
+    float ms = std::chrono::duration<float, std::milli>(t1 - t0).count();
+    LOG_INFO("runtime", "vk_process_ready_environment_texture a pris %.2f ms", ms);
+}
+
+static void vk_finalize_ibl_bake(VulkanEngine* engine) {
+    for (uint64_t viewHandle : engine->ibl.pendingImageViews) {
+        engine->appState->rhi->DestroyImageView(static_cast<ImageViewHandle>(viewHandle));
+    }
+    engine->ibl.pendingImageViews.clear();
+
+    for (uint64_t poolHandle : engine->ibl.pendingDescriptorPools) {
+        engine->appState->rhi->DestroyDescriptorPool(static_cast<DescriptorPoolHandle>(poolHandle));
+    }
+    engine->ibl.pendingDescriptorPools.clear();
+
+    for (auto& tex : engine->ibl.pendingOldTextures) {
+        HdrCleanupRequest req;
+        req.tex = std::move(tex);
+        push_to_cleanup_queue(engine, std::move(req));
+    }
+    engine->ibl.pendingOldTextures.clear();
+
+    for (auto& smp : engine->ibl.pendingOldSamplers) {
+        HdrCleanupRequest req;
+        req.smp = std::move(smp);
+        push_to_cleanup_queue(engine, std::move(req));
+    }
+    engine->ibl.pendingOldSamplers.clear();
+
+    for (size_t i = 0; i < engine->ibl.pendingStagingBuffers.size(); ++i) {
+        HdrCleanupRequest req;
+        req.buffer = engine->ibl.pendingStagingBuffers[i];
+        req.allocation = engine->ibl.pendingStagingAllocations[i];
+        push_to_cleanup_queue(engine, std::move(req));
+    }
+    engine->ibl.pendingStagingBuffers.clear();
+    engine->ibl.pendingStagingAllocations.clear();
+
+    update_envmap_descriptor_set(engine);
+
+    auto tEnd = std::chrono::high_resolution_clock::now();
+    if (engine->ibl.envmapRequestTime.time_since_epoch().count() != 0) {
+        float totalMs = std::chrono::duration<float, std::milli>(tEnd - engine->ibl.envmapRequestTime).count();
+        LOG_INFO("ibl", "IBL environment ready in %.2f ms, descriptor set updated.", totalMs);
+        engine->ibl.envmapRequestTime = {}; // Reset for next time
+    }
+
+    engine->ibl.bakeState = IblBakeState::Idle;
+}
+
+static void vk_process_luminance_wait(VulkanEngine* engine) {
+    void* data = nullptr;
+    float meanLum = 1.0f;
+    if (vmaMapMemory(engine->allocator, engine->ibl.lumMeanAllocation, &data) == VK_SUCCESS) {
+        memcpy(&meanLum, data, sizeof(float));
+        vmaUnmapMemory(engine->allocator, engine->ibl.lumMeanAllocation);
+        if (std::isnan(meanLum) || std::isinf(meanLum) || meanLum <= 0.0f)
+            meanLum = 1.0f;
+        engine->ibl.bakedMeanLuminance = meanLum;
+        LOG_INFO("ibl", "Async Mean luminance: %.4f", meanLum);
+    }
+    engine->ibl.bakeState = IblBakeState::Brdf;
+    vk_ibl_bake_brdf(engine);
+}
+
+static void vk_process_irradiance_wait(VulkanEngine* engine) {
+    engine->ibl.currentSlice++;
+    if (engine->ibl.currentSlice < engine->ibl.totalSlices) {
+        engine->ibl.bakeState = IblBakeState::Irradiance;
+        vk_ibl_bake_irradiance(engine);
+    } else {
+        engine->ibl.currentMip = 0;
+        engine->ibl.currentSlice = 0;
+        engine->ibl.totalSlices = 24; // 24 slices for Specular Mip 0
+        engine->ibl.bakeState = IblBakeState::Prefilter;
+        vk_ibl_bake_prefilter(engine);
+    }
+}
+
+static void vk_process_prefilter_wait(VulkanEngine* engine) {
+    engine->ibl.currentSlice++;
+    if (engine->ibl.currentSlice >= engine->ibl.totalSlices) {
+        engine->ibl.currentSlice = 0;
+        engine->ibl.currentMip++;
+        if (engine->ibl.currentMip == 1) {
+            engine->ibl.totalSlices = 8;
+        } else {
+            engine->ibl.totalSlices = 1;
+        }
+    }
+    if (engine->ibl.currentMip < (int)IBL_SPM_MIPS) {
+        engine->ibl.bakeState = IblBakeState::Prefilter;
+        vk_ibl_bake_prefilter(engine);
+    } else {
+        engine->ibl.bakeState = IblBakeState::Finalize;
+    }
+}
+
+void vk_check_ibl_bake_status(VulkanEngine* engine) {
+    if (engine->ibl.bakeState == IblBakeState::Idle) {
+        return;
+    }
+
+    if (engine->ibl.iblBakeFence != VK_NULL_HANDLE) {
+        if (vkGetFenceStatus(engine->device, engine->ibl.iblBakeFence) != VK_SUCCESS) {
+            return;
+        }
+
+        if (engine->ibl.iblBakeCommandBuffer != VK_NULL_HANDLE) {
+            vkFreeCommandBuffers(engine->device, engine->commandPool, 1, &engine->ibl.iblBakeCommandBuffer);
+            engine->ibl.iblBakeCommandBuffer = VK_NULL_HANDLE;
+        }
+
+        vkDestroyFence(engine->device, engine->ibl.iblBakeFence, nullptr);
+        engine->ibl.iblBakeFence = VK_NULL_HANDLE;
+    }
+
+    switch (engine->ibl.bakeState) {
+    case IblBakeState::UploadHdr:
+        vk_process_upload_hdr(engine);
+        break;
+
+    case IblBakeState::UploadHdrWait:
+        engine->ibl.currentSlice++;
+        if (engine->ibl.currentSlice < engine->ibl.totalSlices) {
+            engine->ibl.bakeState = IblBakeState::UploadHdr;
+            vk_process_upload_hdr(engine);
+        } else {
+            engine->ibl.bakeState = IblBakeState::GenerateMipmap;
+            engine->ibl.currentMip = 1;
+            vk_generate_one_hdr_mipmap(engine);
+        }
+        break;
+
+    case IblBakeState::GenerateMipmap:
+        engine->ibl.bakeState = IblBakeState::GenerateMipmapWait;
+        break;
+
+    case IblBakeState::GenerateMipmapWait:
+        if (engine->ibl.currentMip < static_cast<int>(engine->envHdrMipLevels) || (engine->envHdrMipLevels == 1 && engine->ibl.currentMip == 1)) {
+            engine->ibl.bakeState = IblBakeState::GenerateMipmap;
+            vk_generate_one_hdr_mipmap(engine);
+        } else {
+            engine->ibl.bakeState = IblBakeState::Luminance;
+            vk_ibl_bake_luminance(engine);
+        }
+        break;
+
+    case IblBakeState::Luminance:
+        engine->ibl.bakeState = IblBakeState::LuminanceWait;
+        break;
+
+    case IblBakeState::LuminanceWait:
+        vk_process_luminance_wait(engine);
+        break;
+
+    case IblBakeState::Brdf:
+        engine->ibl.bakeState = IblBakeState::BrdfWait;
+        break;
+
+    case IblBakeState::BrdfWait:
+        engine->ibl.currentSlice = 0;
+        engine->ibl.totalSlices = 12; // 12 slices for irradiance
+        engine->ibl.bakeState = IblBakeState::Irradiance;
+        vk_ibl_bake_irradiance(engine);
+        break;
+
+    case IblBakeState::Irradiance:
+        engine->ibl.bakeState = IblBakeState::IrradianceWait;
+        break;
+
+    case IblBakeState::IrradianceWait:
+        vk_process_irradiance_wait(engine);
+        break;
+
+    case IblBakeState::Prefilter:
+        engine->ibl.bakeState = IblBakeState::PrefilterWait;
+        break;
+
+    case IblBakeState::PrefilterWait:
+        vk_process_prefilter_wait(engine);
+        break;
+
+    case IblBakeState::Finalize:
+        vk_finalize_ibl_bake(engine);
+        break;
+
+    default:
+        break;
+    }
 }
 
 void vk_switch_environment_texture(VulkanEngine* engine, int direction) {

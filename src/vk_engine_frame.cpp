@@ -50,6 +50,7 @@ GfxResult vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recre
 
     {
         SVK_TRACY_ZONE_SCOPED("Frame CPU Update");
+        vk_check_ibl_bake_status(engine);
         vk_process_ready_environment_texture(engine);
         // Inputs are now handled by HandleInputs() before DrawFrame()
         core_engine_update(&core, &appState->currentInput, 0.25f);
@@ -94,7 +95,11 @@ GfxResult vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recre
 
         for (uint32_t i = 0; i < count; ++i) {
             __builtin_prefetch(&positions[i + 8], 0, 1);
-            transforms[i] = glm::translate(glm::mat4(1.0f), positions[i]) * baseModelRot;
+            glm::mat4 t = baseModelRot;
+            t[3][0] = positions[i].x;
+            t[3][1] = positions[i].y;
+            t[3][2] = positions[i].z;
+            transforms[i] = t;
         }
     }
 
@@ -150,8 +155,10 @@ GfxResult vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recre
 #endif
                     for (int i = 0; i < soa->count; ++i) {
                         __builtin_prefetch(&posArray[i + 8], 0, 1);
-                        glm::vec3 da = glm::vec3(posArray[i]) - camPos;
-                        float distSq = glm::dot(da, da);
+                        float dx = posArray[i].x - camPos.x;
+                        float dy = posArray[i].y - camPos.y;
+                        float dz = posArray[i].z - camPos.z;
+                        float distSq = (dx * dx) + (dy * dy) + (dz * dz);
                         std::memcpy(&sortItems[i].distBits, &distSq, sizeof(uint32_t));
                         sortItems[i].index = static_cast<uint32_t>(i);
                     }

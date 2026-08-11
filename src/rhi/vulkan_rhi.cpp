@@ -262,7 +262,7 @@ TextureHandle VulkanRHI::CreateTexture(uint32_t width, uint32_t height, TextureF
     }
 
     switch (usage) {
-        case TextureUsage::Sampled: ii.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT; break;
+        case TextureUsage::Sampled: ii.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT; break;
         case TextureUsage::DepthAttachment: ii.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT; break;
         case TextureUsage::ColorAttachment: ii.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT; break;
         case TextureUsage::Storage: ii.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT; break;
@@ -709,9 +709,6 @@ RHIResult VulkanRHI::BeginFrame() {
     if (!res) return RHIResult::ErrorInitializationFailed;
     
     if (m_mainCmdList == nullptr) {
-        m_mainCmdList = new VulkanCommandList(this, _engine->commandBuffer);
-    } else {
-        delete m_mainCmdList;
         m_mainCmdList = new VulkanCommandList(this, _engine->commandBuffer);
     }
     return RHIResult::Success;

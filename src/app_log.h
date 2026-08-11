@@ -16,6 +16,9 @@ enum class LogLevel : std::uint8_t {
 
 using LogCallback = void (*)(LogLevel level, const char* tag, const char* message);
 
+void log_init();
+void log_shutdown();
+
 void log_set_level(LogLevel level);
 LogLevel log_get_level();
 void log_set_callback(LogCallback callback);
