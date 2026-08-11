@@ -2,7 +2,7 @@
 
 Le projet dispose d'une chaine CI/CD simple, versionnee dans `.github/workflows/`.
 
-La CI est executee dans une image Docker dediee (`docker/ci/Dockerfile`) basee sur `debian:bookworm-slim`, pour garantir un environnement identique entre GitHub Actions et les reproductions locales.
+La CI est executee dans une image Docker dediee (`docker/ci/Dockerfile`) basee sur `debian:trixie-slim` (au lieu de `bookworm`), pour garantir un environnement identique (Vulkan 1.4) entre GitHub Actions, le poste de développement local, et les reproductions locales.
 
 ## Workflows
 
@@ -23,8 +23,11 @@ Le workflow `ci.yml` execute les etapes suivantes :
 
 Notes:
 
+- Sous Debian Trixie, le driver Vulkan logiciel Lavapipe est nommé `lvp_icd.json`. Les scripts de CI utilisent cette configuration spécifique pour l'exécution des tests *headless*.
+- Pour éviter un plantage de GLFW3 lors de l'initialisation de Wayland sans interface graphique, l'environnement CI force `XDG_SESSION_TYPE=x11`.
 - Le test headless s'appuie sur `scripts/run_test_vulkan.sh`.
 - La variable `VULKAN_TEST_SAVE_FRAME=1` est activee dans le job de test pour faciliter le diagnostic.
+- **Transparence et Non-Interférence :** Les tests d'intégration (`EngineIntegrationTest`) ainsi que le smoke test (`smoke_test_app.sh`) utilisent des options spécifiques (`glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE)` et l'argument `--no-focus`) pour s'exécuter de façon 100% invisible. La fenêtre de test ne s'affiche pas à l'écran, ne vole pas le focus du terminal, et ne capture pas la souris. Cela permet aux développeurs (et aux pre-commit hooks) d'exécuter la suite de tests en arrière-plan (ex: `just check && just test-asan`) sans aucune perturbation du flux de travail.
 
 ## CD: Release d'artefacts
 
