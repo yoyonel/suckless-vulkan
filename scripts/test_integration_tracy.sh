@@ -58,7 +58,7 @@ wait_for_window_start() {
 		fi
 
 		local wid
-		wid=$(xdotool search --sync --onlyvisible --name "$name" 2>/dev/null | head -n 1 || true)
+		wid=$(xdotool search --sync --name "$name" 2>/dev/null | head -n 1 || true)
 		if [[ -n "$wid" ]]; then
 			echo "$wid"
 			return 0
@@ -72,9 +72,11 @@ wait_for_window_start() {
 }
 
 focus_window() {
+	# Do NOT steal focus from the user's active window.
+	# xdotool key --window $wid sends keys directly to the target window
+	# without requiring WM focus activation.
 	local wid="$1"
-	xdotool windowfocus "$wid" || true
-	xdotool windowactivate "$wid" || true
+	xdotool set_window --name "suckless-vulkan-test" "$wid" 2>/dev/null || true
 }
 
 run_scenario() {
@@ -123,26 +125,27 @@ fi
 
 mkdir -p "$LOG_DIR"
 
-if [[ "${CI:-}" == "1" ]] || [[ "${USE_XVFB:-1}" == "1" ]]; then
+# Use real GPU if a display is available (fast, ~2s IBL bake via iGPU).
+# Fallback to Xvfb + llvmpipe in CI or when no display is present.
+# NOTE: Intel Vulkan ICD requires DRI3 and cannot run under Xvfb.
+if [[ "${CI:-}" == "1" ]] || [[ -z "${DISPLAY:-}" ]]; then
 	DISPLAY_NUM=99
 	while [[ -e "/tmp/.X${DISPLAY_NUM}-lock" ]]; do
 		DISPLAY_NUM=$((DISPLAY_NUM + 1))
 	done
-
-	echo "[xvfb] starting display :$DISPLAY_NUM"
+	echo "[xvfb] no display found, starting Xvfb :$DISPLAY_NUM (CI/headless mode)"
 	Xvfb ":${DISPLAY_NUM}" -screen 0 1920x1080x24 >/dev/null 2>&1 &
 	XVFB_PID=$!
 	sleep 1
-
 	export DISPLAY=":${DISPLAY_NUM}"
-
-	if [[ "${CI:-}" == "1" ]] && [[ -z "${VK_ICD_FILENAMES:-}" ]] && [[ -f "/usr/share/vulkan/icd.d/lvp_icd.json" ]]; then
-		echo "[info] CI environment detected, forcing llvmpipe"
+	# llvmpipe: only SW renderer compatible with Xvfb (no DRI3 required)
+	if [[ -z "${VK_ICD_FILENAMES:-}" ]] && [[ -f "/usr/share/vulkan/icd.d/lvp_icd.json" ]]; then
 		export VK_ICD_FILENAMES="/usr/share/vulkan/icd.d/lvp_icd.json"
-		export VK_DRIVER_FILES="/usr/share/vulkan/icd.d/lvp_icd.json"
+		export VK_DRIVER_FILES="$VK_ICD_FILENAMES"
+		echo "[gpu] Xvfb mode: using llvmpipe (slow IBL bake expected)"
 	fi
 else
-	echo "[info] using existing DISPLAY ($DISPLAY), hardware GPU will be used."
+	echo "[gpu] using existing DISPLAY ($DISPLAY) with real GPU (fast IBL bake)"
 fi
 
 echo "[capture] writing trace to $TRACE_FILE"
@@ -150,7 +153,7 @@ echo "[capture] writing trace to $TRACE_FILE"
 CAPTURE_PID=$!
 
 echo "[app] starting $APP_BIN"
-"$APP_BIN" >"$APP_LOG" 2>&1 &
+"$APP_BIN" --no-focus >"$APP_LOG" 2>&1 &
 APP_PID=$!
 
 WID=$(wait_for_window_start "$APP_PID" "$WINDOW_NAME")
@@ -185,9 +188,22 @@ CAPTURE_PID=""
 echo "[scenario] trace capture completed, terminating app..."
 kill -SIGTERM "$APP_PID" 2>/dev/null || true
 
+# Tracy client may hang flushing network data after capture disconnects.
+# Wait up to 5s for clean exit, then force-kill.
+APP_DEADLINE=5
+app_wait=0
+while kill -0 "$APP_PID" 2>/dev/null && ((app_wait < APP_DEADLINE)); do
+	sleep 1
+	app_wait=$((app_wait + 1))
+done
+if kill -0 "$APP_PID" 2>/dev/null; then
+	echo "[warn] app did not exit after ${APP_DEADLINE}s, sending SIGKILL"
+	kill -9 "$APP_PID" 2>/dev/null || true
+fi
+
 wait_status=0
 wait "$APP_PID" || wait_status=$?
-if [[ "$wait_status" != "0" && "$wait_status" != "143" && "$wait_status" != "130" ]]; then
+if [[ "$wait_status" != "0" && "$wait_status" != "143" && "$wait_status" != "130" && "$wait_status" != "137" ]]; then
 	echo "Error: app exited with failure (code $wait_status). See $APP_LOG"
 	exit 1
 fi

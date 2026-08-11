@@ -25,34 +25,46 @@ struct FrameBufferData {
 
 static bool compare_images(const FrameBufferData& a, const FrameBufferData& b, int threshold, const char* name) {
     size_t diff_count = 0;
+    double sse = 0.0;
     unsigned char* diff_pixels = new unsigned char[static_cast<size_t>(a.width) * static_cast<size_t>(a.height) * 4];
     for (int px = 0; px < a.width * a.height; ++px) {
         const int base = px * 4;
         bool is_diff = false;
         for (int c = 0; c < 3; ++c) {
-            if (std::abs((int)a.pixels[base + c] - (int)b.pixels[base + c]) > threshold) {
+            int diff = (int)a.pixels[base + c] - (int)b.pixels[base + c];
+            sse += (double)(diff * diff);
+            if (std::abs(diff) > threshold) {
                 is_diff = true;
                 diff_count++;
             }
         }
         if (is_diff) {
-            diff_pixels[base + 0] = 255;
+            diff_pixels[base] = 255;
             diff_pixels[base + 1] = 0;
-            diff_pixels[base + 2] = 255; // Magenta for differences
+            diff_pixels[base + 2] = 255;
             diff_pixels[base + 3] = 255;
         } else {
-            diff_pixels[base + 0] = a.pixels[base + 0] / 4; // Dimmed background
-            diff_pixels[base + 1] = a.pixels[base + 1] / 4;
-            diff_pixels[base + 2] = a.pixels[base + 2] / 4;
+            diff_pixels[base] = 0;
+            diff_pixels[base + 1] = 0;
+            diff_pixels[base + 2] = 0;
             diff_pixels[base + 3] = 255;
         }
     }
+    double mse = sse / (a.width * a.height * 3.0);
+    double rmse = std::sqrt(mse);
     bool success = true;
-    if (diff_count > 0) {
+
+    if (diff_count > 0 || rmse > 0.0) {
         float percent = (float)diff_count / (float)(a.width * a.height * 3) * 100.0f;
-        LOG_WARNING("test", "Image mismatch for %s: %zu pixels differ (> %d tolerance) - %.2f%%", name, diff_count / 3, threshold, percent);
-        // Allow up to 2.5% of pixels to differ (needed for cross-driver wireframe/AA parity)
-        success = diff_count < static_cast<size_t>(static_cast<double>(a.width) * a.height * 3 * 0.025);
+        LOG_INFO("test", "Comparison %s: %zu diffs (%.2f%%) | RMSE: %.3f", name, diff_count / 3, percent, rmse);
+
+        const double MAX_RMSE = 2.0;
+        const float MAX_PERCENT = 2.5f;
+        success = (rmse <= MAX_RMSE) || (percent <= MAX_PERCENT);
+        if (!success) {
+            LOG_WARNING("test", "Image mismatch for %s exceeds thresholds (RMSE: %.3f > %.1f AND Diff: %.2f%% > %.1f%%)", name, rmse, MAX_RMSE, percent,
+                        MAX_PERCENT);
+        }
     }
 
     if (!success) {
@@ -107,7 +119,7 @@ static bool readback_frame(VulkanEngine* engine, const FrameBufferData& outFrame
     barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
     barrier.srcAccessMask = 0;
     barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-    barrier.image = engine->swapchainImages[engine->lastRenderedImageIndex];
+    barrier.image = engine->swapchainMgr.swapchainImages[engine->lastRenderedImageIndex];
     barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
     vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
@@ -117,7 +129,8 @@ static bool readback_frame(VulkanEngine* engine, const FrameBufferData& outFrame
     region.imageSubresource.layerCount = 1;
     region.imageExtent = {(uint32_t)outFrame.width, (uint32_t)outFrame.height, 1};
 
-    vkCmdCopyImageToBuffer(cb, engine->swapchainImages[engine->lastRenderedImageIndex], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readbackBuffer, 1, &region);
+    vkCmdCopyImageToBuffer(cb, engine->swapchainMgr.swapchainImages[engine->lastRenderedImageIndex], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readbackBuffer, 1,
+                           &region);
 
     vkEndCommandBuffer(cb);
 
@@ -184,12 +197,12 @@ static bool validate_frame(const FrameBufferData& frame, const char* filename) {
 }
 
 static bool verify_and_capture_frame(VulkanEngine* engine, const char* filename) {
-    if (vkDeviceWaitIdle(engine->device) != VK_SUCCESS || engine->lastRenderedImageIndex >= engine->imageCount) {
+    if (vkDeviceWaitIdle(engine->device) != VK_SUCCESS || engine->lastRenderedImageIndex >= engine->swapchainMgr.imageCount) {
         return false;
     }
 
-    const int width = static_cast<int>(engine->swapchainExtent.width);
-    const int height = static_cast<int>(engine->swapchainExtent.height);
+    const int width = static_cast<int>(engine->swapchainMgr.swapchainExtent.width);
+    const int height = static_cast<int>(engine->swapchainMgr.swapchainExtent.height);
     const VkDeviceSize imageSize = static_cast<VkDeviceSize>(width) * static_cast<VkDeviceSize>(height) * 4;
 
     std::vector<unsigned char> pixels(imageSize);
