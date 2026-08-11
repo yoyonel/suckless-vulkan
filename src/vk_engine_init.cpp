@@ -130,117 +130,6 @@ QueueFamilySelection find_queue_families(VkPhysicalDevice physicalDevice, VkSurf
     return selection;
 }
 
-GfxResult device_supports_swapchain(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface) {
-    uint32_t formatCount = 0;
-    uint32_t presentModeCount = 0;
-
-    if (vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, nullptr) != VK_SUCCESS) {
-        return GfxResult::ErrorInitializationFailed;
-    }
-    if (vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &presentModeCount, nullptr) != VK_SUCCESS) {
-        return GfxResult::ErrorInitializationFailed;
-    }
-
-    if (formatCount > 0 && presentModeCount > 0) {
-        return GfxResult::Success;
-    }
-    return GfxResult::ErrorUnsupportedFeature;
-}
-
-VkSurfaceFormatKHR choose_surface_format(const std::vector<VkSurfaceFormatKHR>& availableFormats) {
-    for (const auto& format : availableFormats) {
-        if (format.format == VK_FORMAT_B8G8R8A8_SRGB && format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
-            return format;
-        }
-    }
-
-    return availableFormats[0];
-}
-
-VkPresentModeKHR choose_present_mode(const std::vector<VkPresentModeKHR>& availablePresentModes, bool vsync) {
-    VkPresentModeKHR selected = VK_PRESENT_MODE_FIFO_KHR;
-
-    auto find_mode = [&](VkPresentModeKHR mode) {
-        return std::any_of(availablePresentModes.begin(), availablePresentModes.end(), [mode](VkPresentModeKHR m) { return m == mode; });
-    };
-
-    if (vsync) {
-        // Prefer Mailbox (Triple Buffering) for best vsync experience if available
-        if (find_mode(VK_PRESENT_MODE_MAILBOX_KHR)) {
-            selected = VK_PRESENT_MODE_MAILBOX_KHR;
-        } else if (find_mode(VK_PRESENT_MODE_FIFO_KHR)) {
-            selected = VK_PRESENT_MODE_FIFO_KHR;
-        }
-    } else {
-        // Preferred Un-capped/Tearing mode
-        if (find_mode(VK_PRESENT_MODE_IMMEDIATE_KHR)) {
-            selected = VK_PRESENT_MODE_IMMEDIATE_KHR;
-        }
-    }
-
-    const char* selectedName = "UNKNOWN";
-    if (selected == VK_PRESENT_MODE_IMMEDIATE_KHR) {
-        selectedName = "IMMEDIATE";
-    } else if (selected == VK_PRESENT_MODE_MAILBOX_KHR) {
-        selectedName = "MAILBOX";
-    } else if (selected == VK_PRESENT_MODE_FIFO_KHR) {
-        selectedName = "FIFO";
-    }
-    LOG_INFO("engine", "Selected present mode: %s", selectedName);
-
-    return selected;
-}
-
-VkCompositeAlphaFlagBitsKHR choose_composite_alpha(VkCompositeAlphaFlagsKHR supportedCompositeAlpha) {
-    const VkCompositeAlphaFlagBitsKHR preferredModes[] = {
-        VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
-        VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR,
-        VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR,
-        VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR,
-    };
-
-    for (const auto& mode : preferredModes) {
-        if ((supportedCompositeAlpha & mode) != 0) {
-            return mode;
-        }
-    }
-
-    return VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-}
-
-VkExtent2D choose_swapchain_extent(GLFWwindow* window, const VkSurfaceCapabilitiesKHR& capabilities) {
-    if (capabilities.currentExtent.width != UINT32_MAX) {
-        return capabilities.currentExtent;
-    }
-
-    int width = 0;
-    int height = 0;
-    glfwGetFramebufferSize(window, &width, &height);
-
-    VkExtent2D actualExtent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
-    actualExtent.width = std::clamp(actualExtent.width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width);
-    actualExtent.height = std::clamp(actualExtent.height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
-    return actualExtent;
-}
-
-VkFormat find_depth_format(VkPhysicalDevice physicalDevice) {
-    const VkFormat candidates[] = {
-        VK_FORMAT_D32_SFLOAT,
-        VK_FORMAT_D32_SFLOAT_S8_UINT,
-        VK_FORMAT_D24_UNORM_S8_UINT,
-    };
-
-    for (const auto& candidate : candidates) {
-        VkFormatProperties properties{};
-        vkGetPhysicalDeviceFormatProperties(physicalDevice, candidate, &properties);
-        if ((properties.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) != 0) {
-            return candidate;
-        }
-    }
-
-    return VK_FORMAT_UNDEFINED;
-}
-
 template <typename Handle, typename DestroyFn> void destroy_device_handle(VkDevice device, Handle& handle, DestroyFn destroyFn) {
     if (device == VK_NULL_HANDLE || handle == VK_NULL_HANDLE) {
         return;
@@ -248,26 +137,6 @@ template <typename Handle, typename DestroyFn> void destroy_device_handle(VkDevi
 
     destroyFn(device, handle, nullptr);
     handle = VK_NULL_HANDLE;
-}
-
-void cleanup_swapchain_targets(VulkanEngine* engine) {
-    if (engine->device == VK_NULL_HANDLE) {
-        return;
-    }
-
-    for (uint32_t i = 0; i < engine->imageCount; ++i) {
-        destroy_device_handle(engine->device, engine->swapchainFramebuffers[i], vkDestroyFramebuffer);
-        destroy_device_handle(engine->device, engine->swapchainImageViews[i], vkDestroyImageView);
-    }
-}
-
-void cleanup_swapchain_dependent_resources(VulkanEngine* engine) {
-    if (engine->depthImage.is_valid()) {
-    }
-    cleanup_swapchain_targets(engine);
-    destroy_device_handle(engine->device, engine->renderPass, vkDestroyRenderPass);
-    destroy_device_handle(engine->device, engine->swapchain, vkDestroySwapchainKHR);
-    engine->imageCount = 0;
 }
 
 void cleanup_sync_objects(VulkanEngine* engine) {
@@ -289,7 +158,8 @@ void cleanup_buffer_resources(VulkanEngine* engine) {
 }
 
 void cleanup_render_resources(VulkanEngine* engine) {
-    cleanup_swapchain_dependent_resources(engine);
+    engine->swapchainMgr.cleanup_dependent_resources(engine);
+    destroy_device_handle(engine->device, engine->renderPass, vkDestroyRenderPass);
     destroy_device_handle(engine->device, engine->transferCompleteSemaphore, vkDestroySemaphore);
     destroy_device_handle(engine->device, engine->transferCommandPool, vkDestroyCommandPool);
     destroy_device_handle(engine->device, engine->commandPool, vkDestroyCommandPool);
@@ -298,7 +168,7 @@ void cleanup_render_resources(VulkanEngine* engine) {
 void cleanup_raii_resources(VulkanEngine* engine) {
     engine->globalDescriptorPool.Reset();
 
-    engine->depthImage.Reset();
+    engine->swapchainMgr.depthImage.Reset();
     engine->envHdrImage.Reset();
     engine->envHdrSampler.Reset();
 
@@ -521,131 +391,16 @@ GfxResult init_allocator(VulkanEngine* engine) {
     return (vmaCreateAllocator(&allocatorInfo, &engine->allocator) == VK_SUCCESS) ? GfxResult::Success : GfxResult::ErrorInitializationFailed;
 }
 
-GfxResult init_swapchain(VulkanEngine* engine) {
-    VkSurfaceCapabilitiesKHR capabilities{};
-    if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(engine->physicalDevice, engine->surface, &capabilities) != VK_SUCCESS) {
-        return GfxResult::ErrorInitializationFailed;
-    }
-
-    uint32_t formatCount = 0;
-    if (vkGetPhysicalDeviceSurfaceFormatsKHR(engine->physicalDevice, engine->surface, &formatCount, nullptr) != VK_SUCCESS || formatCount == 0) {
-        return GfxResult::ErrorInitializationFailed;
-    }
-    std::vector<VkSurfaceFormatKHR> formats(formatCount);
-    if (vkGetPhysicalDeviceSurfaceFormatsKHR(engine->physicalDevice, engine->surface, &formatCount, formats.data()) != VK_SUCCESS) {
-        return GfxResult::ErrorInitializationFailed;
-    }
-
-    uint32_t presentModeCount = 0;
-    if (vkGetPhysicalDeviceSurfacePresentModesKHR(engine->physicalDevice, engine->surface, &presentModeCount, nullptr) != VK_SUCCESS || presentModeCount == 0) {
-        return GfxResult::ErrorInitializationFailed;
-    }
-    std::vector<VkPresentModeKHR> presentModes(presentModeCount);
-    if (vkGetPhysicalDeviceSurfacePresentModesKHR(engine->physicalDevice, engine->surface, &presentModeCount, presentModes.data()) != VK_SUCCESS) {
-        return GfxResult::ErrorInitializationFailed;
-    }
-
-    const VkSurfaceFormatKHR surfaceFormat = choose_surface_format(formats);
-    const VkPresentModeKHR presentMode = choose_present_mode(presentModes, engine->appState->core.vsync);
-    engine->swapchainImageFormat = surfaceFormat.format;
-    engine->swapchainExtent = choose_swapchain_extent(engine->appState->window, capabilities);
-
-    LOG_INFO("engine", "Swapchain Extent: %ux%u", engine->swapchainExtent.width, engine->swapchainExtent.height);
-
-    uint32_t imageCount = capabilities.minImageCount + 1;
-    if (capabilities.maxImageCount > 0 && imageCount > capabilities.maxImageCount) {
-        imageCount = capabilities.maxImageCount;
-    }
-
-    LOG_INFO("engine", "Swapchain: minImageCount=%u, maxImageCount=%u, using imageCount=%u", capabilities.minImageCount, capabilities.maxImageCount,
-             imageCount);
-
-    imageCount = std::min(imageCount, static_cast<uint32_t>(config::kMaxSwapchainImages));
-    if (imageCount < capabilities.minImageCount) {
-        return GfxResult::ErrorInitializationFailed;
-    }
-
-    if ((capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) == 0) {
-        return GfxResult::ErrorInitializationFailed;
-    }
-
-    VkSwapchainCreateInfoKHR swapchainInfo{};
-    swapchainInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-    swapchainInfo.surface = engine->surface;
-    swapchainInfo.minImageCount = imageCount;
-    swapchainInfo.imageFormat = engine->swapchainImageFormat;
-    swapchainInfo.imageColorSpace = surfaceFormat.colorSpace;
-    swapchainInfo.imageExtent = engine->swapchainExtent;
-    swapchainInfo.imageArrayLayers = 1;
-    swapchainInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-
-    const uint32_t queueFamilyIndices[] = {engine->graphicsQueueFamilyIndex, engine->presentQueueFamilyIndex};
-    if (engine->graphicsQueueFamilyIndex != engine->presentQueueFamilyIndex) {
-        swapchainInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
-        swapchainInfo.queueFamilyIndexCount = 2;
-        swapchainInfo.pQueueFamilyIndices = queueFamilyIndices;
-    } else {
-        swapchainInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    }
-
-    swapchainInfo.preTransform = capabilities.currentTransform;
-    swapchainInfo.compositeAlpha = choose_composite_alpha(capabilities.supportedCompositeAlpha);
-    swapchainInfo.presentMode = presentMode;
-    swapchainInfo.clipped = VK_TRUE;
-
-    if (vkCreateSwapchainKHR(engine->device, &swapchainInfo, NULL, &engine->swapchain) != VK_SUCCESS)
-        return GfxResult::ErrorInitializationFailed;
-    vk_set_object_name(engine->device, (uint64_t)engine->swapchain, VK_OBJECT_TYPE_SWAPCHAIN_KHR, "Main_Swapchain");
-
-    if (vkGetSwapchainImagesKHR(engine->device, engine->swapchain, &engine->imageCount, NULL) != VK_SUCCESS) {
-        return GfxResult::ErrorInitializationFailed;
-    }
-    if (engine->imageCount > config::kMaxSwapchainImages) {
-        LOG_ERROR("init", "Swapchain image count (%u) exceeds MAX_SWAPCHAIN_IMAGES (%d)", engine->imageCount, config::kMaxSwapchainImages);
-        return GfxResult::ErrorInitializationFailed;
-    }
-    if (vkGetSwapchainImagesKHR(engine->device, engine->swapchain, &engine->imageCount, engine->swapchainImages) != VK_SUCCESS) {
-        return GfxResult::ErrorInitializationFailed;
-    }
-
-    for (uint32_t i = 0; i < engine->imageCount; i++) {
-        VkImageViewCreateInfo viewInfo{};
-        viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        viewInfo.image = engine->swapchainImages[i];
-        viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        viewInfo.format = engine->swapchainImageFormat;
-        viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        viewInfo.subresourceRange.levelCount = 1;
-        viewInfo.subresourceRange.layerCount = 1;
-        if (vkCreateImageView(engine->device, &viewInfo, NULL, &engine->swapchainImageViews[i]) != VK_SUCCESS) {
-            return GfxResult::ErrorInitializationFailed;
-        }
-        const std::string swapchainViewName = "Swapchain_ImageView_" + std::to_string(i);
-        vk_set_object_name(engine->device, (uint64_t)engine->swapchainImageViews[i], VK_OBJECT_TYPE_IMAGE_VIEW, swapchainViewName.c_str());
-    }
-
-    engine->depthFormat = find_depth_format(engine->physicalDevice);
-    if (engine->depthFormat == VK_FORMAT_UNDEFINED) {
-        return GfxResult::ErrorInitializationFailed;
-    }
-
-    engine->depthImage.Reset(engine->appState->rhi,
-                             engine->appState->rhi->CreateTexture(engine->swapchainExtent.width, engine->swapchainExtent.height, TextureFormat::Depth,
-                                                                  TextureUsage::DepthAttachment, 1, "Depth_Buffer_Image"));
-
-    return engine->depthImage.is_valid() ? GfxResult::Success : GfxResult::ErrorInitializationFailed;
-}
-
 GfxResult init_render_pass(VulkanEngine* engine) {
     VkAttachmentDescription attachments[2] = {};
-    attachments[0].format = engine->swapchainImageFormat;
+    attachments[0].format = engine->swapchainMgr.swapchainImageFormat;
     attachments[0].samples = VK_SAMPLE_COUNT_1_BIT;
     attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
     attachments[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     attachments[0].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
-    attachments[1].format = engine->depthFormat;
+    attachments[1].format = engine->swapchainMgr.depthFormat;
     attachments[1].samples = VK_SAMPLE_COUNT_1_BIT;
     attachments[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     attachments[1].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
@@ -672,22 +427,22 @@ GfxResult init_render_pass(VulkanEngine* engine) {
         return GfxResult::ErrorInitializationFailed;
     vk_set_object_name(engine->device, (uint64_t)engine->renderPass, VK_OBJECT_TYPE_RENDER_PASS, "Main_RenderPass");
 
-    for (uint32_t i = 0; i < engine->imageCount; i++) {
-        VkImageView depthImageView = ((VulkanRHI*)engine->appState->rhi)->GetVkImageView(engine->depthImage);
-        VkImageView fbAtt[] = {engine->swapchainImageViews[i], depthImageView};
+    for (uint32_t i = 0; i < engine->swapchainMgr.imageCount; i++) {
+        VkImageView depthImageView = ((VulkanRHI*)engine->appState->rhi)->GetVkImageView(engine->swapchainMgr.depthImage);
+        VkImageView fbAtt[] = {engine->swapchainMgr.swapchainImageViews[i], depthImageView};
         VkFramebufferCreateInfo fbInfo{};
         fbInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
         fbInfo.renderPass = engine->renderPass;
         fbInfo.attachmentCount = 2;
         fbInfo.pAttachments = fbAtt;
-        fbInfo.width = engine->swapchainExtent.width;
-        fbInfo.height = engine->swapchainExtent.height;
+        fbInfo.width = engine->swapchainMgr.swapchainExtent.width;
+        fbInfo.height = engine->swapchainMgr.swapchainExtent.height;
         fbInfo.layers = 1;
-        if (vkCreateFramebuffer(engine->device, &fbInfo, NULL, &engine->swapchainFramebuffers[i]) != VK_SUCCESS) {
+        if (vkCreateFramebuffer(engine->device, &fbInfo, NULL, &engine->swapchainMgr.swapchainFramebuffers[i]) != VK_SUCCESS) {
             return GfxResult::ErrorInitializationFailed;
         }
         const std::string framebufferName = "Swapchain_Framebuffer_" + std::to_string(i);
-        vk_set_object_name(engine->device, (uint64_t)engine->swapchainFramebuffers[i], VK_OBJECT_TYPE_FRAMEBUFFER, framebufferName.c_str());
+        vk_set_object_name(engine->device, (uint64_t)engine->swapchainMgr.swapchainFramebuffers[i], VK_OBJECT_TYPE_FRAMEBUFFER, framebufferName.c_str());
     }
     return GfxResult::Success;
 }
@@ -1216,9 +971,11 @@ GfxResult vk_recreate_swapchain(VulkanEngine* engine) {
         return GfxResult::ErrorInitializationFailed;
     }
 
-    cleanup_swapchain_dependent_resources(engine);
+    engine->swapchainMgr.cleanup_dependent_resources(engine);
+    destroy_device_handle(engine->device, engine->renderPass, vkDestroyRenderPass);
 
-    return (init_swapchain(engine) == GfxResult::Success && init_render_pass(engine) == GfxResult::Success && init_pipeline(engine) == GfxResult::Success)
+    return (engine->swapchainMgr.init(engine) == GfxResult::Success && init_render_pass(engine) == GfxResult::Success &&
+            init_pipeline(engine) == GfxResult::Success)
                ? GfxResult::Success
                : GfxResult::ErrorInitializationFailed;
 }
@@ -1241,7 +998,7 @@ GfxResult vk_init_vulkan_engine(VulkanEngine* engine) {
 
     // Engine RHI is initialized in main.cpp, here we just initialize the internal engine parts
     LOG_INFO("app", "init_swapchain...");
-    if (init_swapchain(engine) != GfxResult::Success) {
+    if (engine->swapchainMgr.init(engine) != GfxResult::Success) {
         LOG_ERROR("app", "init_swapchain failed");
         return GfxResult::ErrorInitializationFailed;
     }

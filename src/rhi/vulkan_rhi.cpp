@@ -257,7 +257,7 @@ TextureHandle VulkanRHI::CreateTexture(uint32_t width, uint32_t height, TextureF
         case TextureFormat::RGBA32_SFLOAT: ii.format = VK_FORMAT_R32G32B32A32_SFLOAT; break;
         case TextureFormat::RGBA16_SFLOAT: ii.format = VK_FORMAT_R16G16B16A16_SFLOAT; break;
         case TextureFormat::RG16_SFLOAT: ii.format = VK_FORMAT_R16G16_SFLOAT; break;
-        case TextureFormat::Depth: ii.format = _engine->depthFormat; break;
+        case TextureFormat::Depth: ii.format = _engine->swapchainMgr.depthFormat; break;
         default: ii.format = VK_FORMAT_R8G8B8A8_UNORM; break;
     }
 
@@ -508,7 +508,7 @@ ImageViewHandle VulkanRHI::CreateImageView(TextureHandle texture, uint32_t baseM
     vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
     vi.format = m_textures[texture].format;
     vi.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    if (vi.format == _engine->depthFormat) {
+    if (vi.format == _engine->swapchainMgr.depthFormat) {
         vi.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
     }
     vi.subresourceRange.baseMipLevel = baseMipLevel;
@@ -657,7 +657,7 @@ SwapchainStatus VulkanRHI::AcquireNextImage(uint32_t* imageIndex) {
         return SwapchainStatus::Error;
     }
 
-    VkResult acquireResult = vkAcquireNextImageKHR(_engine->device, _engine->swapchain, UINT64_MAX, _engine->imageAvailableSemaphore, nullptr, imageIndex);
+    VkResult acquireResult = vkAcquireNextImageKHR(_engine->device, _engine->swapchainMgr.swapchain, UINT64_MAX, _engine->imageAvailableSemaphore, nullptr, imageIndex);
     if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR) {
         return SwapchainStatus::NeedRecreate;
     }
@@ -690,7 +690,7 @@ SwapchainStatus VulkanRHI::SubmitAndPresent(uint32_t imageIndex) {
     pri.waitSemaphoreCount = 1;
     pri.pWaitSemaphores = &_engine->renderFinishedSemaphore;
     pri.swapchainCount = 1;
-    pri.pSwapchains = &_engine->swapchain;
+    pri.pSwapchains = &_engine->swapchainMgr.swapchain;
     pri.pImageIndices = &imageIndex;
     VkResult presentResult = vkQueuePresentKHR(_engine->presentQueue, &pri);
     if (presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_SUBOPTIMAL_KHR) {
@@ -730,8 +730,8 @@ void VulkanRHI::BeginRenderPass() {
     VkRenderPassBeginInfo rp{};
     rp.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     rp.renderPass = _engine->renderPass;
-    rp.framebuffer = _engine->swapchainFramebuffers[_engine->lastRenderedImageIndex];
-    rp.renderArea.extent = _engine->swapchainExtent;
+    rp.framebuffer = _engine->swapchainMgr.swapchainFramebuffers[_engine->lastRenderedImageIndex];
+    rp.renderArea.extent = _engine->swapchainMgr.swapchainExtent;
     rp.clearValueCount = 2;
     rp.pClearValues = cl;
 
@@ -740,15 +740,15 @@ void VulkanRHI::BeginRenderPass() {
     VkViewport vp{};
     vp.x = 0.0f;
     vp.y = 0.0f;
-    vp.width = (float)_engine->swapchainExtent.width;
-    vp.height = (float)_engine->swapchainExtent.height;
+    vp.width = (float)_engine->swapchainMgr.swapchainExtent.width;
+    vp.height = (float)_engine->swapchainMgr.swapchainExtent.height;
     vp.minDepth = 0.0f;
     vp.maxDepth = 1.0f;
     vkCmdSetViewport(_engine->commandBuffer, 0, 1, &vp);
 
     VkRect2D sc{};
     sc.offset = {0, 0};
-    sc.extent = _engine->swapchainExtent;
+    sc.extent = _engine->swapchainMgr.swapchainExtent;
     vkCmdSetScissor(_engine->commandBuffer, 0, 1, &sc);
 }
 
@@ -813,8 +813,8 @@ void VulkanRHI::CollectProfiling() {
 }
 
 void VulkanRHI::GetResolution(uint32_t* width, uint32_t* height) const {
-    *width = _engine->swapchainExtent.width;
-    *height = _engine->swapchainExtent.height;
+    *width = _engine->swapchainMgr.swapchainExtent.width;
+    *height = _engine->swapchainMgr.swapchainExtent.height;
 }
 
 void* VulkanRHI::GetOpaqueTracyContext() const {

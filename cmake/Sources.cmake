@@ -8,6 +8,7 @@ set(RHI_VULKAN_SOURCES
     src/vk_engine_envmap.cpp
     src/vk_engine_runtime.cpp
     src/vk_engine_init.cpp
+    src/swapchain_init.cpp
     src/vk_engine_ibl.cpp
     src/tracy_vulkan.cpp
     ext/vma/vma_impl.cpp)

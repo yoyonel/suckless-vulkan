@@ -87,7 +87,7 @@ VkFormat find_supported_format(VkPhysicalDevice physicalDevice, const std::vecto
 }
 
 VkFormat find_depth_format(VkPhysicalDevice physicalDevice) {
-    return find_supported_format(physicalDevice, {VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT, VK_FORMAT_D32_SFLOAT}, VK_IMAGE_TILING_OPTIMAL,
+    return find_supported_format(physicalDevice, {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT}, VK_IMAGE_TILING_OPTIMAL,
                                  VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
 }
 

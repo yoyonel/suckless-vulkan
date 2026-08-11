@@ -22,6 +22,7 @@
 #include "rhi/rhi.h"
 #include "rhi/rhi_ptr.h"
 #include "spsc_queue.h"
+#include "swapchain_init.h"
 
 // Configuration de GLM pour Vulkan
 #define GLM_FORCE_RADIANS
@@ -131,17 +132,9 @@ struct VulkanEngine {
 
     VmaAllocator allocator;
 
-    VkSwapchainKHR swapchain;
-    VkFormat swapchainImageFormat;
-    VkExtent2D swapchainExtent;
-
-    uint32_t imageCount;
-    VkImage swapchainImages[config::kMaxSwapchainImages];
-    VkImageView swapchainImageViews[config::kMaxSwapchainImages];
-    VkFramebuffer swapchainFramebuffers[config::kMaxSwapchainImages];
+    SwapchainManager swapchainMgr;
 
     VkRenderPass renderPass;
-    rhi::TexturePtr depthImage;
     VkFormat depthFormat;
 
     // NOUVEAU : Le Layout de notre descripteur
