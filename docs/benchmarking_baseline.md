@@ -222,3 +222,27 @@ L'Itération 9 (Bloc 3) a consisté à finaliser le découplage de `VulkanEngine
 
 **Conclusion Architecturale :**
 Le Bloc 3 confirme que l'injection de dépendances (passage du contexte par pointeur) n'a induit aucune pénalité (pointer chasing) mesurable. Au contraire, les LLC misses se sont encore améliorés. Le moteur est désormais structurellement propre, modulaire et extrêmement stable thermiquement/memoire.
+
+## Itération 10 : Optimisation SSBO (mat4 -> vec4) (Bloc 3)
+
+L'Itération 10 (Suite Bloc 3) a consisté à convertir le `TransformBuffer` SSBO contenant initialement un Array of Structs (AoS) de `mat4` (64 octets par instance) en un Struct of Arrays (SoA) partiel en passant uniquement les positions via `vec4` (16 octets par instance). Le GPU reconstruit la matrice finale. La bande passante est divisée par 4.
+Un système de normalisation par frame (nombre total de frames rendues pendant les 12 secondes) a été introduit pour isoler le coût de la frame du framerate débridé (--no-vsync).
+
+### Résultats Finaux (Validation Itération 10 - Bloc 3 SSBO)
+
+**1. Métriques Perf Normalisées (Par Frame)** :
+
+- **Frames générées (12s)** : **~8701** (le framerate a fortement augmenté, provoquant la hausse des compteurs absolus).
+- **L1 Misses par Frame** : **5140** (Total absolu: 44.7M)
+- **LLC Loads par Frame** : **1670** (Total absolu: 14.5M)
+- **LLC Misses par Frame** : **708** (Total absolu: ~6.2M)
+- **Taux de Misses L1 global** : **4.90%** (excellente amélioration vs >5.1% baseline).
+
+**2. Métriques VTune Memory Access :**
+
+- **Memory Bound** : **20.1%** (Baisse concrète vs 21.2% du Bloc 1, on effleure le seuil de 20%).
+- **L1 Bound** : **8.4%** (Baisse massive par rapport aux 12.4% précédents, confirmant l'efficacité du cache L1 avec SoA/vec4).
+- **LLC Miss Count** : **1 950 819** (Amélioration majeure de -25%).
+
+**Conclusion Architecturale :**
+L'écrasement de la taille mémoire du `TransformBuffer` sur le host (16 octets/instance au lieu de 64) divise par 4 le trafic mémoire pour upload les instances. Le taux de L1 Bound s'effondre et le LLC Miss Count passe sous la barre des 2M. Les valeurs absolues de chargement (`perf stat`) augmentaient car le moteur rendait simplement ~20% de frames supplémentaires dans le même laps de temps, mais l'analyse par frame confirme une réduction massive du travail mémoire et des misses à chaque itération. L'architecture SoA partielle est validée.
