@@ -184,6 +184,8 @@ struct VulkanEngine {
     EngineState* appState;
 
     IblBaker iblBaker;
+
+    uint64_t totalFramesRendered{0};
 };
 
 GfxResult init_vulkan_engine(VulkanEngine* engine);

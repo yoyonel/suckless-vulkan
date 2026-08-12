@@ -25,16 +25,20 @@ layout(location = 2) out vec3 outAlbedo;
 layout(location = 3) flat out int outMaterialIdx;
 
 layout(std430, set = 0, binding = 9) readonly buffer TransformBuffer {
-    mat4 transforms[];
+    vec4 instancePositions[];
 };
 
 void main() {
-    mat4 modelMat = transforms[gl_InstanceIndex];
+    vec3 pos = instancePositions[gl_InstanceIndex].xyz;
+    mat4 modelMat = ubo.modelRotation;
+    modelMat[3][0] = pos.x;
+    modelMat[3][1] = pos.y;
+    modelMat[3][2] = pos.z;
+
     vec4 worldPos = modelMat * vec4(inPosition, 1.0);
     gl_Position = ubo.vp * worldPos;
 
     outWorldPos = worldPos.xyz;
-    // Assuming uniform scaling, the upper 3x3 of modelMat can be used for normals
     outNormal = normalize(mat3(modelMat) * inPosition);
     outAlbedo = inColor;
     outMaterialIdx = gl_InstanceIndex;

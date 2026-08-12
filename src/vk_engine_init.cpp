@@ -651,7 +651,7 @@ GfxResult create_instance_grid_buffers(VulkanEngine* engine, std::vector<glm::ve
         }
     }
     engine->transformBuffer.Reset(engine->appState->rhi,
-                                  engine->appState->rhi->CreateBuffer(instanceCount * sizeof(glm::mat4), BufferUsage::Storage, nullptr, "Flat_Transform_SSBO"));
+                                  engine->appState->rhi->CreateBuffer(instanceCount * sizeof(glm::vec4), BufferUsage::Storage, nullptr, "Flat_Transform_SSBO"));
     if (engine->transformBuffer.is_valid()) {
         engine->transformBufferMapped = engine->appState->rhi->MapBuffer(engine->transformBuffer);
     }
@@ -1086,6 +1086,7 @@ GfxResult vk_init_vulkan_engine(VulkanEngine* engine) {
 
 void vk_cleanup_vulkan_engine(VulkanEngine* engine) {
     SVK_TRACY_ZONE_SCOPED("vk_cleanup_vulkan_engine");
+    LOG_INFO("app", "Total frames rendered during this run: %llu", (unsigned long long)engine->totalFramesRendered);
     vk_stop_hdr_io_thread(engine);
     LOG_INFO("async", "Async loader destroyed");
 
