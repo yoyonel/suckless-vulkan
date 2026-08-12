@@ -297,18 +297,12 @@ void cleanup_render_resources(VulkanEngine* engine) {
 
 void cleanup_raii_resources(VulkanEngine* engine) {
     engine->globalDescriptorPool.Reset();
-    engine->ibl.computeDescriptorPool.Reset();
 
     engine->depthImage.Reset();
     engine->envHdrImage.Reset();
     engine->envHdrSampler.Reset();
 
-    engine->ibl.irradianceMap.Reset();
-    engine->ibl.irradianceSampler.Reset();
-    engine->ibl.prefilteredMap.Reset();
-    engine->ibl.prefilteredSampler.Reset();
-    engine->ibl.brdfLut.Reset();
-    engine->ibl.brdfLutSampler.Reset();
+    engine->iblBaker.Cleanup();
 
     engine->graphicsPipeline.Reset();
     engine->billboardPipeline.Reset();
@@ -317,22 +311,10 @@ void cleanup_raii_resources(VulkanEngine* engine) {
     engine->debugTrianglePipeline.Reset();
     engine->skyboxPipeline.Reset();
 
-    engine->ibl.irmapPipeline.Reset();
-    engine->ibl.spmapPipeline.Reset();
-    engine->ibl.brdfLutPipeline.Reset();
-    engine->ibl.lum1Pipeline.Reset();
-    engine->ibl.lum2Pipeline.Reset();
-
     engine->pipelineLayout.Reset();
     engine->debugPipelineLayout.Reset();
-    engine->ibl.iblPipelineLayout.Reset();
-    engine->ibl.lum1PipelineLayout.Reset();
-    engine->ibl.lum2PipelineLayout.Reset();
 
     engine->globalDescriptorLayout.Reset();
-    engine->ibl.iblDescriptorSetLayout.Reset();
-    engine->ibl.lum1DescriptorSetLayout.Reset();
-    engine->ibl.lum2DescriptorSetLayout.Reset();
 
     engine->vertexBuffer.Reset();
     engine->indexBuffer.Reset();
@@ -1046,31 +1028,31 @@ GfxResult init_descriptor_pool_and_sets(VulkanEngine* engine) {
     DescriptorImageInfo envInfo{};
     TextureHandle tex = engine->envHdrImage.is_valid() ? engine->envHdrImage : INVALID_HANDLE;
     if (tex == INVALID_HANDLE)
-        tex = engine->ibl.irradianceMap.is_valid() ? engine->ibl.irradianceMap : INVALID_HANDLE;
+        tex = engine->iblBaker.irradianceMap.is_valid() ? engine->iblBaker.irradianceMap : INVALID_HANDLE;
     envInfo.texture = tex;
     envInfo.imageView = INVALID_HANDLE;
     SamplerHandle samp = engine->envHdrSampler.is_valid() ? engine->envHdrSampler : INVALID_HANDLE;
     if (samp == INVALID_HANDLE)
-        samp = engine->ibl.irradianceSampler.is_valid() ? engine->ibl.irradianceSampler : INVALID_HANDLE;
+        samp = engine->iblBaker.irradianceSampler.is_valid() ? engine->iblBaker.irradianceSampler : INVALID_HANDLE;
     envInfo.sampler = samp;
     envInfo.imageView = INVALID_HANDLE;
     envInfo.imageLayout = TextureLayout::ShaderReadOnlyOptimal;
 
     DescriptorImageInfo irrInfo{};
-    irrInfo.texture = engine->ibl.irradianceMap.is_valid() ? engine->ibl.irradianceMap : engine->envHdrImage;
-    irrInfo.sampler = engine->ibl.irradianceSampler.is_valid() ? engine->ibl.irradianceSampler : engine->envHdrSampler;
+    irrInfo.texture = engine->iblBaker.irradianceMap.is_valid() ? engine->iblBaker.irradianceMap : engine->envHdrImage;
+    irrInfo.sampler = engine->iblBaker.irradianceSampler.is_valid() ? engine->iblBaker.irradianceSampler : engine->envHdrSampler;
     irrInfo.imageView = INVALID_HANDLE;
     irrInfo.imageLayout = TextureLayout::ShaderReadOnlyOptimal;
 
     DescriptorImageInfo prefInfo{};
-    prefInfo.texture = engine->ibl.prefilteredMap.is_valid() ? engine->ibl.prefilteredMap : engine->envHdrImage;
-    prefInfo.sampler = engine->ibl.prefilteredSampler.is_valid() ? engine->ibl.prefilteredSampler : engine->envHdrSampler;
+    prefInfo.texture = engine->iblBaker.prefilteredMap.is_valid() ? engine->iblBaker.prefilteredMap : engine->envHdrImage;
+    prefInfo.sampler = engine->iblBaker.prefilteredSampler.is_valid() ? engine->iblBaker.prefilteredSampler : engine->envHdrSampler;
     prefInfo.imageView = INVALID_HANDLE;
     prefInfo.imageLayout = TextureLayout::ShaderReadOnlyOptimal;
 
     DescriptorImageInfo lutInfo{};
-    lutInfo.texture = engine->ibl.brdfLut.is_valid() ? engine->ibl.brdfLut : engine->envHdrImage;
-    lutInfo.sampler = engine->ibl.brdfLutSampler.is_valid() ? engine->ibl.brdfLutSampler : engine->envHdrSampler;
+    lutInfo.texture = engine->iblBaker.brdfLut.is_valid() ? engine->iblBaker.brdfLut : engine->envHdrImage;
+    lutInfo.sampler = engine->iblBaker.brdfLutSampler.is_valid() ? engine->iblBaker.brdfLutSampler : engine->envHdrSampler;
     lutInfo.imageView = INVALID_HANDLE;
     lutInfo.imageLayout = TextureLayout::ShaderReadOnlyOptimal;
 

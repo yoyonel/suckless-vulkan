@@ -2,7 +2,7 @@
 import re
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 
 DOC_FILE = "docs/benchmarking_baseline.md"
 TARGET = "./build/release/unit_tests"
@@ -90,8 +90,13 @@ def run_benchmark():
     ]
 
     print("--- 🚀 Running Perf Benchmark (E2E) ---", file=sys.stderr)
-    result = subprocess.run(
-        cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, env=env, text=True
+    subprocess.run(
+        cmd,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        env=env,
+        text=True,
+        check=False,
     )
 
     log_file = os.path.join(tmp_dir, "runner_app.log")
@@ -158,8 +163,14 @@ def main():
         else 0
     )
 
+    baseline_l1_rate = (
+        (baseline["l1_misses_m"] / (baseline["l1_loads_b"] * 1000)) * 100
+        if baseline["l1_loads_b"] > 0
+        else 0
+    )
+
     today = (
-        datetime.now().strftime("%d %B %Y").replace("August", "Août")
+        datetime.now(timezone.utc).strftime("%d %B %Y").replace("August", "Août")
     )  # basic french conversion
     new_iter = baseline["iter"] + 1
 
@@ -171,7 +182,7 @@ def main():
 
 **Comparatif (vs Baseline du {baseline["date"]} Itération {baseline["iter"]}) :**
 
-- **L1-dcache-load-misses (P-Core)** : **{l1_rate:.2f}%** ({l1_misses_m:.1f} Millions misses / {l1_loads_b:.2f} Milliards loads).
+- **L1-dcache-load-misses (P-Core)** : **{l1_rate:.2f}%** (vs **{baseline_l1_rate:.2f}%** baseline) - ({l1_misses_m:.1f} Millions misses / {l1_loads_b:.2f} Milliards loads).
   - *Évolution* : **{evol_l1:+.0f}%** de L1 misses ({baseline["l1_misses_m"]:.1f}M -> {l1_misses_m:.1f}M).
 - **LLC-loads (Requêtes L2 -> L3)** : **{llc_loads_m:.1f} Millions**.
   - *Évolution* : **{evol_llc_load:+.0f}%** d'accès L3 ({baseline["llc_loads_m"]:.1f}M -> {llc_loads_m:.1f}M).
