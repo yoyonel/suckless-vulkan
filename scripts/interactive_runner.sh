@@ -34,20 +34,32 @@ send_page_down
 echo "[Runner] Changement HDR #2 (Touche Page_Down)..."
 send_page_down
 
-# Tuer vulkan_app
+send_escape() {
+	WID=$(xdotool search --name "Vulkan" 2>/dev/null | tail -1 || true)
+	if [ -n "$WID" ]; then
+		xdotool windowfocus --sync "$WID" 2>/dev/null || true
+		xdotool key Escape
+	else
+		xdotool key Escape
+	fi
+}
+
+# Fermer vulkan_app proprement via la touche Echap
+echo "[Runner] Envoi de Echap pour fermer proprement..."
+send_escape
+
+# Attendre un peu que l'app se ferme
+sleep 2
+
+# Tuer vulkan_app (fallback)
 APP_COMM=$(ps -p $APP_PID -o comm= 2>/dev/null || echo "")
 if [ "$APP_COMM" = "perf" ]; then
 	CHILD=$(pgrep -P "$APP_PID" || echo "")
 	if [ -n "$CHILD" ]; then
 		kill -SIGTERM "$CHILD" 2>/dev/null || true
-		sleep 1
-		kill -SIGKILL "$CHILD" 2>/dev/null || true
 	fi
-	# perf stat finira et écrira ses stats quand l'enfant mourra
 else
 	kill -SIGTERM "$APP_PID" 2>/dev/null || true
-	sleep 1
-	kill -SIGKILL "$APP_PID" 2>/dev/null || true
 fi
 
 echo "[Runner] Attente de la fin du processus pour flush..."
