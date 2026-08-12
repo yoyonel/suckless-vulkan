@@ -171,34 +171,34 @@ ResourceResult save_image_as_hdr(VulkanEngine* engine, VkImage image, uint32_t w
         return ResourceResult::ErrorInvalidFormat;
     }
     uint16_t* halfData = static_cast<uint16_t*>(mappedData);
-    std::vector<float> floatData(static_cast<size_t>(width) * static_cast<size_t>(height) * static_cast<size_t>(channels));
+    size_t numElements = static_cast<size_t>(width) * static_cast<size_t>(height) * static_cast<size_t>(channels);
+    engine->iblBaker.m_exportFloatData.resize(numElements);
 
-    for (size_t i = 0; i < static_cast<size_t>(width) * static_cast<size_t>(height) * static_cast<size_t>(channels); ++i) {
-        floatData[i] = half_to_float(halfData[i]);
+    for (size_t i = 0; i < numElements; ++i) {
+        engine->iblBaker.m_exportFloatData[i] = half_to_float(halfData[i]);
     }
     vmaUnmapMemory(engine->ctx.allocator, readbackAllocation);
 
     int writeChannels = 3;
-    std::vector<float> finalData;
     if (channels == 4) {
-        finalData.resize((size_t)width * height * 3);
+        engine->iblBaker.m_exportFinalData.resize((size_t)width * height * 3);
         for (size_t i = 0; i < (size_t)width * height; ++i) {
-            finalData[(i * 3) + 0] = floatData[(i * 4) + 0];
-            finalData[(i * 3) + 1] = floatData[(i * 4) + 1];
-            finalData[(i * 3) + 2] = floatData[(i * 4) + 2];
+            engine->iblBaker.m_exportFinalData[(i * 3) + 0] = engine->iblBaker.m_exportFloatData[(i * 4) + 0];
+            engine->iblBaker.m_exportFinalData[(i * 3) + 1] = engine->iblBaker.m_exportFloatData[(i * 4) + 1];
+            engine->iblBaker.m_exportFinalData[(i * 3) + 2] = engine->iblBaker.m_exportFloatData[(i * 4) + 2];
         }
     } else if (channels == 2) {
-        finalData.resize((size_t)width * height * 3);
+        engine->iblBaker.m_exportFinalData.resize((size_t)width * height * 3);
         for (size_t i = 0; i < (size_t)width * height; ++i) {
-            finalData[(i * 3) + 0] = floatData[(i * 2) + 0];
-            finalData[(i * 3) + 1] = floatData[(i * 2) + 1];
-            finalData[(i * 3) + 2] = 0.0f;
+            engine->iblBaker.m_exportFinalData[(i * 3) + 0] = engine->iblBaker.m_exportFloatData[(i * 2) + 0];
+            engine->iblBaker.m_exportFinalData[(i * 3) + 1] = engine->iblBaker.m_exportFloatData[(i * 2) + 1];
+            engine->iblBaker.m_exportFinalData[(i * 3) + 2] = 0.0f;
         }
     } else {
-        finalData = std::move(floatData);
+        engine->iblBaker.m_exportFinalData = engine->iblBaker.m_exportFloatData;
     }
 
-    bool ok = stbi_write_hdr(filename, (int)width, (int)height, writeChannels, finalData.data());
+    bool ok = stbi_write_hdr(filename, (int)width, (int)height, writeChannels, engine->iblBaker.m_exportFinalData.data());
     vmaDestroyBuffer(engine->ctx.allocator, readbackBuffer, readbackAllocation);
     return ok ? ResourceResult::Success : ResourceResult::ErrorInvalidFormat;
 }
