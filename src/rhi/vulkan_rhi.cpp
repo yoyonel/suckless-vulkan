@@ -384,7 +384,7 @@ static VkDescriptorType MapDescriptorType(DescriptorType type) {
 }
 
 DescriptorLayoutHandle VulkanRHI::CreateDescriptorLayout(const DescriptorLayoutDesc& desc, const char* name) {
-    std::vector<VkDescriptorSetLayoutBinding> vkBindings(desc.bindingCount);
+    VkDescriptorSetLayoutBinding* vkBindings = static_cast<VkDescriptorSetLayoutBinding*>(__builtin_alloca(desc.bindingCount * sizeof(VkDescriptorSetLayoutBinding)));
     for (uint32_t i = 0; i < desc.bindingCount; ++i) {
         vkBindings[i].binding = desc.bindings[i].binding;
         vkBindings[i].descriptorType = MapDescriptorType(desc.bindings[i].descriptorType);
@@ -396,7 +396,7 @@ DescriptorLayoutHandle VulkanRHI::CreateDescriptorLayout(const DescriptorLayoutD
     VkDescriptorSetLayoutCreateInfo info{};
     info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
     info.bindingCount = desc.bindingCount;
-    info.pBindings = vkBindings.data();
+    info.pBindings = vkBindings;
 
     VulkanDescriptorLayout layout;
     if (vkCreateDescriptorSetLayout(_engine->ctx.device, &info, nullptr, &layout.layout) != VK_SUCCESS) {
@@ -424,7 +424,7 @@ void VulkanRHI::DestroyDescriptorLayout(DescriptorLayoutHandle handle) {
 }
 
 DescriptorPoolHandle VulkanRHI::CreateDescriptorPool(const DescriptorPoolDesc& desc, const char* name) {
-    std::vector<VkDescriptorPoolSize> vkPoolSizes(desc.poolSizeCount);
+    VkDescriptorPoolSize* vkPoolSizes = static_cast<VkDescriptorPoolSize*>(__builtin_alloca(desc.poolSizeCount * sizeof(VkDescriptorPoolSize)));
     for (uint32_t i = 0; i < desc.poolSizeCount; ++i) {
         vkPoolSizes[i].type = MapDescriptorType(desc.poolSizes[i].type);
         vkPoolSizes[i].descriptorCount = desc.poolSizes[i].descriptorCount;
@@ -433,7 +433,7 @@ DescriptorPoolHandle VulkanRHI::CreateDescriptorPool(const DescriptorPoolDesc& d
     VkDescriptorPoolCreateInfo info{};
     info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     info.poolSizeCount = desc.poolSizeCount;
-    info.pPoolSizes = vkPoolSizes.data();
+    info.pPoolSizes = vkPoolSizes;
     info.maxSets = desc.maxSets;
 
     VulkanDescriptorPool pool;
@@ -464,7 +464,7 @@ void VulkanRHI::DestroyDescriptorPool(DescriptorPoolHandle handle) {
 RHIResult VulkanRHI::AllocateDescriptorSets(const DescriptorSetAllocateDesc& desc, DescriptorSetHandle* outSets) {
     if (desc.pool == INVALID_HANDLE || desc.pool >= m_descriptorPools.size()) return RHIResult::ErrorInitializationFailed;
     
-    std::vector<VkDescriptorSetLayout> vkLayouts(desc.setCount);
+    VkDescriptorSetLayout* vkLayouts = static_cast<VkDescriptorSetLayout*>(__builtin_alloca(desc.setCount * sizeof(VkDescriptorSetLayout)));
     for (uint32_t i = 0; i < desc.setCount; ++i) {
         if (desc.layouts[i] == INVALID_HANDLE || desc.layouts[i] >= m_descriptorLayouts.size()) return RHIResult::ErrorInitializationFailed;
         vkLayouts[i] = m_descriptorLayouts[desc.layouts[i]].layout;
@@ -474,10 +474,10 @@ RHIResult VulkanRHI::AllocateDescriptorSets(const DescriptorSetAllocateDesc& des
     ai.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
     ai.descriptorPool = m_descriptorPools[desc.pool].pool;
     ai.descriptorSetCount = desc.setCount;
-    ai.pSetLayouts = vkLayouts.data();
+    ai.pSetLayouts = vkLayouts;
 
-    std::vector<VkDescriptorSet> vkSets(desc.setCount);
-    if (vkAllocateDescriptorSets(_engine->ctx.device, &ai, vkSets.data()) != VK_SUCCESS) {
+    VkDescriptorSet* vkSets = static_cast<VkDescriptorSet*>(__builtin_alloca(desc.setCount * sizeof(VkDescriptorSet)));
+    if (vkAllocateDescriptorSets(_engine->ctx.device, &ai, vkSets) != VK_SUCCESS) {
         return RHIResult::ErrorOutOfMemory;
     }
 
@@ -826,28 +826,24 @@ CommandBufferHandle VulkanRHI::GetOpaqueCommandBuffer() const {
 }
 
 PipelineLayoutHandle VulkanRHI::CreatePipelineLayout(const PipelineLayoutDesc& desc, const char* name) {
-    std::vector<VkDescriptorSetLayout> vkLayouts;
-    vkLayouts.reserve(desc.layoutCount);
+    VkDescriptorSetLayout* vkLayouts = static_cast<VkDescriptorSetLayout*>(__builtin_alloca(desc.layoutCount * sizeof(VkDescriptorSetLayout)));
     for (uint32_t i = 0; i < desc.layoutCount; ++i) {
-        vkLayouts.push_back(GetVkDescriptorSetLayout(desc.layouts[i]));
+        vkLayouts[i] = GetVkDescriptorSetLayout(desc.layouts[i]);
     }
 
-    std::vector<VkPushConstantRange> vkPushConstants;
-    vkPushConstants.reserve(desc.pushConstantCount);
+    VkPushConstantRange* vkPushConstants = static_cast<VkPushConstantRange*>(__builtin_alloca(desc.pushConstantCount * sizeof(VkPushConstantRange)));
     for (uint32_t i = 0; i < desc.pushConstantCount; ++i) {
-        VkPushConstantRange pc{};
-        pc.stageFlags = (VkShaderStageFlags)desc.pushConstants[i].stageFlags; // cast matches
-        pc.offset = desc.pushConstants[i].offset;
-        pc.size = desc.pushConstants[i].size;
-        vkPushConstants.push_back(pc);
+        vkPushConstants[i].stageFlags = (VkShaderStageFlags)desc.pushConstants[i].stageFlags;
+        vkPushConstants[i].offset = desc.pushConstants[i].offset;
+        vkPushConstants[i].size = desc.pushConstants[i].size;
     }
 
     VkPipelineLayoutCreateInfo info{};
     info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    info.setLayoutCount = (uint32_t)vkLayouts.size();
-    info.pSetLayouts = vkLayouts.data();
-    info.pushConstantRangeCount = (uint32_t)vkPushConstants.size();
-    info.pPushConstantRanges = vkPushConstants.data();
+    info.setLayoutCount = (uint32_t)desc.layoutCount;
+    info.pSetLayouts = vkLayouts;
+    info.pushConstantRangeCount = (uint32_t)desc.pushConstantCount;
+    info.pPushConstantRanges = vkPushConstants;
 
     VkPipelineLayout layout = VK_NULL_HANDLE;
     if (vkCreatePipelineLayout(_engine->ctx.device, &info, nullptr, &layout) != VK_SUCCESS) {
@@ -964,14 +960,14 @@ PipelineHandle VulkanRHI::CreateGraphicsPipeline(const GraphicsPipelineDesc& des
     stages[1].module = fsm;
     stages[1].pName = "main";
 
-    std::vector<VkVertexInputBindingDescription> bindings(desc.vertexBindingCount);
+    VkVertexInputBindingDescription* bindings = static_cast<VkVertexInputBindingDescription*>(__builtin_alloca(desc.vertexBindingCount * sizeof(VkVertexInputBindingDescription)));
     for(uint32_t i=0; i<desc.vertexBindingCount; ++i) {
         bindings[i].binding = desc.vertexBindings[i].binding;
         bindings[i].stride = desc.vertexBindings[i].stride;
         bindings[i].inputRate = desc.vertexBindings[i].isInstance ? VK_VERTEX_INPUT_RATE_INSTANCE : VK_VERTEX_INPUT_RATE_VERTEX;
     }
 
-    std::vector<VkVertexInputAttributeDescription> attrs(desc.vertexAttributeCount);
+    VkVertexInputAttributeDescription* attrs = static_cast<VkVertexInputAttributeDescription*>(__builtin_alloca(desc.vertexAttributeCount * sizeof(VkVertexInputAttributeDescription)));
     for(uint32_t i=0; i<desc.vertexAttributeCount; ++i) {
         attrs[i].location = desc.vertexAttributes[i].location;
         attrs[i].binding = desc.vertexAttributes[i].binding;
@@ -989,10 +985,10 @@ PipelineHandle VulkanRHI::CreateGraphicsPipeline(const GraphicsPipelineDesc& des
 
     VkPipelineVertexInputStateCreateInfo vi{};
     vi.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    vi.vertexBindingDescriptionCount = (uint32_t)bindings.size();
-    vi.pVertexBindingDescriptions = bindings.data();
-    vi.vertexAttributeDescriptionCount = (uint32_t)attrs.size();
-    vi.pVertexAttributeDescriptions = attrs.data();
+    vi.vertexBindingDescriptionCount = desc.vertexBindingCount;
+    vi.pVertexBindingDescriptions = bindings;
+    vi.vertexAttributeDescriptionCount = desc.vertexAttributeCount;
+    vi.pVertexAttributeDescriptions = attrs;
 
     VkPipelineInputAssemblyStateCreateInfo ia{};
     ia.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
