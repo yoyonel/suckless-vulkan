@@ -101,6 +101,9 @@ class IblBaker {
     std::vector<rhi::SamplerPtr> pendingOldSamplers;
     std::vector<VkBuffer> pendingStagingBuffers;
     std::vector<VmaAllocation> pendingStagingAllocations;
+
+    mutable std::vector<float> m_exportFloatData;
+    mutable std::vector<float> m_exportFinalData;
 };
 
 void vk_ibl_bake_luminance(VulkanEngine* engine);
