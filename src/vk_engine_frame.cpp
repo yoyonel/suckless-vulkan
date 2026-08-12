@@ -88,18 +88,13 @@ GfxResult vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recre
     uboData.windowSize = glm::vec4(static_cast<float>(renderWidth), static_cast<float>(renderHeight), 0.0f, 0.0f);
 
     if (engine->transformBufferMapped && core.scene.instancePositions) {
-        glm::mat4* transforms = static_cast<glm::mat4*>(engine->transformBufferMapped);
+        glm::vec4* transforms = static_cast<glm::vec4*>(engine->transformBufferMapped);
         const glm::vec3* __restrict positions = static_cast<const glm::vec3*>(__builtin_assume_aligned(core.scene.instancePositions, 64));
-        const glm::mat4 baseModelRot = uboData.modelRotation;
         const uint32_t count = core.scene.instanceCount;
 
         for (uint32_t i = 0; i < count; ++i) {
             __builtin_prefetch(&positions[i + 8], 0, 1);
-            glm::mat4 t = baseModelRot;
-            t[3][0] = positions[i].x;
-            t[3][1] = positions[i].y;
-            t[3][2] = positions[i].z;
-            transforms[i] = t;
+            transforms[i] = glm::vec4(positions[i], 1.0f);
         }
     }
 
@@ -227,6 +222,7 @@ GfxResult vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recre
             return recreateSwapchain(engine);
         }
         const GfxResult statusMap[3] = {GfxResult::Success, GfxResult::ErrorInitializationFailed, GfxResult::ErrorInitializationFailed};
+        engine->totalFramesRendered++;
         return statusMap[static_cast<uint8_t>(status)];
     }
 }
