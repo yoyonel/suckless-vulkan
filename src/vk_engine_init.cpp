@@ -140,9 +140,9 @@ template <typename Handle, typename DestroyFn> void destroy_device_handle(VkDevi
 }
 
 void cleanup_sync_objects(VulkanEngine* engine) {
-    destroy_device_handle(engine->device, engine->renderFinishedSemaphore, vkDestroySemaphore);
-    destroy_device_handle(engine->device, engine->imageAvailableSemaphore, vkDestroySemaphore);
-    destroy_device_handle(engine->device, engine->inFlightFence, vkDestroyFence);
+    destroy_device_handle(engine->ctx.device, engine->renderFinishedSemaphore, vkDestroySemaphore);
+    destroy_device_handle(engine->ctx.device, engine->imageAvailableSemaphore, vkDestroySemaphore);
+    destroy_device_handle(engine->ctx.device, engine->inFlightFence, vkDestroyFence);
 }
 
 void cleanup_descriptor_resources(VulkanEngine* /*engine*/) {}
@@ -159,10 +159,10 @@ void cleanup_buffer_resources(VulkanEngine* engine) {
 
 void cleanup_render_resources(VulkanEngine* engine) {
     engine->swapchainMgr.cleanup_dependent_resources(engine);
-    destroy_device_handle(engine->device, engine->renderPass, vkDestroyRenderPass);
-    destroy_device_handle(engine->device, engine->transferCompleteSemaphore, vkDestroySemaphore);
-    destroy_device_handle(engine->device, engine->transferCommandPool, vkDestroyCommandPool);
-    destroy_device_handle(engine->device, engine->commandPool, vkDestroyCommandPool);
+    destroy_device_handle(engine->ctx.device, engine->renderPass, vkDestroyRenderPass);
+    destroy_device_handle(engine->ctx.device, engine->ctx.transferCompleteSemaphore, vkDestroySemaphore);
+    destroy_device_handle(engine->ctx.device, engine->ctx.transferCommandPool, vkDestroyCommandPool);
+    destroy_device_handle(engine->ctx.device, engine->ctx.commandPool, vkDestroyCommandPool);
 }
 
 void cleanup_raii_resources(VulkanEngine* engine) {
@@ -198,24 +198,24 @@ void cleanup_raii_resources(VulkanEngine* engine) {
 
 void cleanup_core_resources(VulkanEngine* engine) {
     cleanup_raii_resources(engine);
-    if (engine->allocator != VK_NULL_HANDLE) {
-        vmaDestroyAllocator(engine->allocator);
-        engine->allocator = VK_NULL_HANDLE;
+    if (engine->ctx.allocator != VK_NULL_HANDLE) {
+        vmaDestroyAllocator(engine->ctx.allocator);
+        engine->ctx.allocator = VK_NULL_HANDLE;
     }
 
-    if (engine->device != VK_NULL_HANDLE) {
-        vkDestroyDevice(engine->device, nullptr);
-        engine->device = VK_NULL_HANDLE;
+    if (engine->ctx.device != VK_NULL_HANDLE) {
+        vkDestroyDevice(engine->ctx.device, nullptr);
+        engine->ctx.device = VK_NULL_HANDLE;
     }
 
-    if (engine->instance != VK_NULL_HANDLE && engine->surface != VK_NULL_HANDLE) {
-        vkDestroySurfaceKHR(engine->instance, engine->surface, nullptr);
-        engine->surface = VK_NULL_HANDLE;
+    if (engine->ctx.instance != VK_NULL_HANDLE && engine->ctx.surface != VK_NULL_HANDLE) {
+        vkDestroySurfaceKHR(engine->ctx.instance, engine->ctx.surface, nullptr);
+        engine->ctx.surface = VK_NULL_HANDLE;
     }
 
-    if (engine->instance != VK_NULL_HANDLE) {
-        vkDestroyInstance(engine->instance, nullptr);
-        engine->instance = VK_NULL_HANDLE;
+    if (engine->ctx.instance != VK_NULL_HANDLE) {
+        vkDestroyInstance(engine->ctx.instance, nullptr);
+        engine->ctx.instance = VK_NULL_HANDLE;
     }
 }
 
@@ -238,28 +238,29 @@ GfxResult select_physical_device(VulkanEngine* engine, const std::vector<VkPhysi
             continue;
         }
 
-        queueSelection = find_queue_families(physicalDevice, engine->surface);
+        queueSelection = find_queue_families(physicalDevice, engine->ctx.surface);
         if (!queueSelection.isComplete()) {
             continue;
         }
 
-        if (device_supports_swapchain(physicalDevice, engine->surface) != GfxResult::Success) {
+        if (device_supports_swapchain(physicalDevice, engine->ctx.surface) != GfxResult::Success) {
             continue;
         }
 
-        engine->physicalDevice = physicalDevice;
-        engine->graphicsQueueFamilyIndex = queueSelection.graphicsFamily;
-        engine->presentQueueFamilyIndex = queueSelection.presentFamily;
-        engine->transferQueueFamilyIndex = queueSelection.transferFamily;
-        engine->computeQueueFamilyIndex = queueSelection.computeFamily;
+        engine->ctx.physicalDevice = physicalDevice;
+        engine->ctx.graphicsQueueFamilyIndex = queueSelection.graphicsFamily;
+        engine->ctx.presentQueueFamilyIndex = queueSelection.presentFamily;
+        engine->ctx.transferQueueFamilyIndex = queueSelection.transferFamily;
+        engine->ctx.computeQueueFamilyIndex = queueSelection.computeFamily;
 
-        engine->isUMA = is_uma_architecture(physicalDevice);
+        engine->ctx.isUMA = is_uma_architecture(physicalDevice);
 
-        if (engine->transferQueueFamilyIndex != engine->graphicsQueueFamilyIndex && engine->transferQueueFamilyIndex != engine->computeQueueFamilyIndex) {
-            engine->hasDedicatedTransferQueue = true;
+        if (engine->ctx.transferQueueFamilyIndex != engine->ctx.graphicsQueueFamilyIndex &&
+            engine->ctx.transferQueueFamilyIndex != engine->ctx.computeQueueFamilyIndex) {
+            engine->ctx.hasDedicatedTransferQueue = true;
         }
-        if (engine->computeQueueFamilyIndex != engine->graphicsQueueFamilyIndex) {
-            engine->hasDedicatedComputeQueue = true;
+        if (engine->ctx.computeQueueFamilyIndex != engine->ctx.graphicsQueueFamilyIndex) {
+            engine->ctx.hasDedicatedComputeQueue = true;
         }
         return GfxResult::Success;
     }
@@ -290,17 +291,17 @@ GfxResult init_core(VulkanEngine* engine) {
     createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
     createInfo.ppEnabledExtensionNames = extensions.data();
 
-    if (vkCreateInstance(&createInfo, NULL, &engine->instance) != VK_SUCCESS)
+    if (vkCreateInstance(&createInfo, NULL, &engine->ctx.instance) != VK_SUCCESS)
         return GfxResult::ErrorInitializationFailed;
-    if (glfwCreateWindowSurface(engine->instance, engine->appState->window, NULL, &engine->surface) != VK_SUCCESS)
+    if (glfwCreateWindowSurface(engine->ctx.instance, engine->appState->window, NULL, &engine->ctx.surface) != VK_SUCCESS)
         return GfxResult::ErrorInitializationFailed;
 
     uint32_t deviceCount = 0;
-    if (vkEnumeratePhysicalDevices(engine->instance, &deviceCount, NULL) != VK_SUCCESS || deviceCount == 0) {
+    if (vkEnumeratePhysicalDevices(engine->ctx.instance, &deviceCount, NULL) != VK_SUCCESS || deviceCount == 0) {
         return GfxResult::ErrorInitializationFailed;
     }
     std::vector<VkPhysicalDevice> devices(deviceCount);
-    if (vkEnumeratePhysicalDevices(engine->instance, &deviceCount, devices.data()) != VK_SUCCESS) {
+    if (vkEnumeratePhysicalDevices(engine->ctx.instance, &deviceCount, devices.data()) != VK_SUCCESS) {
         return GfxResult::ErrorInitializationFailed;
     }
 
@@ -312,16 +313,16 @@ GfxResult init_core(VulkanEngine* engine) {
     VkDeviceQueueCreateInfo queueInfos[4] = {};
     uint32_t queueInfoCount = 0;
 
-    std::vector<uint32_t> uniqueQueueFamilies = {engine->graphicsQueueFamilyIndex};
+    std::vector<uint32_t> uniqueQueueFamilies = {engine->ctx.graphicsQueueFamilyIndex};
 
     auto add_unique = [&](uint32_t qf) {
         if (std::find(uniqueQueueFamilies.begin(), uniqueQueueFamilies.end(), qf) == uniqueQueueFamilies.end()) {
             uniqueQueueFamilies.push_back(qf);
         }
     };
-    add_unique(engine->presentQueueFamilyIndex);
-    add_unique(engine->transferQueueFamilyIndex);
-    add_unique(engine->computeQueueFamilyIndex);
+    add_unique(engine->ctx.presentQueueFamilyIndex);
+    add_unique(engine->ctx.transferQueueFamilyIndex);
+    add_unique(engine->ctx.computeQueueFamilyIndex);
 
     for (uint32_t qf : uniqueQueueFamilies) {
         queueInfos[queueInfoCount].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
@@ -352,43 +353,43 @@ GfxResult init_core(VulkanEngine* engine) {
     deviceInfo.ppEnabledExtensionNames = deviceExt;
     deviceInfo.pEnabledFeatures = nullptr;
 
-    if (vkCreateDevice(engine->physicalDevice, &deviceInfo, NULL, &engine->device) != VK_SUCCESS)
+    if (vkCreateDevice(engine->ctx.physicalDevice, &deviceInfo, NULL, &engine->ctx.device) != VK_SUCCESS)
         return GfxResult::ErrorInitializationFailed;
-    vk_set_object_name(engine->device, (uint64_t)engine->device, VK_OBJECT_TYPE_DEVICE, "Logical_Device");
+    vk_set_object_name(engine->ctx.device, (uint64_t)engine->ctx.device, VK_OBJECT_TYPE_DEVICE, "Logical_Device");
 
     VkPhysicalDeviceProperties props;
-    vkGetPhysicalDeviceProperties(engine->physicalDevice, &props);
+    vkGetPhysicalDeviceProperties(engine->ctx.physicalDevice, &props);
     const uint32_t v = props.driverVersion;
     LOG_INFO("suckless-vulkan.window", "Context Version: %u.%u", VK_API_VERSION_MAJOR(props.apiVersion), VK_API_VERSION_MINOR(props.apiVersion));
     LOG_INFO("suckless-vulkan.window", "Renderer: %s", props.deviceName);
     LOG_INFO("suckless-vulkan.window", "Version: %u.%u.%u (Driver)", VK_API_VERSION_MAJOR(v), VK_API_VERSION_MINOR(v), VK_API_VERSION_PATCH(v));
-    LOG_INFO("suckless-vulkan.window", "Architecture UMA: %s", engine->isUMA ? "Yes" : "No");
-    LOG_INFO("suckless-vulkan.window", "Dedicated Transfer Queue: %s (Family %u)", engine->hasDedicatedTransferQueue ? "Yes" : "No",
-             engine->transferQueueFamilyIndex);
-    LOG_INFO("suckless-vulkan.window", "Dedicated Compute Queue: %s (Family %u)", engine->hasDedicatedComputeQueue ? "Yes" : "No",
-             engine->computeQueueFamilyIndex);
+    LOG_INFO("suckless-vulkan.window", "Architecture UMA: %s", engine->ctx.isUMA ? "Yes" : "No");
+    LOG_INFO("suckless-vulkan.window", "Dedicated Transfer Queue: %s (Family %u)", engine->ctx.hasDedicatedTransferQueue ? "Yes" : "No",
+             engine->ctx.transferQueueFamilyIndex);
+    LOG_INFO("suckless-vulkan.window", "Dedicated Compute Queue: %s (Family %u)", engine->ctx.hasDedicatedComputeQueue ? "Yes" : "No",
+             engine->ctx.computeQueueFamilyIndex);
 
-    vkGetDeviceQueue(engine->device, engine->graphicsQueueFamilyIndex, 0, &engine->graphicsQueue);
-    vkGetDeviceQueue(engine->device, engine->presentQueueFamilyIndex, 0, &engine->presentQueue);
-    vkGetDeviceQueue(engine->device, engine->transferQueueFamilyIndex, 0, &engine->transferQueue);
-    vkGetDeviceQueue(engine->device, engine->computeQueueFamilyIndex, 0, &engine->computeQueue);
+    vkGetDeviceQueue(engine->ctx.device, engine->ctx.graphicsQueueFamilyIndex, 0, &engine->ctx.graphicsQueue);
+    vkGetDeviceQueue(engine->ctx.device, engine->ctx.presentQueueFamilyIndex, 0, &engine->ctx.presentQueue);
+    vkGetDeviceQueue(engine->ctx.device, engine->ctx.transferQueueFamilyIndex, 0, &engine->ctx.transferQueue);
+    vkGetDeviceQueue(engine->ctx.device, engine->ctx.computeQueueFamilyIndex, 0, &engine->ctx.computeQueue);
 
-    vk_set_object_name(engine->device, (uint64_t)engine->graphicsQueue, VK_OBJECT_TYPE_QUEUE, "Graphics_Queue");
-    vk_set_object_name(engine->device, (uint64_t)engine->presentQueue, VK_OBJECT_TYPE_QUEUE, "Present_Queue");
-    if (engine->hasDedicatedTransferQueue)
-        vk_set_object_name(engine->device, (uint64_t)engine->transferQueue, VK_OBJECT_TYPE_QUEUE, "Transfer_Queue");
-    if (engine->hasDedicatedComputeQueue)
-        vk_set_object_name(engine->device, (uint64_t)engine->computeQueue, VK_OBJECT_TYPE_QUEUE, "Compute_Queue");
+    vk_set_object_name(engine->ctx.device, (uint64_t)engine->ctx.graphicsQueue, VK_OBJECT_TYPE_QUEUE, "Graphics_Queue");
+    vk_set_object_name(engine->ctx.device, (uint64_t)engine->ctx.presentQueue, VK_OBJECT_TYPE_QUEUE, "Present_Queue");
+    if (engine->ctx.hasDedicatedTransferQueue)
+        vk_set_object_name(engine->ctx.device, (uint64_t)engine->ctx.transferQueue, VK_OBJECT_TYPE_QUEUE, "Transfer_Queue");
+    if (engine->ctx.hasDedicatedComputeQueue)
+        vk_set_object_name(engine->ctx.device, (uint64_t)engine->ctx.computeQueue, VK_OBJECT_TYPE_QUEUE, "Compute_Queue");
 
     return GfxResult::Success;
 }
 
 GfxResult init_allocator(VulkanEngine* engine) {
     VmaAllocatorCreateInfo allocatorInfo{};
-    allocatorInfo.physicalDevice = engine->physicalDevice;
-    allocatorInfo.device = engine->device;
-    allocatorInfo.instance = engine->instance;
-    return (vmaCreateAllocator(&allocatorInfo, &engine->allocator) == VK_SUCCESS) ? GfxResult::Success : GfxResult::ErrorInitializationFailed;
+    allocatorInfo.physicalDevice = engine->ctx.physicalDevice;
+    allocatorInfo.device = engine->ctx.device;
+    allocatorInfo.instance = engine->ctx.instance;
+    return (vmaCreateAllocator(&allocatorInfo, &engine->ctx.allocator) == VK_SUCCESS) ? GfxResult::Success : GfxResult::ErrorInitializationFailed;
 }
 
 GfxResult init_render_pass(VulkanEngine* engine) {
@@ -423,9 +424,9 @@ GfxResult init_render_pass(VulkanEngine* engine) {
     rpInfo.subpassCount = 1;
     rpInfo.pSubpasses = &subpass;
 
-    if (vkCreateRenderPass(engine->device, &rpInfo, NULL, &engine->renderPass) != VK_SUCCESS)
+    if (vkCreateRenderPass(engine->ctx.device, &rpInfo, NULL, &engine->renderPass) != VK_SUCCESS)
         return GfxResult::ErrorInitializationFailed;
-    vk_set_object_name(engine->device, (uint64_t)engine->renderPass, VK_OBJECT_TYPE_RENDER_PASS, "Main_RenderPass");
+    vk_set_object_name(engine->ctx.device, (uint64_t)engine->renderPass, VK_OBJECT_TYPE_RENDER_PASS, "Main_RenderPass");
 
     for (uint32_t i = 0; i < engine->swapchainMgr.imageCount; i++) {
         VkImageView depthImageView = ((VulkanRHI*)engine->appState->rhi)->GetVkImageView(engine->swapchainMgr.depthImage);
@@ -438,11 +439,11 @@ GfxResult init_render_pass(VulkanEngine* engine) {
         fbInfo.width = engine->swapchainMgr.swapchainExtent.width;
         fbInfo.height = engine->swapchainMgr.swapchainExtent.height;
         fbInfo.layers = 1;
-        if (vkCreateFramebuffer(engine->device, &fbInfo, NULL, &engine->swapchainMgr.swapchainFramebuffers[i]) != VK_SUCCESS) {
+        if (vkCreateFramebuffer(engine->ctx.device, &fbInfo, NULL, &engine->swapchainMgr.swapchainFramebuffers[i]) != VK_SUCCESS) {
             return GfxResult::ErrorInitializationFailed;
         }
         const std::string framebufferName = "Swapchain_Framebuffer_" + std::to_string(i);
-        vk_set_object_name(engine->device, (uint64_t)engine->swapchainMgr.swapchainFramebuffers[i], VK_OBJECT_TYPE_FRAMEBUFFER, framebufferName.c_str());
+        vk_set_object_name(engine->ctx.device, (uint64_t)engine->swapchainMgr.swapchainFramebuffers[i], VK_OBJECT_TYPE_FRAMEBUFFER, framebufferName.c_str());
     }
     return GfxResult::Success;
 }
@@ -588,6 +589,7 @@ GfxResult create_debug_pipelines(VulkanEngine* engine) {
 
     desc.topology = Topology::TriangleList;
     desc.polygonMode = PolygonMode::Fill;
+    desc.cullMode = CullMode::Back;
     desc.colorBlendEnable = true;
     desc.debugName = "Debug_Triangle_Pipeline";
     engine->debugTrianglePipeline.Reset(engine->appState->rhi, engine->appState->rhi->CreateGraphicsPipeline(desc));
@@ -711,29 +713,29 @@ GfxResult init_buffers(VulkanEngine* engine) {
     VkCommandPoolCreateInfo cpIn{};
     cpIn.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
     cpIn.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-    cpIn.queueFamilyIndex = engine->graphicsQueueFamilyIndex;
-    if (vkCreateCommandPool(engine->device, &cpIn, nullptr, &engine->commandPool) != VK_SUCCESS) {
+    cpIn.queueFamilyIndex = engine->ctx.graphicsQueueFamilyIndex;
+    if (vkCreateCommandPool(engine->ctx.device, &cpIn, nullptr, &engine->ctx.commandPool) != VK_SUCCESS) {
         return GfxResult::ErrorInitializationFailed;
     }
 
-    if (engine->hasDedicatedTransferQueue) {
+    if (engine->ctx.hasDedicatedTransferQueue) {
         VkCommandPoolCreateInfo tcpIn{};
         tcpIn.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
         tcpIn.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT | VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
-        tcpIn.queueFamilyIndex = engine->transferQueueFamilyIndex;
-        if (vkCreateCommandPool(engine->device, &tcpIn, nullptr, &engine->transferCommandPool) != VK_SUCCESS) {
+        tcpIn.queueFamilyIndex = engine->ctx.transferQueueFamilyIndex;
+        if (vkCreateCommandPool(engine->ctx.device, &tcpIn, nullptr, &engine->ctx.transferCommandPool) != VK_SUCCESS) {
             return GfxResult::ErrorInitializationFailed;
         }
-        vk_set_object_name(engine->device, (uint64_t)engine->transferCommandPool, VK_OBJECT_TYPE_COMMAND_POOL, "Transfer_CommandPool");
+        vk_set_object_name(engine->ctx.device, (uint64_t)engine->ctx.transferCommandPool, VK_OBJECT_TYPE_COMMAND_POOL, "Transfer_CommandPool");
 
         VkSemaphoreCreateInfo semInfo{};
         semInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-        if (vkCreateSemaphore(engine->device, &semInfo, nullptr, &engine->transferCompleteSemaphore) != VK_SUCCESS) {
+        if (vkCreateSemaphore(engine->ctx.device, &semInfo, nullptr, &engine->ctx.transferCompleteSemaphore) != VK_SUCCESS) {
             return GfxResult::ErrorInitializationFailed;
         }
-        vk_set_object_name(engine->device, (uint64_t)engine->transferCompleteSemaphore, VK_OBJECT_TYPE_SEMAPHORE, "Transfer_CompleteSemaphore");
+        vk_set_object_name(engine->ctx.device, (uint64_t)engine->ctx.transferCompleteSemaphore, VK_OBJECT_TYPE_SEMAPHORE, "Transfer_CompleteSemaphore");
     }
-    vk_set_object_name(engine->device, (uint64_t)engine->commandPool, VK_OBJECT_TYPE_COMMAND_POOL, "Main_Command_Pool");
+    vk_set_object_name(engine->ctx.device, (uint64_t)engine->ctx.commandPool, VK_OBJECT_TYPE_COMMAND_POOL, "Main_Command_Pool");
 
     std::vector<glm::vec3> instancePositions;
     GfxResult success = GfxResult::Success;
@@ -768,7 +770,7 @@ GfxResult init_descriptor_pool_and_sets(VulkanEngine* engine) {
         return GfxResult::ErrorInitializationFailed;
     }
     VkDescriptorSet vkSet = ((VulkanRHI*)engine->appState->rhi)->GetVkDescriptorSet(engine->descriptorSet);
-    vk_set_object_name(engine->device, (uint64_t)vkSet, VK_OBJECT_TYPE_DESCRIPTOR_SET, "Global_Descriptor_Set");
+    vk_set_object_name(engine->ctx.device, (uint64_t)vkSet, VK_OBJECT_TYPE_DESCRIPTOR_SET, "Global_Descriptor_Set");
 
     DescriptorBufferInfo bi{};
     bi.buffer = engine->uniformBuffer;
@@ -925,13 +927,13 @@ GfxResult init_descriptor_pool_and_sets(VulkanEngine* engine) {
 GfxResult init_commands_and_sync(VulkanEngine* engine) {
     VkCommandBufferAllocateInfo ai{};
     ai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    ai.commandPool = engine->commandPool;
+    ai.commandPool = engine->ctx.commandPool;
     ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     ai.commandBufferCount = 1;
-    if (vkAllocateCommandBuffers(engine->device, &ai, &engine->commandBuffer) != VK_SUCCESS) {
+    if (vkAllocateCommandBuffers(engine->ctx.device, &ai, &engine->commandBuffer) != VK_SUCCESS) {
         return GfxResult::ErrorInitializationFailed;
     }
-    vk_set_object_name(engine->device, (uint64_t)engine->commandBuffer, VK_OBJECT_TYPE_COMMAND_BUFFER, "Main_CommandBuffer");
+    vk_set_object_name(engine->ctx.device, (uint64_t)engine->commandBuffer, VK_OBJECT_TYPE_COMMAND_BUFFER, "Main_CommandBuffer");
 
     VkSemaphoreCreateInfo si{};
     si.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -939,18 +941,18 @@ GfxResult init_commands_and_sync(VulkanEngine* engine) {
     fi.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
     fi.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
-    if (vkCreateSemaphore(engine->device, &si, nullptr, &engine->imageAvailableSemaphore) != VK_SUCCESS) {
+    if (vkCreateSemaphore(engine->ctx.device, &si, nullptr, &engine->imageAvailableSemaphore) != VK_SUCCESS) {
         return GfxResult::ErrorInitializationFailed;
     }
-    vk_set_object_name(engine->device, (uint64_t)engine->imageAvailableSemaphore, VK_OBJECT_TYPE_SEMAPHORE, "Image_Available_Semaphore");
-    if (vkCreateSemaphore(engine->device, &si, nullptr, &engine->renderFinishedSemaphore) != VK_SUCCESS) {
+    vk_set_object_name(engine->ctx.device, (uint64_t)engine->imageAvailableSemaphore, VK_OBJECT_TYPE_SEMAPHORE, "Image_Available_Semaphore");
+    if (vkCreateSemaphore(engine->ctx.device, &si, nullptr, &engine->renderFinishedSemaphore) != VK_SUCCESS) {
         return GfxResult::ErrorInitializationFailed;
     }
-    vk_set_object_name(engine->device, (uint64_t)engine->renderFinishedSemaphore, VK_OBJECT_TYPE_SEMAPHORE, "Render_Finished_Semaphore");
-    if (vkCreateFence(engine->device, &fi, nullptr, &engine->inFlightFence) != VK_SUCCESS) {
+    vk_set_object_name(engine->ctx.device, (uint64_t)engine->renderFinishedSemaphore, VK_OBJECT_TYPE_SEMAPHORE, "Render_Finished_Semaphore");
+    if (vkCreateFence(engine->ctx.device, &fi, nullptr, &engine->inFlightFence) != VK_SUCCESS) {
         return GfxResult::ErrorInitializationFailed;
     }
-    vk_set_object_name(engine->device, (uint64_t)engine->inFlightFence, VK_OBJECT_TYPE_FENCE, "Main_Render_Fence");
+    vk_set_object_name(engine->ctx.device, (uint64_t)engine->inFlightFence, VK_OBJECT_TYPE_FENCE, "Main_Render_Fence");
     return GfxResult::Success;
 }
 
@@ -967,12 +969,12 @@ GfxResult vk_recreate_swapchain(VulkanEngine* engine) {
         glfwGetFramebufferSize(engine->appState->window, &width, &height);
     }
 
-    if (vkDeviceWaitIdle(engine->device) != VK_SUCCESS) {
+    if (vkDeviceWaitIdle(engine->ctx.device) != VK_SUCCESS) {
         return GfxResult::ErrorInitializationFailed;
     }
 
     engine->swapchainMgr.cleanup_dependent_resources(engine);
-    destroy_device_handle(engine->device, engine->renderPass, vkDestroyRenderPass);
+    destroy_device_handle(engine->ctx.device, engine->renderPass, vkDestroyRenderPass);
 
     return (engine->swapchainMgr.init(engine) == GfxResult::Success && init_render_pass(engine) == GfxResult::Success &&
             init_pipeline(engine) == GfxResult::Success)
@@ -1049,7 +1051,7 @@ GfxResult vk_init_vulkan_engine(VulkanEngine* engine) {
         return GfxResult::ErrorInitializationFailed;
     }
 
-    LOG_INFO("app", "Initializing descriptor pool and sets (commandPool=%p)...", (void*)engine->commandPool);
+    LOG_INFO("app", "Initializing descriptor pool and sets (commandPool=%p)...", (void*)engine->ctx.commandPool);
     if (init_descriptor_pool_and_sets(engine) != GfxResult::Success) {
         LOG_ERROR("app", "init_descriptor_pool_and_sets failed");
         return GfxResult::ErrorInitializationFailed;
@@ -1087,8 +1089,8 @@ void vk_cleanup_vulkan_engine(VulkanEngine* engine) {
     vk_stop_hdr_io_thread(engine);
     LOG_INFO("async", "Async loader destroyed");
 
-    if (engine->device != VK_NULL_HANDLE) {
-        vkDeviceWaitIdle(engine->device);
+    if (engine->ctx.device != VK_NULL_HANDLE) {
+        vkDeviceWaitIdle(engine->ctx.device);
     }
 
     tracy_vk_context_destroy(engine);

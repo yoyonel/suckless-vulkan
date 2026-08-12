@@ -92,19 +92,19 @@ static bool readback_frame(VulkanEngine* engine, const FrameBufferData& outFrame
     VmaAllocationCreateInfo allocInfo = {};
     allocInfo.usage = VMA_MEMORY_USAGE_GPU_TO_CPU;
 
-    if (vmaCreateBuffer(engine->allocator, &bufferInfo, &allocInfo, &readbackBuffer, &readbackAllocation, nullptr) != VK_SUCCESS) {
+    if (vmaCreateBuffer(engine->ctx.allocator, &bufferInfo, &allocInfo, &readbackBuffer, &readbackAllocation, nullptr) != VK_SUCCESS) {
         return false;
     }
 
     VkCommandBufferAllocateInfo cmdAlloc = {};
     cmdAlloc.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    cmdAlloc.commandPool = engine->commandPool;
+    cmdAlloc.commandPool = engine->ctx.commandPool;
     cmdAlloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     cmdAlloc.commandBufferCount = 1;
 
     VkCommandBuffer cb = VK_NULL_HANDLE;
-    if (vkAllocateCommandBuffers(engine->device, &cmdAlloc, &cb) != VK_SUCCESS) {
-        vmaDestroyBuffer(engine->allocator, readbackBuffer, readbackAllocation);
+    if (vkAllocateCommandBuffers(engine->ctx.device, &cmdAlloc, &cb) != VK_SUCCESS) {
+        vmaDestroyBuffer(engine->ctx.allocator, readbackBuffer, readbackAllocation);
         return false;
     }
 
@@ -138,17 +138,17 @@ static bool readback_frame(VulkanEngine* engine, const FrameBufferData& outFrame
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &cb;
-    vkQueueSubmit(engine->graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
-    vkQueueWaitIdle(engine->graphicsQueue);
+    vkQueueSubmit(engine->ctx.graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
+    vkQueueWaitIdle(engine->ctx.graphicsQueue);
 
     void* mapped_data = nullptr;
-    vmaMapMemory(engine->allocator, readbackAllocation, &mapped_data);
-    vmaInvalidateAllocation(engine->allocator, readbackAllocation, 0, VK_WHOLE_SIZE);
+    vmaMapMemory(engine->ctx.allocator, readbackAllocation, &mapped_data);
+    vmaInvalidateAllocation(engine->ctx.allocator, readbackAllocation, 0, VK_WHOLE_SIZE);
     memcpy(outFrame.pixels, mapped_data, outFrame.size);
-    vmaUnmapMemory(engine->allocator, readbackAllocation);
+    vmaUnmapMemory(engine->ctx.allocator, readbackAllocation);
 
-    vmaDestroyBuffer(engine->allocator, readbackBuffer, readbackAllocation);
-    vkFreeCommandBuffers(engine->device, engine->commandPool, 1, &cb);
+    vmaDestroyBuffer(engine->ctx.allocator, readbackBuffer, readbackAllocation);
+    vkFreeCommandBuffers(engine->ctx.device, engine->ctx.commandPool, 1, &cb);
 
     for (size_t i = 0; i < outFrame.size; i += 4) {
         std::swap(outFrame.pixels[i], outFrame.pixels[i + 2]);
@@ -197,7 +197,7 @@ static bool validate_frame(const FrameBufferData& frame, const char* filename) {
 }
 
 static bool verify_and_capture_frame(VulkanEngine* engine, const char* filename) {
-    if (vkDeviceWaitIdle(engine->device) != VK_SUCCESS || engine->lastRenderedImageIndex >= engine->swapchainMgr.imageCount) {
+    if (vkDeviceWaitIdle(engine->ctx.device) != VK_SUCCESS || engine->lastRenderedImageIndex >= engine->swapchainMgr.imageCount) {
         return false;
     }
 
@@ -318,7 +318,7 @@ static bool test_integration_rendering() {
     vk_adjust_env_lod(&engine, -1.0f);
     vk_switch_environment_texture(&engine, 1);
     vk_switch_environment_texture(&engine, -1);
-    vk_ibl_export_maps(&engine);
+    engine.iblBaker.ExportMaps(&engine);
 
     // Cover mouse and scroll callbacks
     engine.appState->core.cameraEnabled = false;

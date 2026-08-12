@@ -18,7 +18,7 @@
 namespace {
 
 VkCommandBuffer begin_single_time_commands(VulkanEngine* engine) {
-    if (!engine || engine->commandPool == VK_NULL_HANDLE) {
+    if (!engine || engine->ctx.commandPool == VK_NULL_HANDLE) {
         LOG_ERROR("ibl", "begin_single_time_commands: engine or commandPool is NULL");
         return VK_NULL_HANDLE;
     }
@@ -26,11 +26,11 @@ VkCommandBuffer begin_single_time_commands(VulkanEngine* engine) {
     VkCommandBufferAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    allocInfo.commandPool = engine->commandPool;
+    allocInfo.commandPool = engine->ctx.commandPool;
     allocInfo.commandBufferCount = 1;
 
     VkCommandBuffer cb;
-    if (vkAllocateCommandBuffers(engine->device, &allocInfo, &cb) != VK_SUCCESS) {
+    if (vkAllocateCommandBuffers(engine->ctx.device, &allocInfo, &cb) != VK_SUCCESS) {
         LOG_ERROR("ibl", "Failed to allocate command buffer");
         return VK_NULL_HANDLE;
     }
@@ -40,7 +40,7 @@ VkCommandBuffer begin_single_time_commands(VulkanEngine* engine) {
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     if (vkBeginCommandBuffer(cb, &beginInfo) != VK_SUCCESS) {
         LOG_ERROR("ibl", "Failed to begin command buffer");
-        vkFreeCommandBuffers(engine->device, engine->commandPool, 1, &cb);
+        vkFreeCommandBuffers(engine->ctx.device, engine->ctx.commandPool, 1, &cb);
         return VK_NULL_HANDLE;
     }
 
@@ -58,13 +58,13 @@ void end_single_time_commands(VulkanEngine* engine, VkCommandBuffer cb, VkFence 
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &cb;
 
-    if (vkQueueSubmit(engine->graphicsQueue, 1, &submitInfo, fence) != VK_SUCCESS) {
+    if (vkQueueSubmit(engine->ctx.graphicsQueue, 1, &submitInfo, fence) != VK_SUCCESS) {
         LOG_ERROR("ibl", "Failed to submit command buffer");
     }
 
     if (fence == VK_NULL_HANDLE) {
-        vkQueueWaitIdle(engine->graphicsQueue);
-        vkFreeCommandBuffers(engine->device, engine->commandPool, 1, &cb);
+        vkQueueWaitIdle(engine->ctx.graphicsQueue);
+        vkFreeCommandBuffers(engine->ctx.device, engine->ctx.commandPool, 1, &cb);
     }
 }
 
@@ -126,14 +126,14 @@ ResourceResult save_image_as_hdr(VulkanEngine* engine, VkImage image, uint32_t w
     VmaAllocationCreateInfo allocInfo{};
     allocInfo.usage = VMA_MEMORY_USAGE_GPU_TO_CPU;
 
-    if (vmaCreateBuffer(engine->allocator, &bufferInfo, &allocInfo, &readbackBuffer, &readbackAllocation, nullptr) != VK_SUCCESS) {
+    if (vmaCreateBuffer(engine->ctx.allocator, &bufferInfo, &allocInfo, &readbackBuffer, &readbackAllocation, nullptr) != VK_SUCCESS) {
         LOG_ERROR("ibl", "Failed to create readback buffer");
         return ResourceResult::ErrorInvalidFormat;
     }
 
     VkCommandBuffer cb = begin_single_time_commands(engine);
     if (!cb) {
-        vmaDestroyBuffer(engine->allocator, readbackBuffer, readbackAllocation);
+        vmaDestroyBuffer(engine->ctx.allocator, readbackBuffer, readbackAllocation);
         return ResourceResult::ErrorInvalidFormat;
     }
 
@@ -165,9 +165,9 @@ ResourceResult save_image_as_hdr(VulkanEngine* engine, VkImage image, uint32_t w
     end_single_time_commands(engine, cb);
 
     void* mappedData = nullptr;
-    if (vmaMapMemory(engine->allocator, readbackAllocation, &mappedData) != VK_SUCCESS) {
+    if (vmaMapMemory(engine->ctx.allocator, readbackAllocation, &mappedData) != VK_SUCCESS) {
         LOG_ERROR("ibl", "Failed to map readback buffer");
-        vmaDestroyBuffer(engine->allocator, readbackBuffer, readbackAllocation);
+        vmaDestroyBuffer(engine->ctx.allocator, readbackBuffer, readbackAllocation);
         return ResourceResult::ErrorInvalidFormat;
     }
     uint16_t* halfData = static_cast<uint16_t*>(mappedData);
@@ -176,7 +176,7 @@ ResourceResult save_image_as_hdr(VulkanEngine* engine, VkImage image, uint32_t w
     for (size_t i = 0; i < static_cast<size_t>(width) * static_cast<size_t>(height) * static_cast<size_t>(channels); ++i) {
         floatData[i] = half_to_float(halfData[i]);
     }
-    vmaUnmapMemory(engine->allocator, readbackAllocation);
+    vmaUnmapMemory(engine->ctx.allocator, readbackAllocation);
 
     int writeChannels = 3;
     std::vector<float> finalData;
@@ -199,7 +199,7 @@ ResourceResult save_image_as_hdr(VulkanEngine* engine, VkImage image, uint32_t w
     }
 
     bool ok = stbi_write_hdr(filename, (int)width, (int)height, writeChannels, finalData.data());
-    vmaDestroyBuffer(engine->allocator, readbackBuffer, readbackAllocation);
+    vmaDestroyBuffer(engine->ctx.allocator, readbackBuffer, readbackAllocation);
     return ok ? ResourceResult::Success : ResourceResult::ErrorInvalidFormat;
 }
 
@@ -278,12 +278,13 @@ static GfxResult init_ibl_resources(VulkanEngine* engine) {
         info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
         VmaAllocationCreateInfo allocInfo{};
         allocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-        if (vmaCreateBuffer(engine->allocator, &info, &allocInfo, &engine->iblBaker.lumGroupSumsBuffer, &engine->iblBaker.lumGroupSumsAllocation, nullptr) !=
-            VK_SUCCESS)
+        if (vmaCreateBuffer(engine->ctx.allocator, &info, &allocInfo, &engine->iblBaker.lumGroupSumsBuffer, &engine->iblBaker.lumGroupSumsAllocation,
+                            nullptr) != VK_SUCCESS)
             return GfxResult::ErrorInitializationFailed;
         info.size = sizeof(float);
         allocInfo.usage = VMA_MEMORY_USAGE_GPU_TO_CPU;
-        if (vmaCreateBuffer(engine->allocator, &info, &allocInfo, &engine->iblBaker.lumMeanBuffer, &engine->iblBaker.lumMeanAllocation, nullptr) != VK_SUCCESS)
+        if (vmaCreateBuffer(engine->ctx.allocator, &info, &allocInfo, &engine->iblBaker.lumMeanBuffer, &engine->iblBaker.lumMeanAllocation, nullptr) !=
+            VK_SUCCESS)
             return GfxResult::ErrorInitializationFailed;
     }
     return GfxResult::Success;
@@ -405,16 +406,16 @@ GfxResult init_ibl(VulkanEngine* engine) {
 }
 
 void cleanup_ibl(VulkanEngine* engine) {
-    if (engine->device == VK_NULL_HANDLE)
+    if (engine->ctx.device == VK_NULL_HANDLE)
         return;
-    vmaDestroyBuffer(engine->allocator, engine->iblBaker.lumGroupSumsBuffer, engine->iblBaker.lumGroupSumsAllocation);
-    vmaDestroyBuffer(engine->allocator, engine->iblBaker.lumMeanBuffer, engine->iblBaker.lumMeanAllocation);
+    vmaDestroyBuffer(engine->ctx.allocator, engine->iblBaker.lumGroupSumsBuffer, engine->iblBaker.lumGroupSumsAllocation);
+    vmaDestroyBuffer(engine->ctx.allocator, engine->iblBaker.lumMeanBuffer, engine->iblBaker.lumMeanAllocation);
     LOG_INFO("ibl", "IBL resources cleaned up");
 }
 
 void vk_ibl_bake_luminance(VulkanEngine* engine) {
     SVK_TRACY_ZONE_SCOPED("vk_ibl_bake_luminance");
-    if (!engine || engine->device == VK_NULL_HANDLE || engine->allocator == VK_NULL_HANDLE || engine->commandPool == VK_NULL_HANDLE) {
+    if (!engine || engine->ctx.device == VK_NULL_HANDLE || engine->ctx.allocator == VK_NULL_HANDLE || engine->ctx.commandPool == VK_NULL_HANDLE) {
         LOG_WARNING("ibl", "vk_ibl_bake_luminance: engine not fully initialized, skipping bake.");
         return;
     }
@@ -450,7 +451,7 @@ void vk_ibl_bake_luminance(VulkanEngine* engine) {
     uint32_t nG = std::min(dX * dY, IBL_MAX_GROUPS);
 
     {
-        vk_begin_label(engine->device, cb, "IBL_Luminance_Pass", 0.8f, 0.8f, 0.2f);
+        vk_begin_label(engine->ctx.device, cb, "IBL_Luminance_Pass", 0.8f, 0.8f, 0.2f);
         SVK_TRACY_VK_NAMED_ZONE(gpuIblLumZone, engine, cb, "GPU IBL Luminance");
 
         VulkanCommandList cmdList((VulkanRHI*)engine->appState->rhi, cb);
@@ -474,7 +475,7 @@ void vk_ibl_bake_luminance(VulkanEngine* engine) {
         ws[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         ws[1].pBufferInfo = &lumGroupBufferInfo;
 
-        vkUpdateDescriptorSets(engine->device, 2, ws, 0, nullptr);
+        vkUpdateDescriptorSets(engine->ctx.device, 2, ws, 0, nullptr);
         cmdList.BindDescriptorSets(engine->iblBaker.lum1PipelineLayout, 0, 1, &engine->iblBaker.lum1DescriptorSet, true);
         cmdList.Dispatch(dX, dY, 1);
 
@@ -509,7 +510,7 @@ void vk_ibl_bake_luminance(VulkanEngine* engine) {
         ws2[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         ws2[1].pBufferInfo = &meanLumBufferInfo;
 
-        vkUpdateDescriptorSets(engine->device, 2, ws2, 0, nullptr);
+        vkUpdateDescriptorSets(engine->ctx.device, 2, ws2, 0, nullptr);
         struct {
             uint32_t g;
             uint32_t p;
@@ -518,7 +519,7 @@ void vk_ibl_bake_luminance(VulkanEngine* engine) {
         cmdList.BindDescriptorSets(engine->iblBaker.lum2PipelineLayout, 0, 1, &engine->iblBaker.lum2DescriptorSet, true);
         cmdList.Dispatch(1, 1, 1);
 
-        vk_end_label(engine->device, cb);
+        vk_end_label(engine->ctx.device, cb);
     }
 
     vk_ibl_reset_bake_fence(engine);
@@ -531,7 +532,7 @@ void vk_ibl_bake_luminance(VulkanEngine* engine) {
 void vk_ibl_bake_brdf(VulkanEngine* engine) {
     if (engine->iblBaker.brdfLutBaked) {
         if (engine->iblBaker.iblBakeFence != VK_NULL_HANDLE) {
-            vkDestroyFence(engine->device, engine->iblBaker.iblBakeFence, nullptr);
+            vkDestroyFence(engine->ctx.device, engine->iblBaker.iblBakeFence, nullptr);
             engine->iblBaker.iblBakeFence = VK_NULL_HANDLE;
         }
         engine->iblBaker.bakeState = IblBakeState::BrdfWait;
@@ -543,7 +544,7 @@ void vk_ibl_bake_brdf(VulkanEngine* engine) {
         return;
     tracy_vk_collect(engine, cb);
 
-    vk_begin_label(engine->device, cb, "IBL_Bake_BRDF", 0.3f, 0.6f, 0.9f);
+    vk_begin_label(engine->ctx.device, cb, "IBL_Bake_BRDF", 0.3f, 0.6f, 0.9f);
     VulkanCommandList cmdList2((VulkanRHI*)engine->appState->rhi, cb);
 
     SVK_TRACY_VK_NAMED_ZONE(gpuIblBrdfZone, engine, cb, "GPU IBL BRDF LUT");
@@ -575,7 +576,7 @@ void vk_ibl_bake_brdf(VulkanEngine* engine) {
                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
 
-    vk_end_label(engine->device, cb);
+    vk_end_label(engine->ctx.device, cb);
 
     vk_ibl_reset_bake_fence(engine);
 
@@ -594,7 +595,7 @@ void vk_ibl_bake_irradiance(VulkanEngine* engine) {
         return;
     tracy_vk_collect(engine, cb);
 
-    vk_begin_label(engine->device, cb, "IBL_Bake_Irradiance", 0.9f, 0.6f, 0.3f);
+    vk_begin_label(engine->ctx.device, cb, "IBL_Bake_Irradiance", 0.9f, 0.6f, 0.3f);
     VulkanCommandList cmdList2((VulkanRHI*)engine->appState->rhi, cb);
 
     if (engine->iblBaker.currentSlice == 0) {
@@ -650,7 +651,7 @@ void vk_ibl_bake_irradiance(VulkanEngine* engine) {
                                 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
     }
 
-    vk_end_label(engine->device, cb);
+    vk_end_label(engine->ctx.device, cb);
 
     vk_ibl_reset_bake_fence(engine);
 
@@ -666,7 +667,7 @@ void vk_ibl_bake_prefilter(VulkanEngine* engine) {
         return;
     tracy_vk_collect(engine, cb);
 
-    vk_begin_label(engine->device, cb, "IBL_Bake_Prefilter", 0.3f, 0.6f, 0.9f);
+    vk_begin_label(engine->ctx.device, cb, "IBL_Bake_Prefilter", 0.3f, 0.6f, 0.9f);
 
     VulkanCommandList cmdList2((VulkanRHI*)engine->appState->rhi, cb);
 
@@ -752,7 +753,7 @@ void vk_ibl_bake_prefilter(VulkanEngine* engine) {
         }
     }
 
-    vk_end_label(engine->device, cb);
+    vk_end_label(engine->ctx.device, cb);
 
     vk_ibl_reset_bake_fence(engine);
 
@@ -796,12 +797,12 @@ void IblBaker::ExportMaps(VulkanEngine* engine) const {
 
 void vk_ibl_reset_bake_fence(VulkanEngine* engine) {
     if (engine->iblBaker.iblBakeFence != VK_NULL_HANDLE) {
-        vkDestroyFence(engine->device, engine->iblBaker.iblBakeFence, nullptr);
+        vkDestroyFence(engine->ctx.device, engine->iblBaker.iblBakeFence, nullptr);
     }
     VkFenceCreateInfo fenceInfo{};
     fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-    vkCreateFence(engine->device, &fenceInfo, nullptr, &engine->iblBaker.iblBakeFence);
-    vk_set_object_name(engine->device, (uint64_t)engine->iblBaker.iblBakeFence, VK_OBJECT_TYPE_FENCE, "IBL_Bake_Fence");
+    vkCreateFence(engine->ctx.device, &fenceInfo, nullptr, &engine->iblBaker.iblBakeFence);
+    vk_set_object_name(engine->ctx.device, (uint64_t)engine->iblBaker.iblBakeFence, VK_OBJECT_TYPE_FENCE, "IBL_Bake_Fence");
 }
 void IblBaker::Cleanup() {
     computeDescriptorPool.Reset();

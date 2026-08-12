@@ -72,9 +72,9 @@ void VulkanCommandList::SetScissor(int32_t x, int32_t y, uint32_t width, uint32_
 }
 
 void VulkanCommandList::BeginDebugLabel(const char* name, float r, float g, float b) {
-    vk_begin_label(m_rhi->_engine->device, m_cmdBuffer, name, r, g, b);
+    vk_begin_label(m_rhi->_engine->ctx.device, m_cmdBuffer, name, r, g, b);
 }
 void VulkanCommandList::EndDebugLabel() {
-    vk_end_label(m_rhi->_engine->device, m_cmdBuffer);
+    vk_end_label(m_rhi->_engine->ctx.device, m_cmdBuffer);
 }
 void VulkanCommandList::InsertDebugLabel(const char* /*name*/, float /*r*/, float /*g*/, float /*b*/) {}

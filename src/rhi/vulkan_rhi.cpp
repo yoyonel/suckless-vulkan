@@ -43,21 +43,21 @@ static RHIResult create_gpu_buffer_rhi(struct VulkanEngine* engine, VkDeviceSize
     stgIn.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
     VmaAllocationCreateInfo stgAl{};
     stgAl.usage = VMA_MEMORY_USAGE_CPU_ONLY;
-    if (vmaCreateBuffer(engine->allocator, &stgIn, &stgAl, &staging, &stgAlloc, nullptr) != VK_SUCCESS) {
+    if (vmaCreateBuffer(engine->ctx.allocator, &stgIn, &stgAl, &staging, &stgAlloc, nullptr) != VK_SUCCESS) {
         return RHIResult::ErrorInitializationFailed;
     }
     {
         const std::string stagingBufferName = std::string(name) + "_Staging_Buffer";
-        vk_set_object_name(engine->device, (uint64_t)staging, VK_OBJECT_TYPE_BUFFER, stagingBufferName.c_str());
+        vk_set_object_name(engine->ctx.device, (uint64_t)staging, VK_OBJECT_TYPE_BUFFER, stagingBufferName.c_str());
     }
 
     void* map = nullptr;
-    if (vmaMapMemory(engine->allocator, stgAlloc, &map) != VK_SUCCESS) {
-        vmaDestroyBuffer(engine->allocator, staging, stgAlloc);
+    if (vmaMapMemory(engine->ctx.allocator, stgAlloc, &map) != VK_SUCCESS) {
+        vmaDestroyBuffer(engine->ctx.allocator, staging, stgAlloc);
         return RHIResult::ErrorInitializationFailed;
     }
     memcpy(map, srcData, size);
-    vmaUnmapMemory(engine->allocator, stgAlloc);
+    vmaUnmapMemory(engine->ctx.allocator, stgAlloc);
 
     VkBufferCreateInfo gpuIn{};
     gpuIn.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -65,54 +65,54 @@ static RHIResult create_gpu_buffer_rhi(struct VulkanEngine* engine, VkDeviceSize
     gpuIn.usage = usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     VmaAllocationCreateInfo gpuAl{};
     gpuAl.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-    if (vmaCreateBuffer(engine->allocator, &gpuIn, &gpuAl, &buf, &alloc, nullptr) != VK_SUCCESS) {
-        vmaDestroyBuffer(engine->allocator, staging, stgAlloc);
+    if (vmaCreateBuffer(engine->ctx.allocator, &gpuIn, &gpuAl, &buf, &alloc, nullptr) != VK_SUCCESS) {
+        vmaDestroyBuffer(engine->ctx.allocator, staging, stgAlloc);
         return RHIResult::ErrorInitializationFailed;
     }
-    vk_set_object_name(engine->device, (uint64_t)buf, VK_OBJECT_TYPE_BUFFER, name);
+    vk_set_object_name(engine->ctx.device, (uint64_t)buf, VK_OBJECT_TYPE_BUFFER, name);
 
     VkCommandBufferAllocateInfo ai{};
     ai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    ai.commandPool = engine->commandPool;
+    ai.commandPool = engine->ctx.commandPool;
     ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     ai.commandBufferCount = 1;
 
     VkCommandBuffer stagingCb = VK_NULL_HANDLE;
-    if (vkAllocateCommandBuffers(engine->device, &ai, &stagingCb) != VK_SUCCESS) {
-        vmaDestroyBuffer(engine->allocator, buf, alloc);
+    if (vkAllocateCommandBuffers(engine->ctx.device, &ai, &stagingCb) != VK_SUCCESS) {
+        vmaDestroyBuffer(engine->ctx.allocator, buf, alloc);
         buf = VK_NULL_HANDLE;
         alloc = VK_NULL_HANDLE;
-        vmaDestroyBuffer(engine->allocator, staging, stgAlloc);
+        vmaDestroyBuffer(engine->ctx.allocator, staging, stgAlloc);
         return RHIResult::ErrorInitializationFailed;
     }
     {
         const std::string stagingCbName = std::string(name) + "_Staging_CommandBuffer";
-        vk_set_object_name(engine->device, (uint64_t)stagingCb, VK_OBJECT_TYPE_COMMAND_BUFFER, stagingCbName.c_str());
+        vk_set_object_name(engine->ctx.device, (uint64_t)stagingCb, VK_OBJECT_TYPE_COMMAND_BUFFER, stagingCbName.c_str());
     }
     VkCommandBufferBeginInfo bi{};
     bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     if (vkBeginCommandBuffer(stagingCb, &bi) != VK_SUCCESS) {
-        vkFreeCommandBuffers(engine->device, engine->commandPool, 1, &stagingCb);
-        vmaDestroyBuffer(engine->allocator, buf, alloc);
+        vkFreeCommandBuffers(engine->ctx.device, engine->ctx.commandPool, 1, &stagingCb);
+        vmaDestroyBuffer(engine->ctx.allocator, buf, alloc);
         buf = VK_NULL_HANDLE;
         alloc = VK_NULL_HANDLE;
-        vmaDestroyBuffer(engine->allocator, staging, stgAlloc);
+        vmaDestroyBuffer(engine->ctx.allocator, staging, stgAlloc);
         return RHIResult::ErrorInitializationFailed;
     }
 
-    vk_begin_label(engine->device, stagingCb, "GPU_Staging_Copy", 0.0f, 1.0f, 0.0f);
+    vk_begin_label(engine->ctx.device, stagingCb, "GPU_Staging_Copy", 0.0f, 1.0f, 0.0f);
     VkBufferCopy cp{};
     cp.size = size;
     vkCmdCopyBuffer(stagingCb, staging, buf, 1, &cp);
-    vk_end_label(engine->device, stagingCb);
+    vk_end_label(engine->ctx.device, stagingCb);
 
     if (vkEndCommandBuffer(stagingCb) != VK_SUCCESS) {
-        vkFreeCommandBuffers(engine->device, engine->commandPool, 1, &stagingCb);
-        vmaDestroyBuffer(engine->allocator, buf, alloc);
+        vkFreeCommandBuffers(engine->ctx.device, engine->ctx.commandPool, 1, &stagingCb);
+        vmaDestroyBuffer(engine->ctx.allocator, buf, alloc);
         buf = VK_NULL_HANDLE;
         alloc = VK_NULL_HANDLE;
-        vmaDestroyBuffer(engine->allocator, staging, stgAlloc);
+        vmaDestroyBuffer(engine->ctx.allocator, staging, stgAlloc);
         return RHIResult::ErrorInitializationFailed;
     }
 
@@ -121,17 +121,17 @@ static RHIResult create_gpu_buffer_rhi(struct VulkanEngine* engine, VkDeviceSize
     si.commandBufferCount = 1;
     si.pCommandBuffers = &stagingCb;
 
-    if (vkQueueSubmit(engine->graphicsQueue, 1, &si, nullptr) != VK_SUCCESS || vkQueueWaitIdle(engine->graphicsQueue) != VK_SUCCESS) {
-        vkFreeCommandBuffers(engine->device, engine->commandPool, 1, &stagingCb);
-        vmaDestroyBuffer(engine->allocator, buf, alloc);
+    if (vkQueueSubmit(engine->ctx.graphicsQueue, 1, &si, nullptr) != VK_SUCCESS || vkQueueWaitIdle(engine->ctx.graphicsQueue) != VK_SUCCESS) {
+        vkFreeCommandBuffers(engine->ctx.device, engine->ctx.commandPool, 1, &stagingCb);
+        vmaDestroyBuffer(engine->ctx.allocator, buf, alloc);
         buf = VK_NULL_HANDLE;
         alloc = VK_NULL_HANDLE;
-        vmaDestroyBuffer(engine->allocator, staging, stgAlloc);
+        vmaDestroyBuffer(engine->ctx.allocator, staging, stgAlloc);
         return RHIResult::ErrorInitializationFailed;
     }
 
-    vkFreeCommandBuffers(engine->device, engine->commandPool, 1, &stagingCb);
-    vmaDestroyBuffer(engine->allocator, staging, stgAlloc);
+    vkFreeCommandBuffers(engine->ctx.device, engine->ctx.commandPool, 1, &stagingCb);
+    vmaDestroyBuffer(engine->ctx.allocator, staging, stgAlloc);
     return RHIResult::Success;
 }
 
@@ -181,11 +181,11 @@ BufferHandle VulkanRHI::CreateBuffer(std::size_t size, BufferUsage usage, const 
         al.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
         al.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
         VmaAllocationInfo allocInfo;
-        if (vmaCreateBuffer(_engine->allocator, &in, &al, &buf.buffer, &buf.allocation, &allocInfo) != VK_SUCCESS) {
+        if (vmaCreateBuffer(_engine->ctx.allocator, &in, &al, &buf.buffer, &buf.allocation, &allocInfo) != VK_SUCCESS) {
             return INVALID_HANDLE;
         }
         buf.mappedData = allocInfo.pMappedData;
-        if (name) vk_set_object_name(_engine->device, (uint64_t)buf.buffer, VK_OBJECT_TYPE_BUFFER, name);
+        if (name) vk_set_object_name(_engine->ctx.device, (uint64_t)buf.buffer, VK_OBJECT_TYPE_BUFFER, name);
     }
 
     uint32_t handle = m_nextBufferHandle++;
@@ -200,7 +200,7 @@ void VulkanRHI::DestroyBuffer(BufferHandle handle) {
     if (handle != INVALID_HANDLE && handle < m_buffers.size()) {
         auto& buf = m_buffers[handle];
         if (buf.buffer != VK_NULL_HANDLE) {
-            vmaDestroyBuffer(_engine->allocator, buf.buffer, buf.allocation);
+            vmaDestroyBuffer(_engine->ctx.allocator, buf.buffer, buf.allocation);
             buf.buffer = VK_NULL_HANDLE;
             buf.allocation = VK_NULL_HANDLE;
             buf.mappedData = nullptr;
@@ -217,7 +217,7 @@ void* VulkanRHI::MapBuffer(BufferHandle handle) {
         return m_buffers[handle].mappedData;
     }
     void* mapped = nullptr;
-    vmaMapMemory(_engine->allocator, m_buffers[handle].allocation, &mapped);
+    vmaMapMemory(_engine->ctx.allocator, m_buffers[handle].allocation, &mapped);
     return mapped;
 }
 
@@ -225,7 +225,7 @@ void VulkanRHI::UnmapBuffer(BufferHandle handle) {
     if (handle != INVALID_HANDLE && handle < m_buffers.size() && m_buffers[handle].buffer) {
         // If it was created mapped, we don't unmap it manually
         if (!m_buffers[handle].mappedData) {
-            vmaUnmapMemory(_engine->allocator, m_buffers[handle].allocation);
+            vmaUnmapMemory(_engine->ctx.allocator, m_buffers[handle].allocation);
         }
     }
 }
@@ -270,12 +270,12 @@ TextureHandle VulkanRHI::CreateTexture(uint32_t width, uint32_t height, TextureF
 
     VmaAllocationCreateInfo ai{};
     ai.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-    if (vmaCreateImage(_engine->allocator, &ii, &ai, &tex.image, &tex.allocation, nullptr) != VK_SUCCESS) {
+    if (vmaCreateImage(_engine->ctx.allocator, &ii, &ai, &tex.image, &tex.allocation, nullptr) != VK_SUCCESS) {
         return INVALID_HANDLE;
     }
     tex.format = ii.format;
     
-    if (name) vk_set_object_name(_engine->device, (uint64_t)tex.image, VK_OBJECT_TYPE_IMAGE, name);
+    if (name) vk_set_object_name(_engine->ctx.device, (uint64_t)tex.image, VK_OBJECT_TYPE_IMAGE, name);
 
     VkImageViewCreateInfo vi{};
     vi.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -290,14 +290,14 @@ TextureHandle VulkanRHI::CreateTexture(uint32_t width, uint32_t height, TextureF
     vi.subresourceRange.levelCount = mipLevels;
     vi.subresourceRange.layerCount = 1;
 
-    if (vkCreateImageView(_engine->device, &vi, nullptr, &tex.imageView) != VK_SUCCESS) {
-        vmaDestroyImage(_engine->allocator, tex.image, tex.allocation);
+    if (vkCreateImageView(_engine->ctx.device, &vi, nullptr, &tex.imageView) != VK_SUCCESS) {
+        vmaDestroyImage(_engine->ctx.allocator, tex.image, tex.allocation);
         return INVALID_HANDLE;
     }
     
     if (name) {
         std::string viewName = std::string(name) + "_View";
-        vk_set_object_name(_engine->device, (uint64_t)tex.imageView, VK_OBJECT_TYPE_IMAGE_VIEW, viewName.c_str());
+        vk_set_object_name(_engine->ctx.device, (uint64_t)tex.imageView, VK_OBJECT_TYPE_IMAGE_VIEW, viewName.c_str());
     }
 
     uint32_t handle = m_nextTextureHandle++;
@@ -312,11 +312,11 @@ void VulkanRHI::DestroyTexture(TextureHandle handle) {
     if (handle != INVALID_HANDLE && handle < m_textures.size()) {
         auto& tex = m_textures[handle];
         if (tex.imageView != VK_NULL_HANDLE) {
-            vkDestroyImageView(_engine->device, tex.imageView, nullptr);
+            vkDestroyImageView(_engine->ctx.device, tex.imageView, nullptr);
             tex.imageView = VK_NULL_HANDLE;
         }
         if (tex.image != VK_NULL_HANDLE) {
-            vmaDestroyImage(_engine->allocator, tex.image, tex.allocation);
+            vmaDestroyImage(_engine->ctx.allocator, tex.image, tex.allocation);
             tex.image = VK_NULL_HANDLE;
             tex.allocation = VK_NULL_HANDLE;
         }
@@ -343,10 +343,10 @@ SamplerHandle VulkanRHI::CreateSampler(uint32_t mipLevels, bool clampToEdge, con
     si.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
     si.unnormalizedCoordinates = VK_FALSE;
 
-    if (vkCreateSampler(_engine->device, &si, nullptr, &samp.sampler) != VK_SUCCESS) {
+    if (vkCreateSampler(_engine->ctx.device, &si, nullptr, &samp.sampler) != VK_SUCCESS) {
         return INVALID_HANDLE;
     }
-    if (name) vk_set_object_name(_engine->device, (uint64_t)samp.sampler, VK_OBJECT_TYPE_SAMPLER, name);
+    if (name) vk_set_object_name(_engine->ctx.device, (uint64_t)samp.sampler, VK_OBJECT_TYPE_SAMPLER, name);
 
     uint32_t handle = m_nextSamplerHandle++;
     if (handle >= m_samplers.size()) {
@@ -360,7 +360,7 @@ void VulkanRHI::DestroySampler(SamplerHandle handle) {
     if (handle != INVALID_HANDLE && handle < m_samplers.size()) {
         auto& samp = m_samplers[handle];
         if (samp.sampler != VK_NULL_HANDLE) {
-            vkDestroySampler(_engine->device, samp.sampler, nullptr);
+            vkDestroySampler(_engine->ctx.device, samp.sampler, nullptr);
             samp.sampler = VK_NULL_HANDLE;
         }
     }
@@ -399,11 +399,11 @@ DescriptorLayoutHandle VulkanRHI::CreateDescriptorLayout(const DescriptorLayoutD
     info.pBindings = vkBindings.data();
 
     VulkanDescriptorLayout layout;
-    if (vkCreateDescriptorSetLayout(_engine->device, &info, nullptr, &layout.layout) != VK_SUCCESS) {
+    if (vkCreateDescriptorSetLayout(_engine->ctx.device, &info, nullptr, &layout.layout) != VK_SUCCESS) {
         return INVALID_HANDLE;
     }
 
-    if (name) vk_set_object_name(_engine->device, (uint64_t)layout.layout, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, name);
+    if (name) vk_set_object_name(_engine->ctx.device, (uint64_t)layout.layout, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, name);
 
     uint32_t handle = m_nextDescriptorLayoutHandle++;
     if (handle >= m_descriptorLayouts.size()) {
@@ -417,7 +417,7 @@ void VulkanRHI::DestroyDescriptorLayout(DescriptorLayoutHandle handle) {
     if (handle != INVALID_HANDLE && handle < m_descriptorLayouts.size()) {
         auto& layout = m_descriptorLayouts[handle];
         if (layout.layout != VK_NULL_HANDLE) {
-            vkDestroyDescriptorSetLayout(_engine->device, layout.layout, nullptr);
+            vkDestroyDescriptorSetLayout(_engine->ctx.device, layout.layout, nullptr);
             layout.layout = VK_NULL_HANDLE;
         }
     }
@@ -437,11 +437,11 @@ DescriptorPoolHandle VulkanRHI::CreateDescriptorPool(const DescriptorPoolDesc& d
     info.maxSets = desc.maxSets;
 
     VulkanDescriptorPool pool;
-    if (vkCreateDescriptorPool(_engine->device, &info, nullptr, &pool.pool) != VK_SUCCESS) {
+    if (vkCreateDescriptorPool(_engine->ctx.device, &info, nullptr, &pool.pool) != VK_SUCCESS) {
         return INVALID_HANDLE;
     }
 
-    if (name) vk_set_object_name(_engine->device, (uint64_t)pool.pool, VK_OBJECT_TYPE_DESCRIPTOR_POOL, name);
+    if (name) vk_set_object_name(_engine->ctx.device, (uint64_t)pool.pool, VK_OBJECT_TYPE_DESCRIPTOR_POOL, name);
 
     uint32_t handle = m_nextDescriptorPoolHandle++;
     if (handle >= m_descriptorPools.size()) {
@@ -455,7 +455,7 @@ void VulkanRHI::DestroyDescriptorPool(DescriptorPoolHandle handle) {
     if (handle != INVALID_HANDLE && handle < m_descriptorPools.size()) {
         auto& pool = m_descriptorPools[handle];
         if (pool.pool != VK_NULL_HANDLE) {
-            vkDestroyDescriptorPool(_engine->device, pool.pool, nullptr);
+            vkDestroyDescriptorPool(_engine->ctx.device, pool.pool, nullptr);
             pool.pool = VK_NULL_HANDLE;
         }
     }
@@ -477,7 +477,7 @@ RHIResult VulkanRHI::AllocateDescriptorSets(const DescriptorSetAllocateDesc& des
     ai.pSetLayouts = vkLayouts.data();
 
     std::vector<VkDescriptorSet> vkSets(desc.setCount);
-    if (vkAllocateDescriptorSets(_engine->device, &ai, vkSets.data()) != VK_SUCCESS) {
+    if (vkAllocateDescriptorSets(_engine->ctx.device, &ai, vkSets.data()) != VK_SUCCESS) {
         return RHIResult::ErrorOutOfMemory;
     }
 
@@ -520,7 +520,7 @@ ImageViewHandle VulkanRHI::CreateImageView(TextureHandle texture, uint32_t baseM
     vi.subresourceRange.layerCount = layerCount;
 
     VkImageView view;
-    if (vkCreateImageView(_engine->device, &vi, nullptr, &view) != VK_SUCCESS) {
+    if (vkCreateImageView(_engine->ctx.device, &vi, nullptr, &view) != VK_SUCCESS) {
         return INVALID_HANDLE;
     }
 
@@ -535,7 +535,7 @@ ImageViewHandle VulkanRHI::CreateImageView(TextureHandle texture, uint32_t baseM
 void VulkanRHI::DestroyImageView(ImageViewHandle handle) {
     if (handle != INVALID_HANDLE && handle < m_imageViews.size()) {
         if (m_imageViews[handle].view != VK_NULL_HANDLE) {
-            vkDestroyImageView(_engine->device, m_imageViews[handle].view, nullptr);
+            vkDestroyImageView(_engine->ctx.device, m_imageViews[handle].view, nullptr);
             m_imageViews[handle].view = VK_NULL_HANDLE;
         }
     }
@@ -615,7 +615,7 @@ void VulkanRHI::UpdateDescriptorSets(uint32_t writeCount, const WriteDescriptorS
             vkWrites[i].pBufferInfo = &vkBufferInfos[startIndex];
         }
     }
-    vkUpdateDescriptorSets(_engine->device, writeCount, vkWrites, 0, nullptr);
+    vkUpdateDescriptorSets(_engine->ctx.device, writeCount, vkWrites, 0, nullptr);
 }
 
 
@@ -650,14 +650,14 @@ VkDescriptorSet VulkanRHI::GetVkDescriptorSet(DescriptorSetHandle handle) const 
 }
 
 SwapchainStatus VulkanRHI::AcquireNextImage(uint32_t* imageIndex) {
-    if (vkWaitForFences(_engine->device, 1, &_engine->inFlightFence, VK_TRUE, UINT64_MAX) != VK_SUCCESS) {
+    if (vkWaitForFences(_engine->ctx.device, 1, &_engine->inFlightFence, VK_TRUE, UINT64_MAX) != VK_SUCCESS) {
         return SwapchainStatus::Error;
     }
-    if (vkResetFences(_engine->device, 1, &_engine->inFlightFence) != VK_SUCCESS) {
+    if (vkResetFences(_engine->ctx.device, 1, &_engine->inFlightFence) != VK_SUCCESS) {
         return SwapchainStatus::Error;
     }
 
-    VkResult acquireResult = vkAcquireNextImageKHR(_engine->device, _engine->swapchainMgr.swapchain, UINT64_MAX, _engine->imageAvailableSemaphore, nullptr, imageIndex);
+    VkResult acquireResult = vkAcquireNextImageKHR(_engine->ctx.device, _engine->swapchainMgr.swapchain, UINT64_MAX, _engine->imageAvailableSemaphore, nullptr, imageIndex);
     if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR) {
         return SwapchainStatus::NeedRecreate;
     }
@@ -682,7 +682,7 @@ SwapchainStatus VulkanRHI::SubmitAndPresent(uint32_t imageIndex) {
     si.pCommandBuffers = &_engine->commandBuffer;
     si.signalSemaphoreCount = 1;
     si.pSignalSemaphores = &_engine->renderFinishedSemaphore;
-    if (vkQueueSubmit(_engine->graphicsQueue, 1, &si, _engine->inFlightFence) != VK_SUCCESS) {
+    if (vkQueueSubmit(_engine->ctx.graphicsQueue, 1, &si, _engine->inFlightFence) != VK_SUCCESS) {
         return SwapchainStatus::Error;
     }
     VkPresentInfoKHR pri{};
@@ -692,7 +692,7 @@ SwapchainStatus VulkanRHI::SubmitAndPresent(uint32_t imageIndex) {
     pri.swapchainCount = 1;
     pri.pSwapchains = &_engine->swapchainMgr.swapchain;
     pri.pImageIndices = &imageIndex;
-    VkResult presentResult = vkQueuePresentKHR(_engine->presentQueue, &pri);
+    VkResult presentResult = vkQueuePresentKHR(_engine->ctx.presentQueue, &pri);
     if (presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_SUBOPTIMAL_KHR) {
         return SwapchainStatus::NeedRecreate;
     }
@@ -801,11 +801,11 @@ void VulkanRHI::UpdateBillboardInstances(const uint32_t* indices, std::size_t co
 }
 
 void VulkanRHI::BeginDebugLabel(const char* name, float r, float g, float b) {
-    vk_begin_label(_engine->device, _engine->commandBuffer, name, r, g, b);
+    vk_begin_label(_engine->ctx.device, _engine->commandBuffer, name, r, g, b);
 }
 
 void VulkanRHI::EndDebugLabel() {
-    vk_end_label(_engine->device, _engine->commandBuffer);
+    vk_end_label(_engine->ctx.device, _engine->commandBuffer);
 }
 
 void VulkanRHI::CollectProfiling() {
@@ -850,12 +850,12 @@ PipelineLayoutHandle VulkanRHI::CreatePipelineLayout(const PipelineLayoutDesc& d
     info.pPushConstantRanges = vkPushConstants.data();
 
     VkPipelineLayout layout = VK_NULL_HANDLE;
-    if (vkCreatePipelineLayout(_engine->device, &info, nullptr, &layout) != VK_SUCCESS) {
+    if (vkCreatePipelineLayout(_engine->ctx.device, &info, nullptr, &layout) != VK_SUCCESS) {
         return INVALID_HANDLE;
     }
     
     if (name) {
-        vk_set_object_name(_engine->device, (uint64_t)layout, VK_OBJECT_TYPE_PIPELINE_LAYOUT, name);
+        vk_set_object_name(_engine->ctx.device, (uint64_t)layout, VK_OBJECT_TYPE_PIPELINE_LAYOUT, name);
     }
 
     uint32_t handle = m_pipelineLayouts.size();
@@ -865,7 +865,7 @@ PipelineLayoutHandle VulkanRHI::CreatePipelineLayout(const PipelineLayoutDesc& d
 
 void VulkanRHI::DestroyPipelineLayout(PipelineLayoutHandle handle) {
     if (handle != INVALID_HANDLE && handle < m_pipelineLayouts.size() && m_pipelineLayouts[handle] != VK_NULL_HANDLE) {
-        vkDestroyPipelineLayout(_engine->device, m_pipelineLayouts[handle], nullptr);
+        vkDestroyPipelineLayout(_engine->ctx.device, m_pipelineLayouts[handle], nullptr);
         m_pipelineLayouts[handle] = VK_NULL_HANDLE;
     }
 }
@@ -877,12 +877,12 @@ PipelineHandle VulkanRHI::CreateComputePipeline(const ComputePipelineDesc& desc)
     modInfo.pCode = (const uint32_t*)desc.shaderCode;
     
     VkShaderModule module = VK_NULL_HANDLE;
-    if (vkCreateShaderModule(_engine->device, &modInfo, nullptr, &module) != VK_SUCCESS) {
+    if (vkCreateShaderModule(_engine->ctx.device, &modInfo, nullptr, &module) != VK_SUCCESS) {
         return INVALID_HANDLE;
     }
     if (desc.name) {
         std::string sname = std::string(desc.name) + "_CS";
-        vk_set_object_name(_engine->device, (uint64_t)module, VK_OBJECT_TYPE_SHADER_MODULE, sname.c_str());
+        vk_set_object_name(_engine->ctx.device, (uint64_t)module, VK_OBJECT_TYPE_SHADER_MODULE, sname.c_str());
     }
 
     VkComputePipelineCreateInfo info{};
@@ -894,15 +894,15 @@ PipelineHandle VulkanRHI::CreateComputePipeline(const ComputePipelineDesc& desc)
     info.layout = GetVkPipelineLayout(desc.layout);
 
     VkPipeline pipeline = VK_NULL_HANDLE;
-    if (vkCreateComputePipelines(_engine->device, VK_NULL_HANDLE, 1, &info, nullptr, &pipeline) != VK_SUCCESS) {
-        vkDestroyShaderModule(_engine->device, module, nullptr);
+    if (vkCreateComputePipelines(_engine->ctx.device, VK_NULL_HANDLE, 1, &info, nullptr, &pipeline) != VK_SUCCESS) {
+        vkDestroyShaderModule(_engine->ctx.device, module, nullptr);
         return INVALID_HANDLE;
     }
     
-    vkDestroyShaderModule(_engine->device, module, nullptr);
+    vkDestroyShaderModule(_engine->ctx.device, module, nullptr);
 
     if (desc.name) {
-        vk_set_object_name(_engine->device, (uint64_t)pipeline, VK_OBJECT_TYPE_PIPELINE, desc.name);
+        vk_set_object_name(_engine->ctx.device, (uint64_t)pipeline, VK_OBJECT_TYPE_PIPELINE, desc.name);
     }
 
     uint32_t handle = m_pipelines.size();
@@ -912,7 +912,7 @@ PipelineHandle VulkanRHI::CreateComputePipeline(const ComputePipelineDesc& desc)
 
 void VulkanRHI::DestroyPipeline(PipelineHandle handle) {
     if (handle != INVALID_HANDLE && handle < m_pipelines.size() && m_pipelines[handle] != VK_NULL_HANDLE) {
-        vkDestroyPipeline(_engine->device, m_pipelines[handle], nullptr);
+        vkDestroyPipeline(_engine->ctx.device, m_pipelines[handle], nullptr);
         m_pipelines[handle] = VK_NULL_HANDLE;
     }
 }
@@ -934,7 +934,7 @@ PipelineHandle VulkanRHI::CreateGraphicsPipeline(const GraphicsPipelineDesc& des
     vInfo.codeSize = desc.vertexShaderSize;
     vInfo.pCode = (const uint32_t*)desc.vertexShaderCode;
     VkShaderModule vsm = VK_NULL_HANDLE;
-    if (vkCreateShaderModule(_engine->device, &vInfo, nullptr, &vsm) != VK_SUCCESS) {
+    if (vkCreateShaderModule(_engine->ctx.device, &vInfo, nullptr, &vsm) != VK_SUCCESS) {
         return INVALID_HANDLE;
     }
 
@@ -943,15 +943,15 @@ PipelineHandle VulkanRHI::CreateGraphicsPipeline(const GraphicsPipelineDesc& des
     fInfo.codeSize = desc.fragmentShaderSize;
     fInfo.pCode = (const uint32_t*)desc.fragmentShaderCode;
     VkShaderModule fsm = VK_NULL_HANDLE;
-    if (vkCreateShaderModule(_engine->device, &fInfo, nullptr, &fsm) != VK_SUCCESS) {
-        vkDestroyShaderModule(_engine->device, vsm, nullptr);
+    if (vkCreateShaderModule(_engine->ctx.device, &fInfo, nullptr, &fsm) != VK_SUCCESS) {
+        vkDestroyShaderModule(_engine->ctx.device, vsm, nullptr);
         return INVALID_HANDLE;
     }
     if (desc.debugName) {
         std::string vname = std::string(desc.debugName) + "_VS";
         std::string fname = std::string(desc.debugName) + "_FS";
-        vk_set_object_name(_engine->device, (uint64_t)vsm, VK_OBJECT_TYPE_SHADER_MODULE, vname.c_str());
-        vk_set_object_name(_engine->device, (uint64_t)fsm, VK_OBJECT_TYPE_SHADER_MODULE, fname.c_str());
+        vk_set_object_name(_engine->ctx.device, (uint64_t)vsm, VK_OBJECT_TYPE_SHADER_MODULE, vname.c_str());
+        vk_set_object_name(_engine->ctx.device, (uint64_t)fsm, VK_OBJECT_TYPE_SHADER_MODULE, fname.c_str());
     }
 
     VkPipelineShaderStageCreateInfo stages[2] = {};
@@ -1079,18 +1079,18 @@ PipelineHandle VulkanRHI::CreateGraphicsPipeline(const GraphicsPipelineDesc& des
     pipeInfo.renderPass = (VkRenderPass)desc.renderPass;
 
     VkPipeline pipeline = VK_NULL_HANDLE;
-    if (vkCreateGraphicsPipelines(_engine->device, VK_NULL_HANDLE, 1, &pipeInfo, nullptr, &pipeline) != VK_SUCCESS) {
-        vkDestroyShaderModule(_engine->device, vsm, nullptr);
-        vkDestroyShaderModule(_engine->device, fsm, nullptr);
+    if (vkCreateGraphicsPipelines(_engine->ctx.device, VK_NULL_HANDLE, 1, &pipeInfo, nullptr, &pipeline) != VK_SUCCESS) {
+        vkDestroyShaderModule(_engine->ctx.device, vsm, nullptr);
+        vkDestroyShaderModule(_engine->ctx.device, fsm, nullptr);
         return INVALID_HANDLE;
     }
 
     if (desc.debugName) {
-        vk_set_object_name(_engine->device, (uint64_t)pipeline, VK_OBJECT_TYPE_PIPELINE, desc.debugName);
+        vk_set_object_name(_engine->ctx.device, (uint64_t)pipeline, VK_OBJECT_TYPE_PIPELINE, desc.debugName);
     }
 
-    vkDestroyShaderModule(_engine->device, vsm, nullptr);
-    vkDestroyShaderModule(_engine->device, fsm, nullptr);
+    vkDestroyShaderModule(_engine->ctx.device, vsm, nullptr);
+    vkDestroyShaderModule(_engine->ctx.device, fsm, nullptr);
 
     uint32_t handle = m_pipelines.size();
     m_pipelines.push_back(pipeline);

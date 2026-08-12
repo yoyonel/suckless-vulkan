@@ -5,8 +5,8 @@
 #include "app_log.h"
 
 GfxResult tracy_vk_context_init(VulkanEngine* engine) {
-    if (engine == nullptr || engine->physicalDevice == VK_NULL_HANDLE || engine->device == VK_NULL_HANDLE || engine->graphicsQueue == VK_NULL_HANDLE ||
-        engine->commandBuffer == VK_NULL_HANDLE) {
+    if (engine == nullptr || engine->ctx.physicalDevice == VK_NULL_HANDLE || engine->ctx.device == VK_NULL_HANDLE ||
+        engine->ctx.graphicsQueue == VK_NULL_HANDLE || engine->commandBuffer == VK_NULL_HANDLE) {
         LOG_ERROR("tracy", "Impossible d'initialiser le contexte Tracy Vulkan: handles manquants.");
         return GfxResult::ErrorInitializationFailed;
     }
@@ -15,7 +15,7 @@ GfxResult tracy_vk_context_init(VulkanEngine* engine) {
         return GfxResult::Success;
     }
 
-    engine->tracyVkContext = TracyVkContext(engine->physicalDevice, engine->device, engine->graphicsQueue, engine->commandBuffer);
+    engine->tracyVkContext = TracyVkContext(engine->ctx.physicalDevice, engine->ctx.device, engine->ctx.graphicsQueue, engine->commandBuffer);
     if (engine->tracyVkContext == nullptr) {
         LOG_ERROR("tracy", "Echec de creation du contexte Tracy Vulkan.");
         return GfxResult::ErrorInitializationFailed;
