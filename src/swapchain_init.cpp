@@ -108,11 +108,11 @@ GfxResult device_supports_swapchain(VkPhysicalDevice physicalDevice, VkSurfaceKH
 void SwapchainManager::cleanup_targets(VulkanEngine* engine) {
     for (uint32_t i = 0; i < imageCount; i++) {
         if (swapchainFramebuffers[i] != VK_NULL_HANDLE) {
-            vkDestroyFramebuffer(engine->device, swapchainFramebuffers[i], nullptr);
+            vkDestroyFramebuffer(engine->ctx.device, swapchainFramebuffers[i], nullptr);
             swapchainFramebuffers[i] = VK_NULL_HANDLE;
         }
         if (swapchainImageViews[i] != VK_NULL_HANDLE) {
-            vkDestroyImageView(engine->device, swapchainImageViews[i], nullptr);
+            vkDestroyImageView(engine->ctx.device, swapchainImageViews[i], nullptr);
             swapchainImageViews[i] = VK_NULL_HANDLE;
         }
     }
@@ -122,7 +122,7 @@ void SwapchainManager::cleanup_dependent_resources(VulkanEngine* engine) {
     cleanup_targets(engine);
 
     if (swapchain != VK_NULL_HANDLE) {
-        vkDestroySwapchainKHR(engine->device, swapchain, nullptr);
+        vkDestroySwapchainKHR(engine->ctx.device, swapchain, nullptr);
         swapchain = VK_NULL_HANDLE;
     }
 
@@ -131,25 +131,26 @@ void SwapchainManager::cleanup_dependent_resources(VulkanEngine* engine) {
 
 GfxResult SwapchainManager::init(VulkanEngine* engine) {
     VkSurfaceCapabilitiesKHR capabilities{};
-    if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(engine->physicalDevice, engine->surface, &capabilities) != VK_SUCCESS) {
+    if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(engine->ctx.physicalDevice, engine->ctx.surface, &capabilities) != VK_SUCCESS) {
         return GfxResult::ErrorInitializationFailed;
     }
 
     uint32_t formatCount = 0;
-    if (vkGetPhysicalDeviceSurfaceFormatsKHR(engine->physicalDevice, engine->surface, &formatCount, nullptr) != VK_SUCCESS || formatCount == 0) {
+    if (vkGetPhysicalDeviceSurfaceFormatsKHR(engine->ctx.physicalDevice, engine->ctx.surface, &formatCount, nullptr) != VK_SUCCESS || formatCount == 0) {
         return GfxResult::ErrorInitializationFailed;
     }
     std::vector<VkSurfaceFormatKHR> formats(formatCount);
-    if (vkGetPhysicalDeviceSurfaceFormatsKHR(engine->physicalDevice, engine->surface, &formatCount, formats.data()) != VK_SUCCESS) {
+    if (vkGetPhysicalDeviceSurfaceFormatsKHR(engine->ctx.physicalDevice, engine->ctx.surface, &formatCount, formats.data()) != VK_SUCCESS) {
         return GfxResult::ErrorInitializationFailed;
     }
 
     uint32_t presentModeCount = 0;
-    if (vkGetPhysicalDeviceSurfacePresentModesKHR(engine->physicalDevice, engine->surface, &presentModeCount, nullptr) != VK_SUCCESS || presentModeCount == 0) {
+    if (vkGetPhysicalDeviceSurfacePresentModesKHR(engine->ctx.physicalDevice, engine->ctx.surface, &presentModeCount, nullptr) != VK_SUCCESS ||
+        presentModeCount == 0) {
         return GfxResult::ErrorInitializationFailed;
     }
     std::vector<VkPresentModeKHR> presentModes(presentModeCount);
-    if (vkGetPhysicalDeviceSurfacePresentModesKHR(engine->physicalDevice, engine->surface, &presentModeCount, presentModes.data()) != VK_SUCCESS) {
+    if (vkGetPhysicalDeviceSurfacePresentModesKHR(engine->ctx.physicalDevice, engine->ctx.surface, &presentModeCount, presentModes.data()) != VK_SUCCESS) {
         return GfxResult::ErrorInitializationFailed;
     }
 
@@ -179,7 +180,7 @@ GfxResult SwapchainManager::init(VulkanEngine* engine) {
 
     VkSwapchainCreateInfoKHR swapchainInfo{};
     swapchainInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-    swapchainInfo.surface = engine->surface;
+    swapchainInfo.surface = engine->ctx.surface;
     swapchainInfo.minImageCount = reqImageCount;
     swapchainInfo.imageFormat = swapchainImageFormat;
     swapchainInfo.imageColorSpace = surfaceFormat.colorSpace;
@@ -187,8 +188,8 @@ GfxResult SwapchainManager::init(VulkanEngine* engine) {
     swapchainInfo.imageArrayLayers = 1;
     swapchainInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
 
-    const uint32_t queueFamilyIndices[] = {engine->graphicsQueueFamilyIndex, engine->presentQueueFamilyIndex};
-    if (engine->graphicsQueueFamilyIndex != engine->presentQueueFamilyIndex) {
+    const uint32_t queueFamilyIndices[] = {engine->ctx.graphicsQueueFamilyIndex, engine->ctx.presentQueueFamilyIndex};
+    if (engine->ctx.graphicsQueueFamilyIndex != engine->ctx.presentQueueFamilyIndex) {
         swapchainInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
         swapchainInfo.queueFamilyIndexCount = 2;
         swapchainInfo.pQueueFamilyIndices = queueFamilyIndices;
@@ -201,18 +202,18 @@ GfxResult SwapchainManager::init(VulkanEngine* engine) {
     swapchainInfo.presentMode = presentMode;
     swapchainInfo.clipped = VK_TRUE;
 
-    if (vkCreateSwapchainKHR(engine->device, &swapchainInfo, NULL, &swapchain) != VK_SUCCESS)
+    if (vkCreateSwapchainKHR(engine->ctx.device, &swapchainInfo, NULL, &swapchain) != VK_SUCCESS)
         return GfxResult::ErrorInitializationFailed;
-    vk_set_object_name(engine->device, (uint64_t)swapchain, VK_OBJECT_TYPE_SWAPCHAIN_KHR, "Main_Swapchain");
+    vk_set_object_name(engine->ctx.device, (uint64_t)swapchain, VK_OBJECT_TYPE_SWAPCHAIN_KHR, "Main_Swapchain");
 
-    if (vkGetSwapchainImagesKHR(engine->device, swapchain, &imageCount, NULL) != VK_SUCCESS) {
+    if (vkGetSwapchainImagesKHR(engine->ctx.device, swapchain, &imageCount, NULL) != VK_SUCCESS) {
         return GfxResult::ErrorInitializationFailed;
     }
     if (imageCount > config::kMaxSwapchainImages) {
         LOG_ERROR("init", "Swapchain image count (%u) exceeds MAX_SWAPCHAIN_IMAGES (%d)", imageCount, config::kMaxSwapchainImages);
         return GfxResult::ErrorInitializationFailed;
     }
-    if (vkGetSwapchainImagesKHR(engine->device, swapchain, &imageCount, swapchainImages) != VK_SUCCESS) {
+    if (vkGetSwapchainImagesKHR(engine->ctx.device, swapchain, &imageCount, swapchainImages) != VK_SUCCESS) {
         return GfxResult::ErrorInitializationFailed;
     }
 
@@ -225,14 +226,14 @@ GfxResult SwapchainManager::init(VulkanEngine* engine) {
         viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         viewInfo.subresourceRange.levelCount = 1;
         viewInfo.subresourceRange.layerCount = 1;
-        if (vkCreateImageView(engine->device, &viewInfo, NULL, &swapchainImageViews[i]) != VK_SUCCESS) {
+        if (vkCreateImageView(engine->ctx.device, &viewInfo, NULL, &swapchainImageViews[i]) != VK_SUCCESS) {
             return GfxResult::ErrorInitializationFailed;
         }
         const std::string swapchainViewName = "Swapchain_ImageView_" + std::to_string(i);
-        vk_set_object_name(engine->device, (uint64_t)swapchainImageViews[i], VK_OBJECT_TYPE_IMAGE_VIEW, swapchainViewName.c_str());
+        vk_set_object_name(engine->ctx.device, (uint64_t)swapchainImageViews[i], VK_OBJECT_TYPE_IMAGE_VIEW, swapchainViewName.c_str());
     }
 
-    depthFormat = find_depth_format(engine->physicalDevice);
+    depthFormat = find_depth_format(engine->ctx.physicalDevice);
     if (depthFormat == VK_FORMAT_UNDEFINED) {
         return GfxResult::ErrorInitializationFailed;
     }

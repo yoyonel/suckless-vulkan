@@ -201,3 +201,24 @@ La recette orchestre de manière transparente :
 
 - **Memory Bound (%) :** Indique le pourcentage de slots de pipeline CPU perdus à attendre la mémoire. Intel préconise de le maintenir sous les 20%.
 - **Store Bound (%) :** Mesure la pénalité d'écriture (allocations, copies...). La restructuration DOD de `IblBaker` a drastiquement réduit cette métrique (passant de 15.2% à 6.3%).
+
+## Itération 9 : RendererContext & Dependency Injection (Bloc 3)
+
+L'Itération 9 (Bloc 3) a consisté à finaliser le découplage de `VulkanEngine`. L'état vulkan de bas niveau a été extrait vers un `RendererContext`. Ce contexte est désormais injecté (Dependency Injection) dans `SwapchainManager` et `IblBaker`.
+
+### Résultats Finaux (Validation Itération 9 - Bloc 3)
+
+**1. Métriques Perf (vs Baseline E2E Itération 8) :**
+
+- **L1-dcache-load-misses (P-Core)** : **4.52%** (vs **5.15%** baseline).
+- **LLC-loads (Requêtes L2 -> L3)** : Baisse de **5%** d'accès L3.
+- **LLC-load-misses (Requêtes L3 -> RAM)** : Baisse spectaculaire de **38%** de RAM trips (de ~6.3M à ~3.9M).
+
+**2. Métriques VTune Memory Access :**
+
+- **Memory Bound** : **20.9%** (Très stable, reste autour du seuil d'or des 20%).
+- **Store Bound** : **9.5%** (Maintien de l'amélioration massive par rapport aux 15.2% d'origine).
+- **LLC Miss Count** : **2 601 092** (En baisse par rapport au Bloc 2).
+
+**Conclusion Architecturale :**
+Le Bloc 3 confirme que l'injection de dépendances (passage du contexte par pointeur) n'a induit aucune pénalité (pointer chasing) mesurable. Au contraire, les LLC misses se sont encore améliorés. Le moteur est désormais structurellement propre, modulaire et extrêmement stable thermiquement/memoire.

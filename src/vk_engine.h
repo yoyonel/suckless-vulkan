@@ -78,6 +78,7 @@ struct HdrCleanupRequest {
 };
 
 #include "vk_engine_ibl.h"
+#include "vk_renderer_context.h"
 
 struct Vertex {
     float position[3];
@@ -110,27 +111,7 @@ static_assert(sizeof(DebugPushConstant) % 16 == 0, "DebugPushConstant must be pa
 
 struct VulkanEngine {
 
-    VkInstance instance;
-    VkSurfaceKHR surface;
-    VkPhysicalDevice physicalDevice;
-    VkDevice device;
-    VkQueue graphicsQueue;
-    VkQueue presentQueue;
-    uint32_t graphicsQueueFamilyIndex;
-    uint32_t presentQueueFamilyIndex;
-
-    bool isUMA{false};
-    bool hasDedicatedTransferQueue{false};
-    bool hasDedicatedComputeQueue{false};
-    uint32_t transferQueueFamilyIndex{UINT32_MAX};
-    uint32_t computeQueueFamilyIndex{UINT32_MAX};
-    VkQueue transferQueue{VK_NULL_HANDLE};
-    VkQueue computeQueue{VK_NULL_HANDLE};
-
-    VkCommandPool transferCommandPool{VK_NULL_HANDLE};
-    VkSemaphore transferCompleteSemaphore{VK_NULL_HANDLE};
-
-    VmaAllocator allocator;
+    RendererContext ctx;
 
     SwapchainManager swapchainMgr;
 
@@ -187,7 +168,6 @@ struct VulkanEngine {
         int pendingHdrIndex;                              // Last requested HDR index (-1 if none)
     } io;
 
-    alignas(config::kCacheLineSize) VkCommandPool commandPool;
     VkCommandBuffer commandBuffer;
 
     VkSemaphore imageAvailableSemaphore;

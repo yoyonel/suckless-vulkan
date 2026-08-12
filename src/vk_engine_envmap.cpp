@@ -99,20 +99,20 @@ VkCommandBuffer begin_one_time_commands(VulkanEngine* engine) {
     VkCommandBufferAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    allocInfo.commandPool = engine->commandPool;
+    allocInfo.commandPool = engine->ctx.commandPool;
     allocInfo.commandBufferCount = 1;
 
     VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
-    if (vkAllocateCommandBuffers(engine->device, &allocInfo, &commandBuffer) != VK_SUCCESS) {
+    if (vkAllocateCommandBuffers(engine->ctx.device, &allocInfo, &commandBuffer) != VK_SUCCESS) {
         return VK_NULL_HANDLE;
     }
-    vk_set_object_name(engine->device, (uint64_t)commandBuffer, VK_OBJECT_TYPE_COMMAND_BUFFER, "EnvHDR_Transfer_CommandBuffer");
+    vk_set_object_name(engine->ctx.device, (uint64_t)commandBuffer, VK_OBJECT_TYPE_COMMAND_BUFFER, "EnvHDR_Transfer_CommandBuffer");
 
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     if (vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS) {
-        vkFreeCommandBuffers(engine->device, engine->commandPool, 1, &commandBuffer);
+        vkFreeCommandBuffers(engine->ctx.device, engine->ctx.commandPool, 1, &commandBuffer);
         return VK_NULL_HANDLE;
     }
 
@@ -186,12 +186,12 @@ void vk_generate_one_hdr_mipmap(VulkanEngine* engine) {
 
     VkCommandBufferAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    allocInfo.commandPool = engine->commandPool;
+    allocInfo.commandPool = engine->ctx.commandPool;
     allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     allocInfo.commandBufferCount = 1;
 
     VkCommandBuffer commandBuffer;
-    vkAllocateCommandBuffers(engine->device, &allocInfo, &commandBuffer);
+    vkAllocateCommandBuffers(engine->ctx.device, &allocInfo, &commandBuffer);
     engine->iblBaker.iblBakeCommandBuffer = commandBuffer;
 
     VkCommandBufferBeginInfo beginInfo{};
@@ -200,7 +200,7 @@ void vk_generate_one_hdr_mipmap(VulkanEngine* engine) {
     vkBeginCommandBuffer(commandBuffer, &beginInfo);
 
     SVK_TRACY_ZONE_SCOPED("Record_Generate_EnvHDR_Mipmap_Slice");
-    vk_begin_label(engine->device, commandBuffer, "Generate_EnvHDR_Mipmap_Slice", 0.0f, 0.4f, 0.8f);
+    vk_begin_label(engine->ctx.device, commandBuffer, "Generate_EnvHDR_Mipmap_Slice", 0.0f, 0.4f, 0.8f);
 
     if (engine->envHdrMipLevels == 1) {
         (void)transition_hdr_image_layout(engine, commandBuffer, 0, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
@@ -244,7 +244,7 @@ void vk_generate_one_hdr_mipmap(VulkanEngine* engine) {
         }
     }
 
-    vk_end_label(engine->device, commandBuffer);
+    vk_end_label(engine->ctx.device, commandBuffer);
     vkEndCommandBuffer(commandBuffer);
 
     vk_ibl_reset_bake_fence(engine);
@@ -254,7 +254,7 @@ void vk_generate_one_hdr_mipmap(VulkanEngine* engine) {
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &commandBuffer;
 
-    vkQueueSubmit(engine->graphicsQueue, 1, &submitInfo, engine->iblBaker.iblBakeFence);
+    vkQueueSubmit(engine->ctx.graphicsQueue, 1, &submitInfo, engine->iblBaker.iblBakeFence);
 
     engine->iblBaker.currentMip++;
 }
@@ -273,7 +273,7 @@ void vk_process_upload_hdr(VulkanEngine* engine) {
     int copyHeight = std::min(sliceHeight, static_cast<int>(engine->envHdrHeight) - currentY);
 
     if (copyHeight > 0) {
-        vk_begin_label(engine->device, commandBuffer, "Upload_HDR_Slice", 1.0f, 0.5f, 0.0f);
+        vk_begin_label(engine->ctx.device, commandBuffer, "Upload_HDR_Slice", 1.0f, 0.5f, 0.0f);
         VkBufferImageCopy region{};
         region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         region.imageSubresource.layerCount = 1;
@@ -283,7 +283,7 @@ void vk_process_upload_hdr(VulkanEngine* engine) {
 
         ((VulkanRHI*)engine->appState->rhi)
             ->CmdCopyBufferToImage(commandBuffer, engine->iblBaker.currentStagingBuffer, vkEnvHdrImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-        vk_end_label(engine->device, commandBuffer);
+        vk_end_label(engine->ctx.device, commandBuffer);
     }
 
     vk_ibl_reset_bake_fence(engine);
@@ -295,7 +295,7 @@ void vk_process_upload_hdr(VulkanEngine* engine) {
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &commandBuffer;
 
-    vkQueueSubmit(engine->graphicsQueue, 1, &submitInfo, engine->iblBaker.iblBakeFence);
+    vkQueueSubmit(engine->ctx.graphicsQueue, 1, &submitInfo, engine->iblBaker.iblBakeFence);
 
     engine->iblBaker.iblBakeCommandBuffer = commandBuffer;
     engine->iblBaker.bakeState = IblBakeState::UploadHdrWait;
@@ -317,7 +317,7 @@ void start_hdr_bake(VulkanEngine* engine, bool asyncUpload, HdrLoadRequest& requ
     if (!asyncUpload) {
         while (engine->iblBaker.bakeState != IblBakeState::Idle) {
             if (engine->iblBaker.iblBakeFence != VK_NULL_HANDLE) {
-                vkWaitForFences(engine->device, 1, &engine->iblBaker.iblBakeFence, VK_TRUE, UINT64_MAX);
+                vkWaitForFences(engine->ctx.device, 1, &engine->iblBaker.iblBakeFence, VK_TRUE, UINT64_MAX);
             }
             vk_check_ibl_bake_status(engine);
         }
@@ -330,7 +330,7 @@ void allocate_hdr_resources_async(VulkanEngine* engine, HdrLoadRequest& request)
     uint32_t envHdrMipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(request.width, request.height)))) + 1;
 
     VkFormatProperties hdrFormatProps{};
-    vkGetPhysicalDeviceFormatProperties(engine->physicalDevice, VK_FORMAT_R32G32B32A32_SFLOAT, &hdrFormatProps);
+    vkGetPhysicalDeviceFormatProperties(engine->ctx.physicalDevice, VK_FORMAT_R32G32B32A32_SFLOAT, &hdrFormatProps);
     const bool canLinearBlit = (hdrFormatProps.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT) != 0;
     if (!canLinearBlit) {
         envHdrMipLevels = 1;
@@ -357,7 +357,7 @@ ResourceResult init_environment_texture_from_staging(VulkanEngine* engine, HdrLo
 
     engine->envHdrMipLevels = request.envHdrMipLevels;
 
-    vk_set_object_name(engine->device, (uint64_t)request.stagingBuffer, VK_OBJECT_TYPE_BUFFER, "EnvHDR_Staging_Buffer");
+    vk_set_object_name(engine->ctx.device, (uint64_t)request.stagingBuffer, VK_OBJECT_TYPE_BUFFER, "EnvHDR_Staging_Buffer");
 
     engine->envHdrWidth = request.width;
     engine->envHdrHeight = request.height;
@@ -415,13 +415,14 @@ ResourceResult load_hdr_with_ktx2_cache(VulkanEngine* engine, const std::string&
         VmaAllocationCreateInfo stagingAllocInfo{};
         stagingAllocInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
 
-        if (vmaCreateBuffer(engine->allocator, &bufferInfo, &stagingAllocInfo, &request->stagingBuffer, &request->stagingAllocation, nullptr) != VK_SUCCESS) {
+        if (vmaCreateBuffer(engine->ctx.allocator, &bufferInfo, &stagingAllocInfo, &request->stagingBuffer, &request->stagingAllocation, nullptr) !=
+            VK_SUCCESS) {
             return nullptr;
         }
 
         void* mapped = nullptr;
-        if (vmaMapMemory(engine->allocator, request->stagingAllocation, &mapped) != VK_SUCCESS) {
-            vmaDestroyBuffer(engine->allocator, request->stagingBuffer, request->stagingAllocation);
+        if (vmaMapMemory(engine->ctx.allocator, request->stagingAllocation, &mapped) != VK_SUCCESS) {
+            vmaDestroyBuffer(engine->ctx.allocator, request->stagingBuffer, request->stagingAllocation);
             request->stagingBuffer = VK_NULL_HANDLE;
             return nullptr;
         }
@@ -433,7 +434,7 @@ ResourceResult load_hdr_with_ktx2_cache(VulkanEngine* engine, const std::string&
         int height;
         if (ktx2_load_from_file(ktxPath, &width, &height, allocator_func) == KtxResult::Success) {
             LOG_INFO("engine", "[KTX Cache] Load fast-path: %s", ktxPath.c_str());
-            vmaUnmapMemory(engine->allocator, request->stagingAllocation);
+            vmaUnmapMemory(engine->ctx.allocator, request->stagingAllocation);
             request->width = static_cast<uint32_t>(width);
             request->height = static_cast<uint32_t>(height);
             return ResourceResult::Success;
@@ -449,7 +450,7 @@ ResourceResult load_hdr_with_ktx2_cache(VulkanEngine* engine, const std::string&
         void* mapped = allocator_func(size);
         if (mapped) {
             memcpy(mapped, pixels, size);
-            vmaUnmapMemory(engine->allocator, request->stagingAllocation);
+            vmaUnmapMemory(engine->ctx.allocator, request->stagingAllocation);
 
             LOG_INFO("engine", "[KTX Cache] Baking %s...", ktxPath.c_str());
             ktx2_bake_hdr_to_file(ktxPath, width, height, pixels);
@@ -479,14 +480,14 @@ ResourceResult init_environment_texture_from_path(VulkanEngine* engine, const st
             VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, nullptr, 0, 16, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_SHARING_MODE_EXCLUSIVE, 0, nullptr};
         VmaAllocationCreateInfo stagingAllocInfo{};
         stagingAllocInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
-        vmaCreateBuffer(engine->allocator, &bufferInfo, &stagingAllocInfo, &request.stagingBuffer, &request.stagingAllocation, nullptr);
+        vmaCreateBuffer(engine->ctx.allocator, &bufferInfo, &stagingAllocInfo, &request.stagingBuffer, &request.stagingAllocation, nullptr);
         void* mapped;
-        vmaMapMemory(engine->allocator, request.stagingAllocation, &mapped);
+        vmaMapMemory(engine->ctx.allocator, request.stagingAllocation, &mapped);
         memcpy(mapped, fallbackPixel, 16);
-        vmaUnmapMemory(engine->allocator, request.stagingAllocation);
+        vmaUnmapMemory(engine->ctx.allocator, request.stagingAllocation);
         allocate_hdr_resources_async(engine, request);
         ResourceResult res = init_environment_texture_from_staging(engine, request, true);
-        vmaDestroyBuffer(engine->allocator, request.stagingBuffer, request.stagingAllocation);
+        vmaDestroyBuffer(engine->ctx.allocator, request.stagingBuffer, request.stagingAllocation);
         return res;
     }
 
@@ -497,21 +498,21 @@ ResourceResult init_environment_texture_from_path(VulkanEngine* engine, const st
             VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, nullptr, 0, 16, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_SHARING_MODE_EXCLUSIVE, 0, nullptr};
         VmaAllocationCreateInfo stagingAllocInfo{};
         stagingAllocInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
-        vmaCreateBuffer(engine->allocator, &bufferInfo, &stagingAllocInfo, &request.stagingBuffer, &request.stagingAllocation, nullptr);
+        vmaCreateBuffer(engine->ctx.allocator, &bufferInfo, &stagingAllocInfo, &request.stagingBuffer, &request.stagingAllocation, nullptr);
         void* mapped;
-        vmaMapMemory(engine->allocator, request.stagingAllocation, &mapped);
+        vmaMapMemory(engine->ctx.allocator, request.stagingAllocation, &mapped);
         memcpy(mapped, fallbackPixel, 16);
-        vmaUnmapMemory(engine->allocator, request.stagingAllocation);
+        vmaUnmapMemory(engine->ctx.allocator, request.stagingAllocation);
         allocate_hdr_resources_async(engine, request);
         ResourceResult res = init_environment_texture_from_staging(engine, request, true);
-        vmaDestroyBuffer(engine->allocator, request.stagingBuffer, request.stagingAllocation);
+        vmaDestroyBuffer(engine->ctx.allocator, request.stagingBuffer, request.stagingAllocation);
         return res;
     }
 
     request.sourcePathOrLabel = hdrPath;
     allocate_hdr_resources_async(engine, request);
     ResourceResult res = init_environment_texture_from_staging(engine, request, false);
-    vmaDestroyBuffer(engine->allocator, request.stagingBuffer, request.stagingAllocation);
+    vmaDestroyBuffer(engine->ctx.allocator, request.stagingBuffer, request.stagingAllocation);
     return res;
 }
 
@@ -566,7 +567,7 @@ void process_hdr_cleanup_queue(VulkanEngine* engine) {
     while (engine->io.hdrCleanupQueue.pop(cleanupReq)) {
         SVK_TRACY_ZONE_SCOPED("hdr_io_thread_cleanup");
         if (cleanupReq.buffer != VK_NULL_HANDLE) {
-            vmaDestroyBuffer(engine->allocator, cleanupReq.buffer, cleanupReq.allocation);
+            vmaDestroyBuffer(engine->ctx.allocator, cleanupReq.buffer, cleanupReq.allocation);
         }
         if (cleanupReq.tex.is_valid()) {
             engine->appState->rhi->DestroyTexture(cleanupReq.tex);
@@ -625,7 +626,7 @@ void hdr_io_thread_main(VulkanEngine* engine) {
 } // namespace
 
 void vk_cleanup_environment_resources(VulkanEngine* engine) {
-    if (engine->device == VK_NULL_HANDLE) {
+    if (engine->ctx.device == VK_NULL_HANDLE) {
         return;
     }
 
@@ -699,12 +700,12 @@ void vk_stop_hdr_io_thread(VulkanEngine* engine) {
     HdrLoadRequest req;
     while (engine->io.hdrLoadQueue.pop(req)) {
         if (req.stagingBuffer != VK_NULL_HANDLE) {
-            vmaDestroyBuffer(engine->allocator, req.stagingBuffer, req.stagingAllocation);
+            vmaDestroyBuffer(engine->ctx.allocator, req.stagingBuffer, req.stagingAllocation);
         }
     }
     while (engine->io.hdrReadyQueue.pop(req)) {
         if (req.stagingBuffer != VK_NULL_HANDLE) {
-            vmaDestroyBuffer(engine->allocator, req.stagingBuffer, req.stagingAllocation);
+            vmaDestroyBuffer(engine->ctx.allocator, req.stagingBuffer, req.stagingAllocation);
         }
     }
 
@@ -720,7 +721,7 @@ void vk_process_ready_environment_texture(VulkanEngine* engine) {
     HdrLoadRequest req;
     while (engine->io.hdrReadyQueue.pop(req)) {
         if (hasReady && ready.stagingBuffer != VK_NULL_HANDLE) {
-            vmaDestroyBuffer(engine->allocator, ready.stagingBuffer, ready.stagingAllocation);
+            vmaDestroyBuffer(engine->ctx.allocator, ready.stagingBuffer, ready.stagingAllocation);
         }
         ready = std::move(req);
         hasReady = true;
@@ -737,7 +738,7 @@ void vk_process_ready_environment_texture(VulkanEngine* engine) {
     if (ready.state != HdrLoadRequestState::Ready || ready.stagingBuffer == VK_NULL_HANDLE || ready.width == 0 || ready.height == 0) {
         LOG_ERROR("runtime", "Echec du chargement async HDR");
         if (ready.stagingBuffer != VK_NULL_HANDLE)
-            vmaDestroyBuffer(engine->allocator, ready.stagingBuffer, ready.stagingAllocation);
+            vmaDestroyBuffer(engine->ctx.allocator, ready.stagingBuffer, ready.stagingAllocation);
         return;
     }
 
@@ -750,7 +751,7 @@ void vk_process_ready_environment_texture(VulkanEngine* engine) {
 
     if (init_environment_texture_from_staging(engine, ready, false, true) != ResourceResult::Success) {
         LOG_ERROR("runtime", "Upload GPU HDR async echoue");
-        vmaDestroyBuffer(engine->allocator, ready.stagingBuffer, ready.stagingAllocation);
+        vmaDestroyBuffer(engine->ctx.allocator, ready.stagingBuffer, ready.stagingAllocation);
         return;
     }
 
@@ -819,9 +820,9 @@ static void vk_finalize_ibl_bake(VulkanEngine* engine) {
 static void vk_process_luminance_wait(VulkanEngine* engine) {
     void* data = nullptr;
     float meanLum = 1.0f;
-    if (vmaMapMemory(engine->allocator, engine->iblBaker.lumMeanAllocation, &data) == VK_SUCCESS) {
+    if (vmaMapMemory(engine->ctx.allocator, engine->iblBaker.lumMeanAllocation, &data) == VK_SUCCESS) {
         memcpy(&meanLum, data, sizeof(float));
-        vmaUnmapMemory(engine->allocator, engine->iblBaker.lumMeanAllocation);
+        vmaUnmapMemory(engine->ctx.allocator, engine->iblBaker.lumMeanAllocation);
         if (std::isnan(meanLum) || std::isinf(meanLum) || meanLum <= 0.0f)
             meanLum = 1.0f;
         engine->iblBaker.bakedMeanLuminance = meanLum;
@@ -870,16 +871,16 @@ void vk_check_ibl_bake_status(VulkanEngine* engine) {
     }
 
     if (engine->iblBaker.iblBakeFence != VK_NULL_HANDLE) {
-        if (vkGetFenceStatus(engine->device, engine->iblBaker.iblBakeFence) != VK_SUCCESS) {
+        if (vkGetFenceStatus(engine->ctx.device, engine->iblBaker.iblBakeFence) != VK_SUCCESS) {
             return;
         }
 
         if (engine->iblBaker.iblBakeCommandBuffer != VK_NULL_HANDLE) {
-            vkFreeCommandBuffers(engine->device, engine->commandPool, 1, &engine->iblBaker.iblBakeCommandBuffer);
+            vkFreeCommandBuffers(engine->ctx.device, engine->ctx.commandPool, 1, &engine->iblBaker.iblBakeCommandBuffer);
             engine->iblBaker.iblBakeCommandBuffer = VK_NULL_HANDLE;
         }
 
-        vkDestroyFence(engine->device, engine->iblBaker.iblBakeFence, nullptr);
+        vkDestroyFence(engine->ctx.device, engine->iblBaker.iblBakeFence, nullptr);
         engine->iblBaker.iblBakeFence = VK_NULL_HANDLE;
     }
 

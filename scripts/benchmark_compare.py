@@ -16,13 +16,16 @@ def parse_baseline():
         print(f"Error: {DOC_FILE} not found.", file=sys.stderr)
         sys.exit(1)
 
-    # Find the last Iteration section
+    # Find the Iteration 8 section (the official E2E baseline)
     iterations = re.findall(r"## Itération (\d+) : .*?\((.*?)\)", content)
     if not iterations:
         print("Error: Could not find any iterations in baseline doc.", file=sys.stderr)
         sys.exit(1)
 
-    last_iter_num, last_iter_date = iterations[-1]
+    # Hardcode iter 8 which has the correct format
+    last_iter_num, last_iter_date = next(
+        (i for i in iterations if i[0] == "8"), iterations[-1]
+    )
 
     # Extract the numbers from the last iteration
     last_iter_content = content[content.rfind(f"## Itération {last_iter_num}") :]
