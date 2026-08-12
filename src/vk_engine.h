@@ -76,86 +76,7 @@ struct HdrCleanupRequest {
     HdrCleanupRequest& operator=(HdrCleanupRequest&&) = default;
 };
 
-// Phase IBL-0: Synchronous Bake Resources
-enum class IblBakeState : uint8_t {
-    Idle,
-    UploadHdr,
-    UploadHdrWait,
-    GenerateMipmap,
-    GenerateMipmapWait,
-    Luminance,
-    LuminanceWait,
-    Brdf,
-    BrdfWait,
-    Irradiance,
-    IrradianceWait,
-    Prefilter,
-    PrefilterWait,
-    Finalize
-};
-
-struct IblResources {
-    rhi::TexturePtr irradianceMap;
-    rhi::SamplerPtr irradianceSampler;
-
-    rhi::TexturePtr prefilteredMap;
-    rhi::SamplerPtr prefilteredSampler;
-
-    rhi::TexturePtr brdfLut;
-    rhi::SamplerPtr brdfLutSampler;
-
-    // Internal Compute Resources (Luminance Reduction)
-    VkBuffer lumGroupSumsBuffer;
-    VmaAllocation lumGroupSumsAllocation;
-    VkBuffer lumMeanBuffer;
-    VmaAllocation lumMeanAllocation;
-
-    // Compute Pipelines
-    rhi::PipelinePtr irmapPipeline;
-    rhi::PipelinePtr spmapPipeline;
-    rhi::PipelinePtr brdfLutPipeline;
-    rhi::PipelinePtr lum1Pipeline;
-    rhi::PipelinePtr lum2Pipeline;
-
-    rhi::PipelineLayoutPtr iblPipelineLayout;
-    rhi::PipelineLayoutPtr lum1PipelineLayout;
-    rhi::PipelineLayoutPtr lum2PipelineLayout;
-    rhi::DescriptorLayoutPtr iblDescriptorSetLayout;
-    rhi::DescriptorLayoutPtr lum1DescriptorSetLayout;
-    rhi::DescriptorLayoutPtr lum2DescriptorSetLayout;
-    rhi::DescriptorPoolPtr computeDescriptorPool;
-
-    // Descriptor sets for individual compute passes
-    DescriptorSetHandle lum1DescriptorSet{INVALID_HANDLE};
-    DescriptorSetHandle lum2DescriptorSet{INVALID_HANDLE};
-    DescriptorSetHandle irmapDescriptorSet{INVALID_HANDLE};
-    DescriptorSetHandle spmapDescriptorSet{INVALID_HANDLE};
-    DescriptorSetHandle brdfLutDescriptorSet{INVALID_HANDLE};
-
-    bool brdfLutBaked{false};
-    float bakedMeanLuminance{1.0f};
-
-    // State machine & Slicing tracking
-    std::chrono::high_resolution_clock::time_point envmapRequestTime;
-    IblBakeState bakeState{IblBakeState::Idle};
-    int currentSlice{0};
-    int totalSlices{0};
-    int currentMip{0};
-    VkBuffer currentStagingBuffer{VK_NULL_HANDLE};
-
-    VkFence iblBakeFence{VK_NULL_HANDLE};
-    VkCommandBuffer iblBakeCommandBuffer{VK_NULL_HANDLE};
-    std::vector<uint64_t> pendingDescriptorPools;
-    std::vector<uint64_t> pendingImageViews;
-
-    // Deferred resource cleanup
-    std::vector<rhi::TexturePtr> pendingOldTextures;
-    std::vector<rhi::SamplerPtr> pendingOldSamplers;
-    std::vector<VkBuffer> pendingStagingBuffers;
-    std::vector<VmaAllocation> pendingStagingAllocations;
-
-    void cleanupPendingResources(struct VulkanEngine* engine);
-};
+#include "vk_engine_ibl.h"
 
 struct Vertex {
     float position[3];
@@ -287,9 +208,9 @@ struct VulkanEngine {
     rhi::BufferPtr billboardMatSSBO;
     void* billboardMapped;
 
-    IblResources ibl;
-
     EngineState* appState;
+
+    IblBaker iblBaker;
 };
 
 GfxResult init_vulkan_engine(VulkanEngine* engine);

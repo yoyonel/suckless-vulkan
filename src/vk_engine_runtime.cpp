@@ -76,7 +76,7 @@ void handle_ibl_debug_inputs(VulkanEngine* engine, const WindowOps* ops) {
         get_key_state(engine->appState->window, GLFW_KEY_O, &engine->appState->core.inputTracking.iblExportKeyWasDown, ops);
 
     if (engine->appState->currentInput.iblExportPressed == InputState::PressedOnce) {
-        vk_ibl_export_maps(engine);
+        engine->iblBaker.ExportMaps(engine);
         LOG_INFO("runtime", "IBL maps export requested (/tmp/ibl_tests/vk)");
     }
 }

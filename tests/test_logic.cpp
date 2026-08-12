@@ -158,7 +158,7 @@ void vk_switch_environment_texture(VulkanEngine* engine, int dir) {
     (void)engine;
     (void)dir;
 }
-void vk_ibl_export_maps(VulkanEngine* engine) {
+void IblBaker::ExportMaps(VulkanEngine* engine) const { // NOLINT(readability-convert-member-functions-to-static)
     (void)engine;
 }
 bool vk_recreate_swapchain(VulkanEngine* engine) {

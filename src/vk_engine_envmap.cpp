@@ -18,21 +18,21 @@ static void update_envmap_descriptor_set(VulkanEngine* engine) {
 
     DescriptorImageInfo irrInfo{};
     irrInfo.imageLayout = TextureLayout::ShaderReadOnlyOptimal;
-    irrInfo.texture = engine->ibl.irradianceMap.is_valid() ? engine->ibl.irradianceMap : engine->envHdrImage;
+    irrInfo.texture = engine->iblBaker.irradianceMap.is_valid() ? engine->iblBaker.irradianceMap : engine->envHdrImage;
     irrInfo.imageView = INVALID_HANDLE;
-    irrInfo.sampler = engine->ibl.irradianceSampler.is_valid() ? engine->ibl.irradianceSampler : engine->envHdrSampler;
+    irrInfo.sampler = engine->iblBaker.irradianceSampler.is_valid() ? engine->iblBaker.irradianceSampler : engine->envHdrSampler;
 
     DescriptorImageInfo prefInfo{};
     prefInfo.imageLayout = TextureLayout::ShaderReadOnlyOptimal;
-    prefInfo.texture = engine->ibl.prefilteredMap.is_valid() ? engine->ibl.prefilteredMap : engine->envHdrImage;
+    prefInfo.texture = engine->iblBaker.prefilteredMap.is_valid() ? engine->iblBaker.prefilteredMap : engine->envHdrImage;
     prefInfo.imageView = INVALID_HANDLE;
-    prefInfo.sampler = engine->ibl.prefilteredSampler.is_valid() ? engine->ibl.prefilteredSampler : engine->envHdrSampler;
+    prefInfo.sampler = engine->iblBaker.prefilteredSampler.is_valid() ? engine->iblBaker.prefilteredSampler : engine->envHdrSampler;
 
     DescriptorImageInfo lutInfo{};
     lutInfo.imageLayout = TextureLayout::ShaderReadOnlyOptimal;
-    lutInfo.texture = engine->ibl.brdfLut.is_valid() ? engine->ibl.brdfLut : engine->envHdrImage;
+    lutInfo.texture = engine->iblBaker.brdfLut.is_valid() ? engine->iblBaker.brdfLut : engine->envHdrImage;
     lutInfo.imageView = INVALID_HANDLE;
-    lutInfo.sampler = engine->ibl.brdfLutSampler.is_valid() ? engine->ibl.brdfLutSampler : engine->envHdrSampler;
+    lutInfo.sampler = engine->iblBaker.brdfLutSampler.is_valid() ? engine->iblBaker.brdfLutSampler : engine->envHdrSampler;
 
     WriteDescriptorSet writes[4] = {};
 
@@ -180,7 +180,7 @@ namespace {
 // Staging buffer now directly created in I/O thread
 
 void vk_generate_one_hdr_mipmap(VulkanEngine* engine) {
-    uint32_t i = engine->ibl.currentMip;
+    uint32_t i = engine->iblBaker.currentMip;
     if (i > engine->envHdrMipLevels)
         return;
 
@@ -192,7 +192,7 @@ void vk_generate_one_hdr_mipmap(VulkanEngine* engine) {
 
     VkCommandBuffer commandBuffer;
     vkAllocateCommandBuffers(engine->device, &allocInfo, &commandBuffer);
-    engine->ibl.iblBakeCommandBuffer = commandBuffer;
+    engine->iblBaker.iblBakeCommandBuffer = commandBuffer;
 
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -254,22 +254,22 @@ void vk_generate_one_hdr_mipmap(VulkanEngine* engine) {
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &commandBuffer;
 
-    vkQueueSubmit(engine->graphicsQueue, 1, &submitInfo, engine->ibl.iblBakeFence);
+    vkQueueSubmit(engine->graphicsQueue, 1, &submitInfo, engine->iblBaker.iblBakeFence);
 
-    engine->ibl.currentMip++;
+    engine->iblBaker.currentMip++;
 }
 
 void vk_process_upload_hdr(VulkanEngine* engine) {
     VkCommandBuffer commandBuffer = begin_one_time_commands(engine);
     VkImage vkEnvHdrImage = ((VulkanRHI*)engine->appState->rhi)->GetVkImage(engine->envHdrImage);
 
-    if (engine->ibl.currentSlice == 0) {
+    if (engine->iblBaker.currentSlice == 0) {
         (void)transition_hdr_image_layout(engine, commandBuffer, 0, engine->envHdrMipLevels, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0,
                                           VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
     }
 
     int sliceHeight = 128;
-    int currentY = engine->ibl.currentSlice * sliceHeight;
+    int currentY = engine->iblBaker.currentSlice * sliceHeight;
     int copyHeight = std::min(sliceHeight, static_cast<int>(engine->envHdrHeight) - currentY);
 
     if (copyHeight > 0) {
@@ -282,7 +282,7 @@ void vk_process_upload_hdr(VulkanEngine* engine) {
         region.bufferOffset = static_cast<VkDeviceSize>(currentY) * engine->envHdrWidth * 16; // 16 bytes per pixel for RGBA32_SFLOAT
 
         ((VulkanRHI*)engine->appState->rhi)
-            ->CmdCopyBufferToImage(commandBuffer, engine->ibl.currentStagingBuffer, vkEnvHdrImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+            ->CmdCopyBufferToImage(commandBuffer, engine->iblBaker.currentStagingBuffer, vkEnvHdrImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
         vk_end_label(engine->device, commandBuffer);
     }
 
@@ -295,29 +295,29 @@ void vk_process_upload_hdr(VulkanEngine* engine) {
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &commandBuffer;
 
-    vkQueueSubmit(engine->graphicsQueue, 1, &submitInfo, engine->ibl.iblBakeFence);
+    vkQueueSubmit(engine->graphicsQueue, 1, &submitInfo, engine->iblBaker.iblBakeFence);
 
-    engine->ibl.iblBakeCommandBuffer = commandBuffer;
-    engine->ibl.bakeState = IblBakeState::UploadHdrWait;
+    engine->iblBaker.iblBakeCommandBuffer = commandBuffer;
+    engine->iblBaker.bakeState = IblBakeState::UploadHdrWait;
 }
 
 void start_hdr_bake(VulkanEngine* engine, bool asyncUpload, HdrLoadRequest& request) {
-    if (engine->ibl.irradianceMap.is_valid()) {
-        engine->ibl.pendingOldTextures.push_back(std::move(engine->ibl.irradianceMap));
+    if (engine->iblBaker.irradianceMap.is_valid()) {
+        engine->iblBaker.pendingOldTextures.push_back(std::move(engine->iblBaker.irradianceMap));
     }
-    engine->ibl.irradianceMap = std::move(request.irradianceMap);
+    engine->iblBaker.irradianceMap = std::move(request.irradianceMap);
 
-    if (engine->ibl.prefilteredMap.is_valid()) {
-        engine->ibl.pendingOldTextures.push_back(std::move(engine->ibl.prefilteredMap));
+    if (engine->iblBaker.prefilteredMap.is_valid()) {
+        engine->iblBaker.pendingOldTextures.push_back(std::move(engine->iblBaker.prefilteredMap));
     }
-    engine->ibl.prefilteredMap = std::move(request.prefilteredMap);
+    engine->iblBaker.prefilteredMap = std::move(request.prefilteredMap);
 
-    engine->ibl.bakeState = IblBakeState::UploadHdr;
+    engine->iblBaker.bakeState = IblBakeState::UploadHdr;
 
     if (!asyncUpload) {
-        while (engine->ibl.bakeState != IblBakeState::Idle) {
-            if (engine->ibl.iblBakeFence != VK_NULL_HANDLE) {
-                vkWaitForFences(engine->device, 1, &engine->ibl.iblBakeFence, VK_TRUE, UINT64_MAX);
+        while (engine->iblBaker.bakeState != IblBakeState::Idle) {
+            if (engine->iblBaker.iblBakeFence != VK_NULL_HANDLE) {
+                vkWaitForFences(engine->device, 1, &engine->iblBaker.iblBakeFence, VK_TRUE, UINT64_MAX);
             }
             vk_check_ibl_bake_status(engine);
         }
@@ -367,9 +367,9 @@ ResourceResult init_environment_texture_from_staging(VulkanEngine* engine, HdrLo
         return ResourceResult::ErrorParseFailed;
     }
 
-    engine->ibl.currentStagingBuffer = request.stagingBuffer;
-    engine->ibl.currentSlice = 0;
-    engine->ibl.totalSlices = static_cast<int>((engine->envHdrHeight + 127) / 128);
+    engine->iblBaker.currentStagingBuffer = request.stagingBuffer;
+    engine->iblBaker.currentSlice = 0;
+    engine->iblBaker.totalSlices = static_cast<int>((engine->envHdrHeight + 127) / 128);
 
     engine->envHdrSampler = std::move(request.envHdrSampler);
     if (!engine->envHdrSampler.is_valid()) {
@@ -468,7 +468,7 @@ ResourceResult load_hdr_with_ktx2_cache(VulkanEngine* engine, const std::string&
 } // namespace
 
 ResourceResult init_environment_texture_from_path(VulkanEngine* engine, const std::string& hdrPath) {
-    engine->ibl.envmapRequestTime = std::chrono::high_resolution_clock::now();
+    engine->iblBaker.envmapRequestTime = std::chrono::high_resolution_clock::now();
     HdrLoadRequest request{};
 
     if (hdrPath.empty()) {
@@ -556,7 +556,7 @@ void request_environment_texture_async(VulkanEngine* engine, int newHdrIndex) {
     request.channels = 0;
     engine->io.hdrLoadQueue.push(std::move(request));
     engine->io.pendingHdrIndex = newHdrIndex;
-    engine->ibl.envmapRequestTime = std::chrono::high_resolution_clock::now();
+    engine->iblBaker.envmapRequestTime = std::chrono::high_resolution_clock::now();
 
     LOG_INFO("runtime", "Chargement HDR async demande: %s", get_filename_from_path(engine->hdrFiles[static_cast<size_t>(newHdrIndex)]).c_str());
 }
@@ -742,10 +742,10 @@ void vk_process_ready_environment_texture(VulkanEngine* engine) {
     }
 
     if (engine->envHdrSampler.is_valid()) {
-        engine->ibl.pendingOldSamplers.push_back(std::move(engine->envHdrSampler));
+        engine->iblBaker.pendingOldSamplers.push_back(std::move(engine->envHdrSampler));
     }
     if (engine->envHdrImage.is_valid()) {
-        engine->ibl.pendingOldTextures.push_back(std::move(engine->envHdrImage));
+        engine->iblBaker.pendingOldTextures.push_back(std::move(engine->envHdrImage));
     }
 
     if (init_environment_texture_from_staging(engine, ready, false, true) != ResourceResult::Success) {
@@ -754,8 +754,8 @@ void vk_process_ready_environment_texture(VulkanEngine* engine) {
         return;
     }
 
-    engine->ibl.pendingStagingBuffers.push_back(ready.stagingBuffer);
-    engine->ibl.pendingStagingAllocations.push_back(ready.stagingAllocation);
+    engine->iblBaker.pendingStagingBuffers.push_back(ready.stagingBuffer);
+    engine->iblBaker.pendingStagingAllocations.push_back(ready.stagingAllocation);
     engine->currentHdrIndex = ready.hdrIndex;
 
     engine->appState->core.render.envLod =
@@ -767,7 +767,7 @@ void vk_process_ready_environment_texture(VulkanEngine* engine) {
     LOG_INFO("runtime", "vk_process_ready_environment_texture a pris %.2f ms", ms);
 }
 
-void IblResources::cleanupPendingResources(VulkanEngine* engine) {
+void IblBaker::cleanupPendingResources(VulkanEngine* engine) {
     for (uint64_t viewHandle : pendingImageViews) {
         engine->appState->rhi->DestroyImageView(static_cast<ImageViewHandle>(viewHandle));
     }
@@ -803,119 +803,119 @@ void IblResources::cleanupPendingResources(VulkanEngine* engine) {
 }
 
 static void vk_finalize_ibl_bake(VulkanEngine* engine) {
-    engine->ibl.cleanupPendingResources(engine);
+    engine->iblBaker.cleanupPendingResources(engine);
 
     update_envmap_descriptor_set(engine);
     auto tEnd = std::chrono::high_resolution_clock::now();
-    if (engine->ibl.envmapRequestTime.time_since_epoch().count() != 0) {
-        float totalMs = std::chrono::duration<float, std::milli>(tEnd - engine->ibl.envmapRequestTime).count();
+    if (engine->iblBaker.envmapRequestTime.time_since_epoch().count() != 0) {
+        float totalMs = std::chrono::duration<float, std::milli>(tEnd - engine->iblBaker.envmapRequestTime).count();
         LOG_INFO("ibl", "IBL environment ready in %.2f ms, descriptor set updated.", totalMs);
-        engine->ibl.envmapRequestTime = {}; // Reset for next time
+        engine->iblBaker.envmapRequestTime = {}; // Reset for next time
     }
 
-    engine->ibl.bakeState = IblBakeState::Idle;
+    engine->iblBaker.bakeState = IblBakeState::Idle;
 }
 
 static void vk_process_luminance_wait(VulkanEngine* engine) {
     void* data = nullptr;
     float meanLum = 1.0f;
-    if (vmaMapMemory(engine->allocator, engine->ibl.lumMeanAllocation, &data) == VK_SUCCESS) {
+    if (vmaMapMemory(engine->allocator, engine->iblBaker.lumMeanAllocation, &data) == VK_SUCCESS) {
         memcpy(&meanLum, data, sizeof(float));
-        vmaUnmapMemory(engine->allocator, engine->ibl.lumMeanAllocation);
+        vmaUnmapMemory(engine->allocator, engine->iblBaker.lumMeanAllocation);
         if (std::isnan(meanLum) || std::isinf(meanLum) || meanLum <= 0.0f)
             meanLum = 1.0f;
-        engine->ibl.bakedMeanLuminance = meanLum;
+        engine->iblBaker.bakedMeanLuminance = meanLum;
         LOG_INFO("ibl", "Async Mean luminance: %.4f", meanLum);
     }
-    engine->ibl.bakeState = IblBakeState::Brdf;
+    engine->iblBaker.bakeState = IblBakeState::Brdf;
     vk_ibl_bake_brdf(engine);
 }
 
 static void vk_process_irradiance_wait(VulkanEngine* engine) {
-    engine->ibl.currentSlice++;
-    if (engine->ibl.currentSlice < engine->ibl.totalSlices) {
-        engine->ibl.bakeState = IblBakeState::Irradiance;
+    engine->iblBaker.currentSlice++;
+    if (engine->iblBaker.currentSlice < engine->iblBaker.totalSlices) {
+        engine->iblBaker.bakeState = IblBakeState::Irradiance;
         vk_ibl_bake_irradiance(engine);
     } else {
-        engine->ibl.currentMip = 0;
-        engine->ibl.currentSlice = 0;
-        engine->ibl.totalSlices = 24; // 24 slices for Specular Mip 0
-        engine->ibl.bakeState = IblBakeState::Prefilter;
+        engine->iblBaker.currentMip = 0;
+        engine->iblBaker.currentSlice = 0;
+        engine->iblBaker.totalSlices = 24; // 24 slices for Specular Mip 0
+        engine->iblBaker.bakeState = IblBakeState::Prefilter;
         vk_ibl_bake_prefilter(engine);
     }
 }
 
 static void vk_process_prefilter_wait(VulkanEngine* engine) {
-    engine->ibl.currentSlice++;
-    if (engine->ibl.currentSlice >= engine->ibl.totalSlices) {
-        engine->ibl.currentSlice = 0;
-        engine->ibl.currentMip++;
-        if (engine->ibl.currentMip == 1) {
-            engine->ibl.totalSlices = 8;
+    engine->iblBaker.currentSlice++;
+    if (engine->iblBaker.currentSlice >= engine->iblBaker.totalSlices) {
+        engine->iblBaker.currentSlice = 0;
+        engine->iblBaker.currentMip++;
+        if (engine->iblBaker.currentMip == 1) {
+            engine->iblBaker.totalSlices = 8;
         } else {
-            engine->ibl.totalSlices = 1;
+            engine->iblBaker.totalSlices = 1;
         }
     }
-    if (engine->ibl.currentMip < (int)IBL_SPM_MIPS) {
-        engine->ibl.bakeState = IblBakeState::Prefilter;
+    if (engine->iblBaker.currentMip < (int)IBL_SPM_MIPS) {
+        engine->iblBaker.bakeState = IblBakeState::Prefilter;
         vk_ibl_bake_prefilter(engine);
     } else {
-        engine->ibl.bakeState = IblBakeState::Finalize;
+        engine->iblBaker.bakeState = IblBakeState::Finalize;
     }
 }
 
 void vk_check_ibl_bake_status(VulkanEngine* engine) {
-    if (engine->ibl.bakeState == IblBakeState::Idle) {
+    if (engine->iblBaker.bakeState == IblBakeState::Idle) {
         return;
     }
 
-    if (engine->ibl.iblBakeFence != VK_NULL_HANDLE) {
-        if (vkGetFenceStatus(engine->device, engine->ibl.iblBakeFence) != VK_SUCCESS) {
+    if (engine->iblBaker.iblBakeFence != VK_NULL_HANDLE) {
+        if (vkGetFenceStatus(engine->device, engine->iblBaker.iblBakeFence) != VK_SUCCESS) {
             return;
         }
 
-        if (engine->ibl.iblBakeCommandBuffer != VK_NULL_HANDLE) {
-            vkFreeCommandBuffers(engine->device, engine->commandPool, 1, &engine->ibl.iblBakeCommandBuffer);
-            engine->ibl.iblBakeCommandBuffer = VK_NULL_HANDLE;
+        if (engine->iblBaker.iblBakeCommandBuffer != VK_NULL_HANDLE) {
+            vkFreeCommandBuffers(engine->device, engine->commandPool, 1, &engine->iblBaker.iblBakeCommandBuffer);
+            engine->iblBaker.iblBakeCommandBuffer = VK_NULL_HANDLE;
         }
 
-        vkDestroyFence(engine->device, engine->ibl.iblBakeFence, nullptr);
-        engine->ibl.iblBakeFence = VK_NULL_HANDLE;
+        vkDestroyFence(engine->device, engine->iblBaker.iblBakeFence, nullptr);
+        engine->iblBaker.iblBakeFence = VK_NULL_HANDLE;
     }
 
-    switch (engine->ibl.bakeState) {
+    switch (engine->iblBaker.bakeState) {
     case IblBakeState::UploadHdr:
         vk_process_upload_hdr(engine);
         break;
 
     case IblBakeState::UploadHdrWait:
-        engine->ibl.currentSlice++;
-        if (engine->ibl.currentSlice < engine->ibl.totalSlices) {
-            engine->ibl.bakeState = IblBakeState::UploadHdr;
+        engine->iblBaker.currentSlice++;
+        if (engine->iblBaker.currentSlice < engine->iblBaker.totalSlices) {
+            engine->iblBaker.bakeState = IblBakeState::UploadHdr;
             vk_process_upload_hdr(engine);
         } else {
-            engine->ibl.bakeState = IblBakeState::GenerateMipmap;
-            engine->ibl.currentMip = 1;
+            engine->iblBaker.bakeState = IblBakeState::GenerateMipmap;
+            engine->iblBaker.currentMip = 1;
             vk_generate_one_hdr_mipmap(engine);
         }
         break;
 
     case IblBakeState::GenerateMipmap:
-        engine->ibl.bakeState = IblBakeState::GenerateMipmapWait;
+        engine->iblBaker.bakeState = IblBakeState::GenerateMipmapWait;
         break;
 
     case IblBakeState::GenerateMipmapWait:
-        if (engine->ibl.currentMip < static_cast<int>(engine->envHdrMipLevels) || (engine->envHdrMipLevels == 1 && engine->ibl.currentMip == 1)) {
-            engine->ibl.bakeState = IblBakeState::GenerateMipmap;
+        if (engine->iblBaker.currentMip < static_cast<int>(engine->envHdrMipLevels) || (engine->envHdrMipLevels == 1 && engine->iblBaker.currentMip == 1)) {
+            engine->iblBaker.bakeState = IblBakeState::GenerateMipmap;
             vk_generate_one_hdr_mipmap(engine);
         } else {
-            engine->ibl.bakeState = IblBakeState::Luminance;
+            engine->iblBaker.bakeState = IblBakeState::Luminance;
             vk_ibl_bake_luminance(engine);
         }
         break;
 
     case IblBakeState::Luminance:
-        engine->ibl.bakeState = IblBakeState::LuminanceWait;
+        engine->iblBaker.bakeState = IblBakeState::LuminanceWait;
         break;
 
     case IblBakeState::LuminanceWait:
@@ -923,18 +923,18 @@ void vk_check_ibl_bake_status(VulkanEngine* engine) {
         break;
 
     case IblBakeState::Brdf:
-        engine->ibl.bakeState = IblBakeState::BrdfWait;
+        engine->iblBaker.bakeState = IblBakeState::BrdfWait;
         break;
 
     case IblBakeState::BrdfWait:
-        engine->ibl.currentSlice = 0;
-        engine->ibl.totalSlices = 12; // 12 slices for irradiance
-        engine->ibl.bakeState = IblBakeState::Irradiance;
+        engine->iblBaker.currentSlice = 0;
+        engine->iblBaker.totalSlices = 12; // 12 slices for irradiance
+        engine->iblBaker.bakeState = IblBakeState::Irradiance;
         vk_ibl_bake_irradiance(engine);
         break;
 
     case IblBakeState::Irradiance:
-        engine->ibl.bakeState = IblBakeState::IrradianceWait;
+        engine->iblBaker.bakeState = IblBakeState::IrradianceWait;
         break;
 
     case IblBakeState::IrradianceWait:
@@ -942,7 +942,7 @@ void vk_check_ibl_bake_status(VulkanEngine* engine) {
         break;
 
     case IblBakeState::Prefilter:
-        engine->ibl.bakeState = IblBakeState::PrefilterWait;
+        engine->iblBaker.bakeState = IblBakeState::PrefilterWait;
         break;
 
     case IblBakeState::PrefilterWait:
