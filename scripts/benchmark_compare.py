@@ -87,7 +87,7 @@ def run_benchmark():
         "stat",
         "-x,",
         "-e",
-        "L1-dcache-load-misses,L1-dcache-loads,LLC-load-misses,LLC-loads",
+        "L1-dcache-load-misses,L1-dcache-loads,LLC-load-misses,LLC-loads,instructions",
         app_bin,
         "--no-vsync",
     ]
@@ -108,6 +108,13 @@ def run_benchmark():
     if os.path.exists(log_file):
         with open(log_file, "r") as f:
             for line in f:
+                if "Total frames rendered during this run:" in line:
+                    m = re.search(
+                        r"Total frames rendered during this run:\s*(\d+)", line
+                    )
+                    if m:
+                        stats["frames"] = int(m.group(1))
+
                 parts = line.split(",")
                 if len(parts) >= 3:
                     val_str = parts[0]
@@ -145,7 +152,7 @@ def main():
     llc_loads = stats.get("LLC-loads", 0)
 
     l1_misses_m = l1_misses / 1_000_000
-    l1_loads_b = l1_loads / 1_000_000_000
+    l1_misses_m = l1_misses / 1_000_000
     llc_loads_m = llc_loads / 1_000_000
 
     l1_rate = (l1_misses / l1_loads * 100) if l1_loads > 0 else 0
@@ -166,16 +173,16 @@ def main():
         else 0
     )
 
-    baseline_l1_rate = (
-        (baseline["l1_misses_m"] / (baseline["l1_loads_b"] * 1000)) * 100
-        if baseline["l1_loads_b"] > 0
-        else 0
-    )
-
     today = (
         datetime.now(timezone.utc).strftime("%d %B %Y").replace("August", "Août")
     )  # basic french conversion
     new_iter = baseline["iter"] + 1
+
+    frames = stats.get("frames", 1)
+
+    l1_misses_per_frame = l1_misses / frames
+    llc_loads_per_frame = llc_loads / frames
+    llc_misses_per_frame = llc_misses / frames
 
     output = f"""## Itération {new_iter} : <Description> ({today})
 
@@ -183,14 +190,17 @@ def main():
 
 ### Résultats Finaux (Validation Itération {new_iter} - <Feature>)
 
-**Comparatif (vs Baseline du {baseline["date"]} Itération {baseline["iter"]}) :**
+**Métriques Normalisées (Par Frame)** :
+- **Frames générées (12s)** : {frames}
+- **L1 Misses par Frame** : {l1_misses_per_frame:.0f} (Total: {l1_misses_m:.1f}M)
+- **LLC Loads par Frame** : {llc_loads_per_frame:.0f} (Total: {llc_loads_m:.1f}M)
+- **LLC Misses par Frame** : {llc_misses_per_frame:.0f} (Total: ~{format_m(llc_misses)})
+- **Taux de Misses L1 global** : {l1_rate:.2f}%
 
-- **L1-dcache-load-misses (P-Core)** : **{l1_rate:.2f}%** (vs **{baseline_l1_rate:.2f}%** baseline) - ({l1_misses_m:.1f} Millions misses / {l1_loads_b:.2f} Milliards loads).
-  - *Évolution* : **{evol_l1:+.0f}%** de L1 misses ({baseline["l1_misses_m"]:.1f}M -> {l1_misses_m:.1f}M).
-- **LLC-loads (Requêtes L2 -> L3)** : **{llc_loads_m:.1f} Millions**.
-  - *Évolution* : **{evol_llc_load:+.0f}%** d'accès L3 ({baseline["llc_loads_m"]:.1f}M -> {llc_loads_m:.1f}M).
-- **LLC-load-misses (Requêtes L3 -> RAM)** : **~{format_number(llc_misses)}**.
-  - *Évolution* : **{evol_llc_miss:+.0f}%** de RAM trips ({format_number(int(baseline["llc_misses"]))} -> {format_m(llc_misses)}).
+**Comparatif (vs Baseline du {baseline["date"]} Itération {baseline["iter"]}) (Non Normalisé, indicatif)** :
+- L1 Misses : {evol_l1:+.0f}% 
+- LLC Loads : {evol_llc_load:+.0f}%
+- LLC Misses : {evol_llc_miss:+.0f}%
 """
     print(output)
 
