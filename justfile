@@ -598,6 +598,8 @@ perf-benchmark: build
 
 # Run Intel VTune memory-access analysis (requires sudo permissions)
 benchmark-vtune: build
-    @echo "--- 🚀 Running VTune Memory Access Benchmark ---"
-    rm -rf ./vtune_results
-    bash -c '(source /opt/intel/oneapi/setvars.sh --force || true) && sudo -E /opt/intel/oneapi/vtune/2026.4/bin64/vtune -collect memory-access -result-dir ./vtune_results env TMP_DIR=/tmp ./scripts/interactive_runner.sh ./build/release/vulkan_app --no-vsync'
+    @scripts/benchmark_vtune.sh
+
+# Run Heaptrack memory allocation analysis (Xvfb + xdotool integration test)
+benchmark-heaptrack: build
+    @scripts/benchmark_heaptrack.sh
