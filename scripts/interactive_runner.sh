@@ -53,7 +53,7 @@ sleep 2
 
 # Tuer vulkan_app (fallback)
 APP_COMM=$(ps -p $APP_PID -o comm= 2>/dev/null || echo "")
-if [ "$APP_COMM" = "perf" ]; then
+if [ "$APP_COMM" = "perf" ] || [ "$APP_COMM" = "heaptrack" ]; then
 	CHILD=$(pgrep -P "$APP_PID" || echo "")
 	if [ -n "$CHILD" ]; then
 		kill -SIGTERM "$CHILD" 2>/dev/null || true

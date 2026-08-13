@@ -52,4 +52,4 @@ tests/failures/
 
 # VTune
 vtune_results/
-
+heaptrack_results/
