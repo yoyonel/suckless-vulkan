@@ -108,6 +108,18 @@ This will:
 
 **Note on Memory Profiling**: The `tracy-csvexport` CLI tool does *not* export memory statistics. To analyze heap allocations, leaks, and peak memory, you must open the generated `benchmark.tracy` file in the **Tracy Profiler UI**. For CLI-based memory summaries (CI/CD), stick to `heaptrack` via the standard `just benchmark` recipe.
 
+### Memory Profiling (Heaptrack & VTune)
+
+In addition to Tracy, two dedicated memory analysis pipelines are available via integration scripts:
+
+```bash
+just benchmark-heaptrack
+just benchmark-vtune
+```
+
+- `benchmark-heaptrack`: Hooks the engine with `heaptrack` to track all `malloc`/`free` calls dynamically. Generates a `.zst` dump and extracts a top-10 allocators breakdown (focusing on `std::string`, `std::vector`, etc.). Output is saved to `heaptrack_results/`.
+- `benchmark-vtune`: Uses Intel VTune Profiler (requires `sudo` and oneAPI toolkit) for hardware-level `memory-access` analysis to precisely measure DRAM bandwidth boundaries and CPU caching bottlenecks. Output is saved to `vtune_results/`.
+
 The Tracy-enabled application follows the legacy `suckless-ogl` strategy: the client auto-initializes, registers the program name, emits frame marks, and lets Tracy handle the final cleanup automatically at process exit.
 
 Runtime controls:
