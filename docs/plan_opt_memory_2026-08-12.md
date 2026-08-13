@@ -26,12 +26,18 @@
 
 ### Bloc 2 : IBL & Logs (`vk_engine_ibl.cpp`, `app_log.cpp`) - Cible DRAM Bound
 
-**Problème** : `floatData` et `finalData` allouent des centaines de Mo pendant le pre-processing IBL. La file de logs réalloue des strings.
-**Solutions** :
+**Problème (Logs)** : La file de logs réalloue des strings dynamiquement sur le hot path.
+**Solutions (Logs)** :
 
-- **IBL** : Pré-allouer la mémoire via `std::vector::reserve()` dans une structure persistante pour réutiliser la mémoire entre les frames ou les passes de rendu.
-- **Logs** : Utiliser un ring buffer pré-alloué de taille fixe pour le formatage des strings, ou utiliser un allocateur de pool (`std::pmr::monotonic_buffer_resource`).
-- **KPI** : DRAM Bound sous les 8%, LLC Misses sous les 1.5M.
+- Utiliser un ring buffer pré-alloué de taille fixe (`log_format`) sans `std::string`.
+- **Statut** : ✅ Réalisé et validé (Point 1). Zéro allocation sur le hot path.
+
+**Problème (IBL)** : Hypothèse initiale de fuites sur `floatData` et `finalData` dans le pre-processing IBL.
+**Statut (IBL)** : ❌ **Annulé (Faux Positif)**.
+
+- **Explication** : L'audit a prouvé que ces `std::vector` ne sont appelés que lors de l'export manuel (touche 'o'), un chemin purement froid et absent du benchmark.
+- Le `DRAM Bound` de 10.9% observé dans VTune n'est pas causé par des allocations CPU, mais par la saturation de la RAM partagée par l'Intel iGPU lors du rendu (bande passante matérielle).
+- **Détails** : Voir [analysis_dram_bound_gpu.md](analysis_dram_bound_gpu.md).
 
 ## 4. Protocole de Validation
 

@@ -41,4 +41,5 @@ nav:
   - Changelog: changelog.md
   - Plan Opt. Mémoire (Chantier 3): plan_opt_memory_2026-08-12.md
   - Plan Opt. Logs & Labels: plan_opt_logs_2026-08-13.md
+  - Post-Mortem IBL DRAM Bound: analysis_dram_bound_gpu.md
   - Suivi Benchmarks Heaptrack: benchmarking_heaptrack_2026-08-13.md
