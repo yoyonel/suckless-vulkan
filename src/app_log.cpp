@@ -127,16 +127,23 @@ void get_local_time(std::time_t seconds, std::tm* out_tm) {
 }
 
 void logger_thread_func() {
-    while (g_logger_running.load(std::memory_order_relaxed)) {
+    while (g_logger_running.load(std::memory_order_relaxed) || g_read_idx.load(std::memory_order_relaxed) < g_write_idx.load(std::memory_order_relaxed)) {
         size_t read_idx = g_read_idx.load(std::memory_order_relaxed);
-        LogEntry& entry = g_log_queue[read_idx % LOG_QUEUE_SIZE];
+        size_t write_idx = g_write_idx.load(std::memory_order_acquire);
 
-        if (entry.ready.load(std::memory_order_acquire)) {
+        if (read_idx < write_idx) {
+            LogEntry& entry = g_log_queue[read_idx % LOG_QUEUE_SIZE];
+
+            while (!entry.ready.load(std::memory_order_acquire)) {
+                std::this_thread::yield();
+            }
+
+            FILE* out = (entry.level >= LogLevel::Error) ? stderr : stdout;
+
             char prefix[PREFIX_BUFFER_SIZE] = {};
             (void)std::snprintf(prefix, sizeof(prefix), "%s,%03lld [%d:%llu] - %s - %-8s - ", entry.time_buf, entry.millis, entry.pid, entry.tid_hash,
                                 entry.tag[0] ? entry.tag : "app", level_to_string(entry.level));
 
-            FILE* out = (entry.level >= LogLevel::Error) ? stderr : stdout;
             (void)std::fputs(prefix, out);
             (void)std::fputs(entry.message, out);
             (void)std::fputc('\n', out);
@@ -149,6 +156,9 @@ void logger_thread_func() {
             entry.ready.store(false, std::memory_order_release);
             g_read_idx.fetch_add(1, std::memory_order_relaxed);
         } else {
+            if (!g_logger_running.load(std::memory_order_relaxed)) {
+                break;
+            }
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
     }
@@ -273,4 +283,26 @@ void log_message_v(LogLevel level, const char* tag, const char* format, va_list 
     entry.millis = static_cast<long long>(millis);
 
     entry.ready.store(true, std::memory_order_release);
+}
+
+const char* log_format(const char* format, ...) {
+    constexpr size_t FORMAT_RING_BUFFER_SIZE = 8;
+    constexpr size_t FORMAT_STRING_SIZE = 1024;
+
+    struct RingBuffer {
+        char buffers[FORMAT_RING_BUFFER_SIZE][FORMAT_STRING_SIZE];
+        size_t index = 0;
+    };
+
+    thread_local RingBuffer tls_ring_buffer;
+
+    char* current_buffer = tls_ring_buffer.buffers[tls_ring_buffer.index];
+    tls_ring_buffer.index = (tls_ring_buffer.index + 1) % FORMAT_RING_BUFFER_SIZE;
+
+    va_list args;
+    va_start(args, format);
+    (void)std::vsnprintf(current_buffer, FORMAT_STRING_SIZE, format, args);
+    va_end(args);
+
+    return current_buffer;
 }

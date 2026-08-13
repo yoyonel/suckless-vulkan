@@ -6,6 +6,7 @@
 #include <cstring>
 
 #include "vk_engine.h"
+#include "../app_log.h"
 #include <new>
 
 extern "C" {
@@ -47,8 +48,8 @@ static RHIResult create_gpu_buffer_rhi(struct VulkanEngine* engine, VkDeviceSize
         return RHIResult::ErrorInitializationFailed;
     }
     {
-        const std::string stagingBufferName = std::string(name) + "_Staging_Buffer";
-        vk_set_object_name(engine->ctx.device, (uint64_t)staging, VK_OBJECT_TYPE_BUFFER, stagingBufferName.c_str());
+        const char* stagingBufferName = log_format("%s_Staging_Buffer", name);
+        vk_set_object_name(engine->ctx.device, (uint64_t)staging, VK_OBJECT_TYPE_BUFFER, stagingBufferName);
     }
 
     void* map = nullptr;
@@ -86,8 +87,8 @@ static RHIResult create_gpu_buffer_rhi(struct VulkanEngine* engine, VkDeviceSize
         return RHIResult::ErrorInitializationFailed;
     }
     {
-        const std::string stagingCbName = std::string(name) + "_Staging_CommandBuffer";
-        vk_set_object_name(engine->ctx.device, (uint64_t)stagingCb, VK_OBJECT_TYPE_COMMAND_BUFFER, stagingCbName.c_str());
+        const char* stagingCbName = log_format("%s_Staging_CommandBuffer", name);
+        vk_set_object_name(engine->ctx.device, (uint64_t)stagingCb, VK_OBJECT_TYPE_COMMAND_BUFFER, stagingCbName);
     }
     VkCommandBufferBeginInfo bi{};
     bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -296,8 +297,8 @@ TextureHandle VulkanRHI::CreateTexture(uint32_t width, uint32_t height, TextureF
     }
     
     if (name) {
-        std::string viewName = std::string(name) + "_View";
-        vk_set_object_name(_engine->ctx.device, (uint64_t)tex.imageView, VK_OBJECT_TYPE_IMAGE_VIEW, viewName.c_str());
+        const char* viewName = log_format("%s_View", name);
+        vk_set_object_name(_engine->ctx.device, (uint64_t)tex.imageView, VK_OBJECT_TYPE_IMAGE_VIEW, viewName);
     }
 
     uint32_t handle = m_nextTextureHandle++;
@@ -877,8 +878,8 @@ PipelineHandle VulkanRHI::CreateComputePipeline(const ComputePipelineDesc& desc)
         return INVALID_HANDLE;
     }
     if (desc.name) {
-        std::string sname = std::string(desc.name) + "_CS";
-        vk_set_object_name(_engine->ctx.device, (uint64_t)module, VK_OBJECT_TYPE_SHADER_MODULE, sname.c_str());
+        const char* sname = log_format("%s_CS", desc.name);
+        vk_set_object_name(_engine->ctx.device, (uint64_t)module, VK_OBJECT_TYPE_SHADER_MODULE, sname);
     }
 
     VkComputePipelineCreateInfo info{};
@@ -944,10 +945,10 @@ PipelineHandle VulkanRHI::CreateGraphicsPipeline(const GraphicsPipelineDesc& des
         return INVALID_HANDLE;
     }
     if (desc.debugName) {
-        std::string vname = std::string(desc.debugName) + "_VS";
-        std::string fname = std::string(desc.debugName) + "_FS";
-        vk_set_object_name(_engine->ctx.device, (uint64_t)vsm, VK_OBJECT_TYPE_SHADER_MODULE, vname.c_str());
-        vk_set_object_name(_engine->ctx.device, (uint64_t)fsm, VK_OBJECT_TYPE_SHADER_MODULE, fname.c_str());
+        const char* vname = log_format("%s_VS", desc.debugName);
+        const char* fname = log_format("%s_FS", desc.debugName);
+        vk_set_object_name(_engine->ctx.device, (uint64_t)vsm, VK_OBJECT_TYPE_SHADER_MODULE, vname);
+        vk_set_object_name(_engine->ctx.device, (uint64_t)fsm, VK_OBJECT_TYPE_SHADER_MODULE, fname);
     }
 
     VkPipelineShaderStageCreateInfo stages[2] = {};

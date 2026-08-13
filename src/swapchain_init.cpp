@@ -229,8 +229,8 @@ GfxResult SwapchainManager::init(VulkanEngine* engine) {
         if (vkCreateImageView(engine->ctx.device, &viewInfo, NULL, &swapchainImageViews[i]) != VK_SUCCESS) {
             return GfxResult::ErrorInitializationFailed;
         }
-        const std::string swapchainViewName = "Swapchain_ImageView_" + std::to_string(i);
-        vk_set_object_name(engine->ctx.device, (uint64_t)swapchainImageViews[i], VK_OBJECT_TYPE_IMAGE_VIEW, swapchainViewName.c_str());
+        const char* swapchainViewName = log_format("Swapchain_ImageView_%d", i);
+        vk_set_object_name(engine->ctx.device, (uint64_t)swapchainImageViews[i], VK_OBJECT_TYPE_IMAGE_VIEW, swapchainViewName);
     }
 
     depthFormat = find_depth_format(engine->ctx.physicalDevice);

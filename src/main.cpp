@@ -116,6 +116,7 @@ int main(int argc, char** argv) {
     core_engine_init(&state.core);
 
     if (init_glfw(&state) != AppResult::Success) {
+        log_shutdown();
         return -1;
     }
 
@@ -124,6 +125,7 @@ int main(int argc, char** argv) {
     DestroyRHIFunc destroyFunc = nullptr;
     if (load_initial_rhi(&state, libName, createFunc, destroyFunc) != AppResult::Success) {
         tracy_client_shutdown();
+        log_shutdown();
         return -1;
     }
 
