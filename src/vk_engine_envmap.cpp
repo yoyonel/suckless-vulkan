@@ -91,8 +91,15 @@ namespace {
 constexpr float kMinEnvLod = 0.0f;
 constexpr const char* kDefaultEnvFilename = "env.hdr";
 
-std::string get_filename_from_path(const std::string& path) {
-    return std::filesystem::path(path).filename().string();
+const char* get_filename_from_path(const std::string& path) {
+    size_t lastSlash = path.find_last_of('/');
+    if (lastSlash == std::string::npos) {
+        lastSlash = path.find_last_of('\\');
+    }
+    if (lastSlash != std::string::npos) {
+        return path.c_str() + lastSlash + 1;
+    }
+    return path.c_str();
 }
 
 VkCommandBuffer begin_one_time_commands(VulkanEngine* engine) {
@@ -559,7 +566,7 @@ void request_environment_texture_async(VulkanEngine* engine, int newHdrIndex) {
     engine->io.pendingHdrIndex = newHdrIndex;
     engine->iblBaker.envmapRequestTime = std::chrono::high_resolution_clock::now();
 
-    LOG_INFO("runtime", "Chargement HDR async demande: %s", get_filename_from_path(engine->hdrFiles[static_cast<size_t>(newHdrIndex)]).c_str());
+    LOG_INFO("runtime", "Chargement HDR async demande: %s", get_filename_from_path(engine->hdrFiles[static_cast<size_t>(newHdrIndex)]));
 }
 
 void process_hdr_cleanup_queue(VulkanEngine* engine) {
@@ -646,7 +653,7 @@ GfxResult vk_init_environment_catalog(VulkanEngine* engine) {
 
     if (engine->currentHdrIndex >= 0) {
         LOG_INFO("engine", "Catalogue HDR initialise: %zu fichier(s), actif=%s", engine->hdrFiles.size(),
-                 get_filename_from_path(engine->hdrFiles[static_cast<size_t>(engine->currentHdrIndex)]).c_str());
+                 get_filename_from_path(engine->hdrFiles[static_cast<size_t>(engine->currentHdrIndex)]));
     } else {
         LOG_INFO("engine", "Catalogue HDR initialise: 0 fichier, fallback 1x1 actif");
     }
@@ -761,7 +768,7 @@ void vk_process_ready_environment_texture(VulkanEngine* engine) {
 
     engine->appState->core.render.envLod =
         std::clamp(engine->appState->core.render.envLod, kMinEnvLod, static_cast<float>(engine->envHdrMipLevels > 0 ? engine->envHdrMipLevels - 1 : 0));
-    LOG_INFO("runtime", "HDR actif: %s", get_filename_from_path(ready.sourcePathOrLabel).c_str());
+    LOG_INFO("runtime", "HDR actif: %s", get_filename_from_path(ready.sourcePathOrLabel));
 
     auto t1 = std::chrono::high_resolution_clock::now();
     float ms = std::chrono::duration<float, std::milli>(t1 - t0).count();

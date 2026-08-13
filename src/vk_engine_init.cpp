@@ -442,8 +442,8 @@ GfxResult init_render_pass(VulkanEngine* engine) {
         if (vkCreateFramebuffer(engine->ctx.device, &fbInfo, NULL, &engine->swapchainMgr.swapchainFramebuffers[i]) != VK_SUCCESS) {
             return GfxResult::ErrorInitializationFailed;
         }
-        const std::string framebufferName = "Swapchain_Framebuffer_" + std::to_string(i);
-        vk_set_object_name(engine->ctx.device, (uint64_t)engine->swapchainMgr.swapchainFramebuffers[i], VK_OBJECT_TYPE_FRAMEBUFFER, framebufferName.c_str());
+        const char* framebufferName = log_format("Swapchain_Framebuffer_%d", i);
+        vk_set_object_name(engine->ctx.device, (uint64_t)engine->swapchainMgr.swapchainFramebuffers[i], VK_OBJECT_TYPE_FRAMEBUFFER, framebufferName);
     }
     return GfxResult::Success;
 }

@@ -25,6 +25,9 @@ void log_set_callback(LogCallback callback);
 void log_message(LogLevel level, const char* tag, const char* format, ...);
 void log_message_v(LogLevel level, const char* tag, const char* format, va_list args);
 
+// Zero-allocation string formatting using a thread-local ring buffer
+const char* log_format(const char* format, ...);
+
 #define LOG_DEBUG(TAG, FMT, ...) log_message(LogLevel::Debug, TAG, FMT, ##__VA_ARGS__)
 #define LOG_INFO(TAG, FMT, ...) log_message(LogLevel::Info, TAG, FMT, ##__VA_ARGS__)
 #define LOG_WARNING(TAG, FMT, ...) log_message(LogLevel::Warning, TAG, FMT, ##__VA_ARGS__)
