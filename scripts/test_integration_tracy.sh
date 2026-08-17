@@ -122,7 +122,13 @@ run_scenario() {
 trap cleanup EXIT
 
 require_cmd Xvfb
-require_cmd xdotool
+
+HAVE_XDOTOOL=0
+if command -v xdotool >/dev/null 2>&1; then
+	HAVE_XDOTOOL=1
+else
+	echo "[warn] xdotool introuvable. Les inputs interactifs seront ignorés, capture avec temporisation."
+fi
 
 if [[ ! -x "$APP_BIN" ]]; then
 	echo "Error: app binary not found or not executable: $APP_BIN"
@@ -167,8 +173,13 @@ echo "[app] starting $APP_BIN"
 "$APP_BIN" --no-focus >"$APP_LOG" 2>&1 &
 APP_PID=$!
 
-WID=$(wait_for_window_start "$APP_PID" "$WINDOW_NAME")
-focus_window "$WID"
+WID=""
+if [[ "$HAVE_XDOTOOL" == "1" ]]; then
+	WID=$(wait_for_window_start "$APP_PID" "$WINDOW_NAME" || true)
+	if [[ -n "$WID" ]]; then
+		focus_window "$WID"
+	fi
+fi
 
 echo "[scenario] waiting for app to finish IBL baking..."
 timeout=180
@@ -186,9 +197,14 @@ if ((elapsed >= timeout)); then
 	cleanup
 	exit 1
 fi
-echo "[scenario] app initialized in ${elapsed}s, starting inputs."
+echo "[scenario] app initialized in ${elapsed}s, starting scenario."
 
-run_scenario "$WID"
+if [[ "$HAVE_XDOTOOL" == "1" && -n "$WID" ]]; then
+	run_scenario "$WID"
+else
+	echo "[scenario] running 10s trace capture without xdotool..."
+	sleep 10
+fi
 
 echo "[scenario] inputs completed, terminating app..."
 kill -SIGTERM "$APP_PID" 2>/dev/null || true
