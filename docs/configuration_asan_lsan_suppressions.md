@@ -54,7 +54,7 @@ ______________________________________________________________________
 
 - **Mécanisme** :
   - Lors de l'activation conjointe de `-fsanitize=undefined` et `-fsanitize=address`, le runtime UBSan maintient une table de hachage interne pour le cache des types vtable/RTTI (`__ubsan_vptr_type_cache`).
-  - Lorsque l'application recharge dynamiquement le module RHI via `dlopen()` / `dlclose()` (\[`src/module_loader.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/module_loader.cpp)), des invocations de méthodes virtuelles RHI provoquent des entrées de cache dans `libubsan.so`.
+  - Lorsque l'application recharge dynamiquement le module RHI via `dlopen()` / `dlclose()` (\[`src/module_loader.cpp`\](../src/module_loader.cpp)), des invocations de méthodes virtuelles RHI provoquent des entrées de cache dans `libubsan.so`.
   - Lors du `dlclose()`, la table globale UBSan n'est pas vidée par le runtime du compilateur, générant des rapports de fuite de 32 à 96 octets ("leak in unknown module" ou `__ubsan`).
 - **Règle de sécurité** :
   - Neutralise strictement le cache interne du compilateur sans masquer de code applicatif.

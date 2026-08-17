@@ -42,7 +42,7 @@ ______________________________________________________________________
 
 #### A. Description des Changements (Étape 1)
 
-- Étendre \[`src/tracy_client.h`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/tracy_client.h) pour introduire la macro `SVK_TRACY_ZONE_SCOPED_C(name, color)` mappée sur `ZoneScopedNC(name, color)`.
+- Étendre \[`src/tracy_client.h`\](../src/tracy_client.h) pour introduire la macro `SVK_TRACY_ZONE_SCOPED_C(name, color)` mappée sur `ZoneScopedNC(name, color)`.
 - Définir une palette de constantes hexadécimales standardisées :
 
 ```cpp
@@ -71,7 +71,7 @@ namespace tracy_color {
 }
 ```
 
-- Mettre à jour les zones CPU existantes dans \[`src/vk_engine_frame.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/vk_engine_frame.cpp) et \[`src/vk_engine_envmap.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/vk_engine_envmap.cpp).
+- Mettre à jour les zones CPU existantes dans \[`src/vk_engine_frame.cpp`\](../src/vk_engine_frame.cpp) et \[`src/vk_engine_envmap.cpp`\](../src/vk_engine_envmap.cpp).
 
 #### B. Stratégie de Validation Programmatique (Étape 1)
 
@@ -95,14 +95,14 @@ ______________________________________________________________________
 
 #### A. Description des Changements (Étape 2)
 
-- Dans \[`src/tracy_vulkan.h`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/tracy_vulkan.h), enrichir les macros GPU pour supporter les couleurs :
+- Dans \[`src/tracy_vulkan.h`\](../src/tracy_vulkan.h), enrichir les macros GPU pour supporter les couleurs :
 
 ```cpp
 #define SVK_TRACY_VK_ZONE_C(varname, engine, cb, name, color) \
     TracyVkNamedZoneC(static_cast<TracyVkCtx>((engine)->tracyVkContext), varname, cb, name, color, true)
 ```
 
-- Instrumenter les lambdas d'exécution de chaque passe dans \[`src/vk_engine_frame.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/vk_engine_frame.cpp) :
+- Instrumenter les lambdas d'exécution de chaque passe dans \[`src/vk_engine_frame.cpp`\](../src/vk_engine_frame.cpp) :
   - `ForwardPass` (`Skybox` + `Billboard`)
   - `PostProcessPass` (`Fullscreen Quad`)
   - `DebugPass`
@@ -134,10 +134,10 @@ ______________________________________________________________________
 
 #### A. Description des Changements (Étape 3)
 
-- Créer le module \[`src/tracy_state.h`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/tracy_state.h) et \[`src/tracy_state.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/tracy_state.cpp) :
+- Créer le module \[`src/tracy_state.h`\](../src/tracy_state.h) et \[`src/tracy_state.cpp`\](../src/tracy_state.cpp) :
   - Implémenter `tracy_async_status_transition(AsyncState state)` encapsulé avec `PROFILE_FIBER_ENTER("Async Status")` / `PROFILE_FIBER_LEAVE`.
   - Émettre les zones : `Async IDLE` (Gris), `Async PENDING` (Jaune), `Async LOADING` (Vert), `Async CONVERT` (Cyan), `Async READY` (Vert clair), `Async FAILED` (Rouge).
-- Implémenter la piste **`Hybrid Perf`** pour le bake IBL dans \[`src/vk_engine_ibl.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/vk_engine_ibl.cpp) :
+- Implémenter la piste **`Hybrid Perf`** pour le bake IBL dans \[`src/vk_engine_ibl.cpp`\](../src/vk_engine_ibl.cpp) :
   - Découper explicitement le travail CPU (`Host (CPU)`) et l'attente de synchronisation GPU (`Sync (GPU Wait)`).
 
 #### B. Stratégie de Validation Programmatique (Étape 3)
@@ -206,8 +206,8 @@ ______________________________________________________________________
 
 #### A. Description des Changements (Étape 6)
 
-- Ajouter le paquet `xdotool` dans \[`docker/ci/Dockerfile`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/docker/ci/Dockerfile).
-- Intégrer l'exécution du test d'intégration de trace (`just test-integration-tracy`) et de l'outil de vérification des invariants (`just verify-tracy-trace`) dans le workflow GitHub Actions \[`.github/workflows/ci.yml`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/.github/workflows/ci.yml) (job `build-tracy`).
+- Ajouter le paquet `xdotool` dans \[`docker/ci/Dockerfile`\](../docker/ci/Dockerfile).
+- Intégrer l'exécution du test d'intégration de trace (`just test-integration-tracy`) et de l'outil de vérification des invariants (`just verify-tracy-trace`) dans le workflow GitHub Actions \[`.github/workflows/ci.yml`\](../.github/workflows/ci.yml) (job `build-tracy`).
 
 #### B. Stratégie de Validation Programmatique (Étape 6)
 

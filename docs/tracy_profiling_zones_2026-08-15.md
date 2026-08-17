@@ -21,11 +21,11 @@ La piste **`Hybrid Perf`** permet de diagnostiquer l'efficacité de la coordinat
 
 | Zone / Label Tracy | Couleur | Emplacement Source | Déclencheur (Trigger) | Rôle & Intérêt Diagnostique |
 |---|---|---|---|---|
-| **`Host (CPU): Luminance`** | 🟦 `#1E88E5` (Bleu azur) | \[`src/vk_engine_ibl.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/vk_engine_ibl.cpp) | `vk_ibl_bake_luminance` | **Préparation compute Luminance** : Configuration des descripteurs et dispatch de réduction parallèle. |
-| **`Host (CPU): BRDF LUT`** | 🟦 `#1E88E5` (Bleu azur) | \[`src/vk_engine_ibl.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/vk_engine_ibl.cpp) | `vk_ibl_bake_brdf` | **Préparation compute BRDF LUT** : Configuration des descripteurs et dispatch 512x512. |
-| **`Host (CPU): Irradiance`** | 🟦 `#1E88E5` (Bleu azur) | \[`src/vk_engine_ibl.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/vk_engine_ibl.cpp) | `vk_ibl_bake_irradiance` | **Préparation compute Irradiance** : Ordonnancement d'une tranche de convolution diffuse. |
-| **`Host (CPU): Specular`** | 🟦 `#1E88E5` (Bleu azur) | \[`src/vk_engine_ibl.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/vk_engine_ibl.cpp) | `vk_ibl_bake_prefilter` | **Préparation compute Spéculaire** : Ordonnancement d'un niveau de rugosité GGX. |
-| **`Sync (GPU Wait)`** | 🟪 `#8E24AA` (Violet profond) | \[`src/vk_engine_envmap.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/vk_engine_envmap.cpp), \[`src/vk_engine_ibl.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/vk_engine_ibl.cpp) | `vk_check_ibl_bake_status` (polling fence) ou `end_single_time_commands` (`vkQueueWaitIdle`) | **Temps d'attente / Synchronisation hôte** : Mesure le temps CPU consommé à sonder l'état de complétion du GPU (`vkGetFenceStatus`) ou à bloquer l'hôte (`vkQueueWaitIdle`). Révèle les bulles de synchronisation CPU-GPU. |
+| **`Host (CPU): Luminance`** | 🟦 `#1E88E5` (Bleu azur) | \[`src/vk_engine_ibl.cpp`\](../src/vk_engine_ibl.cpp) | `vk_ibl_bake_luminance` | **Préparation compute Luminance** : Configuration des descripteurs et dispatch de réduction parallèle. |
+| **`Host (CPU): BRDF LUT`** | 🟦 `#1E88E5` (Bleu azur) | \[`src/vk_engine_ibl.cpp`\](../src/vk_engine_ibl.cpp) | `vk_ibl_bake_brdf` | **Préparation compute BRDF LUT** : Configuration des descripteurs et dispatch 512x512. |
+| **`Host (CPU): Irradiance`** | 🟦 `#1E88E5` (Bleu azur) | \[`src/vk_engine_ibl.cpp`\](../src/vk_engine_ibl.cpp) | `vk_ibl_bake_irradiance` | **Préparation compute Irradiance** : Ordonnancement d'une tranche de convolution diffuse. |
+| **`Host (CPU): Specular`** | 🟦 `#1E88E5` (Bleu azur) | \[`src/vk_engine_ibl.cpp`\](../src/vk_engine_ibl.cpp) | `vk_ibl_bake_prefilter` | **Préparation compute Spéculaire** : Ordonnancement d'un niveau de rugosité GGX. |
+| **`Sync (GPU Wait)`** | 🟪 `#8E24AA` (Violet profond) | \[`src/vk_engine_envmap.cpp`\](../src/vk_engine_envmap.cpp), \[`src/vk_engine_ibl.cpp`\](../src/vk_engine_ibl.cpp) | `vk_check_ibl_bake_status` (polling fence) ou `end_single_time_commands` (`vkQueueWaitIdle`) | **Temps d'attente / Synchronisation hôte** : Mesure le temps CPU consommé à sonder l'état de complétion du GPU (`vkGetFenceStatus`) ou à bloquer l'hôte (`vkQueueWaitIdle`). Révèle les bulles de synchronisation CPU-GPU. |
 
 > [!NOTE]
 > **Interprétation visuelle dans Tracy** : En observant simultanément la piste `Hybrid Perf` et la piste `Vulkan Graphics Queue`, vous pouvez comparer le temps de préparation CPU (`Host (CPU)`), le temps de calcul matériel GPU (`GPU IBL Specular`, etc.) et le temps de vérification/attente (`Sync (GPU Wait)`).
@@ -38,12 +38,12 @@ La piste **`Async Status`** retrace la machine à états complète du chargement
 
 | Zone / Label Tracy | Couleur | Emplacement Source | Déclencheur (Trigger) | Rôle & Intérêt Diagnostique |
 |---|---|---|---|---|
-| **`Async IDLE`** | ⬜ `#9E9E9E` (Gris neutre) | \[`src/tracy_state.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/tracy_state.cpp) | `set_async_status(Idle)` | **État inactif** : Le thread worker est en attente d'une requête de chargement dans la SPSC queue. Zone continue ininterrompue gérée de façon stateful pour éviter tout micro-découpage répétitif. |
-| **`Async PENDING`** | 🟨 `#FDD835` (Jaune vif) | \[`src/vk_engine_envmap.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/vk_engine_envmap.cpp) | `request_environment_texture_async` | **Requête soumise** : L'utilisateur a demandé un changement de skybox (clavier/UI) ; la requête est empilée. |
-| **`Async LOADING`** | 🟩 `#43A047` (Vert herbe) | \[`src/vk_engine_envmap.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/vk_engine_envmap.cpp) | `process_one_hdr_load_request` | **Prise en charge** : Le thread worker dépile la requête et commence la résolution des chemins d'accès disque. |
-| **`Async CONVERT`** | 🟦 `#00ACC1` (Cyan) | \[`src/vk_engine_envmap.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/vk_engine_envmap.cpp) | `load_hdr_with_ktx2_cache` | **Décodage & Transcodage** : Parsing disque du fichier `.hdr` / `.ktx2`, décompression des pixels float32/float16. |
-| **`Async READY`** | 🍏 `#7CB342` (Vert clair pomme) | \[`src/vk_engine_envmap.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/vk_engine_envmap.cpp) | `allocate_hdr_resources_async`, `vk_process_ready_environment_texture` | **Prêt & Injection VRAM** : Mémoire staging VMA allouée côté worker, puis bascule et upload GPU par le Main thread. |
-| **`Async FAILED`** | 🟥 `#E53935` (Rouge écarlate) | \[`src/vk_engine_envmap.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/vk_engine_envmap.cpp) | Erreur disque ou format invalide | **Échec** : Fichier corrompu ou introuvable ; passage en mode fallback. |
+| **`Async IDLE`** | ⬜ `#9E9E9E` (Gris neutre) | \[`src/tracy_state.cpp`\](../src/tracy_state.cpp) | `set_async_status(Idle)` | **État inactif** : Le thread worker est en attente d'une requête de chargement dans la SPSC queue. Zone continue ininterrompue gérée de façon stateful pour éviter tout micro-découpage répétitif. |
+| **`Async PENDING`** | 🟨 `#FDD835` (Jaune vif) | \[`src/vk_engine_envmap.cpp`\](../src/vk_engine_envmap.cpp) | `request_environment_texture_async` | **Requête soumise** : L'utilisateur a demandé un changement de skybox (clavier/UI) ; la requête est empilée. |
+| **`Async LOADING`** | 🟩 `#43A047` (Vert herbe) | \[`src/vk_engine_envmap.cpp`\](../src/vk_engine_envmap.cpp) | `process_one_hdr_load_request` | **Prise en charge** : Le thread worker dépile la requête et commence la résolution des chemins d'accès disque. |
+| **`Async CONVERT`** | 🟦 `#00ACC1` (Cyan) | \[`src/vk_engine_envmap.cpp`\](../src/vk_engine_envmap.cpp) | `load_hdr_with_ktx2_cache` | **Décodage & Transcodage** : Parsing disque du fichier `.hdr` / `.ktx2`, décompression des pixels float32/float16. |
+| **`Async READY`** | 🍏 `#7CB342` (Vert clair pomme) | \[`src/vk_engine_envmap.cpp`\](../src/vk_engine_envmap.cpp) | `allocate_hdr_resources_async`, `vk_process_ready_environment_texture` | **Prêt & Injection VRAM** : Mémoire staging VMA allouée côté worker, puis bascule et upload GPU par le Main thread. |
+| **`Async FAILED`** | 🟥 `#E53935` (Rouge écarlate) | \[`src/vk_engine_envmap.cpp`\](../src/vk_engine_envmap.cpp) | Erreur disque ou format invalide | **Échec** : Fichier corrompu ou introuvable ; passage en mode fallback. |
 
 ______________________________________________________________________
 
@@ -70,7 +70,7 @@ Instrumenté via `SVK_TRACY_ZONE_SCOPED_C` et `SVK_TRACY_ZONE_NAMED_C`.
 
 ### 4.1. Boucle Principale de Rendu (`Main thread`)
 
-Fichier source : \[`src/vk_engine_frame.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/vk_engine_frame.cpp)
+Fichier source : \[`src/vk_engine_frame.cpp`\](../src/vk_engine_frame.cpp)
 
 | Zone Standardisée | Couleur | Fréquence | Rôle & Intérêt Diagnostique |
 |---|---|---|---|
@@ -85,7 +85,7 @@ ______________________________________________________________________
 
 ### 4.2. Sous-Système HDR & I/O (`HDR I/O Thread`)
 
-Fichier source : \[`src/vk_engine_envmap.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/vk_engine_envmap.cpp)
+Fichier source : \[`src/vk_engine_envmap.cpp`\](../src/vk_engine_envmap.cpp)
 
 | Zone Standardisée | Couleur | Fréquence | Rôle & Intérêt Diagnostique |
 |---|---|---|---|
@@ -102,7 +102,7 @@ ______________________________________________________________________
 
 ### 4.3. Passes de Calcul IBL (`Main thread`)
 
-Fichier source : \[`src/vk_engine_ibl.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/vk_engine_ibl.cpp)
+Fichier source : \[`src/vk_engine_ibl.cpp`\](../src/vk_engine_ibl.cpp)
 
 | Zone Standardisée | Couleur | Fréquence | Rôle & Intérêt Diagnostique |
 |---|---|---|---|
@@ -115,7 +115,7 @@ ______________________________________________________________________
 
 ### 4.4. Cycle de Vie du Moteur
 
-Fichier source : \[`src/vk_engine_init.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/vk_engine_init.cpp)
+Fichier source : \[`src/vk_engine_init.cpp`\](../src/vk_engine_init.cpp)
 
 | Zone Standardisée | Couleur | Fréquence | Rôle & Intérêt Diagnostique |
 |---|---|---|---|
@@ -124,7 +124,7 @@ Fichier source : \[`src/vk_engine_init.cpp`\](file:///home/latty/Prog/__PERSO__/
 
 > [!NOTE]
 > **Persistance des Métadonnées en Module Partagé (`RTLD_NODELETE`)** :
-> `libvulkan_rhi.so` étant chargé via `dlopen`, le flag `RTLD_NODELETE` est actif sous `TRACY_ENABLE` (\[`src/module_loader.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/module_loader.cpp)). Cela empêche `dlclose()` de démapper la mémoire `.rodata` avant que le client Tracy n'ait transmis les chaînes de caractères de `Engine: Shutdown Vulkan` au serveur/trace (évitant le fallback `???` dans Tracy).
+> `libvulkan_rhi.so` étant chargé via `dlopen`, le flag `RTLD_NODELETE` est actif sous `TRACY_ENABLE` (\[`src/module_loader.cpp`\](../src/module_loader.cpp)). Cela empêche `dlclose()` de démapper la mémoire `.rodata` avant que le client Tracy n'ait transmis les chaînes de caractères de `Engine: Shutdown Vulkan` au serveur/trace (évitant le fallback `???` dans Tracy).
 
 ______________________________________________________________________
 
@@ -132,10 +132,10 @@ ______________________________________________________________________
 
 | Macro / Mécanisme | Emplacement Source | Événement Déclencheur (Trigger) | Rôle & Intérêt Diagnostique |
 |---|---|---|---|
-| **`SVK_TRACY_ALLOC(arena, cap)`** | \[`src/core_engine.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/core_engine.cpp) | Création d'une `LinearArena` / `ScratchBuffer` | Trace les allocations volumineuses en mémoire CPU gérées par les allocateurs internes. |
-| **`SVK_TRACY_FREE(arena)`** | \[`src/core_engine.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/core_engine.cpp) | Destruction d'une arène | Vérifie l'absence de fuite mémoire sur les buffers scratch. |
-| **`SVK_TRACY_ALLOC(stb_ptr, sz)`** | \[`src/stb_image_impl.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/stb_image_impl.cpp) | Décodage d'un fichier image `.png` / `.hdr` via STB | Affiche dans le graphique **Memory Usage** de Tracy les pics d'allocations temporaires liés au déballage des textures. |
-| **`SVK_TRACY_FREE(stb_ptr)`** | \[`src/stb_image_impl.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/stb_image_impl.cpp) | Fin de transfert GPU d'une texture STB | Confirme la désallocation immédiate de la mémoire RAM après téléversement VRAM. |
+| **`SVK_TRACY_ALLOC(arena, cap)`** | \[`src/core_engine.cpp`\](../src/core_engine.cpp) | Création d'une `LinearArena` / `ScratchBuffer` | Trace les allocations volumineuses en mémoire CPU gérées par les allocateurs internes. |
+| **`SVK_TRACY_FREE(arena)`** | \[`src/core_engine.cpp`\](../src/core_engine.cpp) | Destruction d'une arène | Vérifie l'absence de fuite mémoire sur les buffers scratch. |
+| **`SVK_TRACY_ALLOC(stb_ptr, sz)`** | \[`src/stb_image_impl.cpp`\](../src/stb_image_impl.cpp) | Décodage d'un fichier image `.png` / `.hdr` via STB | Affiche dans le graphique **Memory Usage** de Tracy les pics d'allocations temporaires liés au déballage des textures. |
+| **`SVK_TRACY_FREE(stb_ptr)`** | \[`src/stb_image_impl.cpp`\](../src/stb_image_impl.cpp) | Fin de transfert GPU d'une texture STB | Confirme la désallocation immédiate de la mémoire RAM après téléversement VRAM. |
 
 ______________________________________________________________________
 

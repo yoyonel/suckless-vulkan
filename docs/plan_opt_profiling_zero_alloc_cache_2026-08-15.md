@@ -28,7 +28,7 @@ ______________________________________________________________________
 
 ### 2.1 Problématique des Allocations par Frame
 
-L'analyse Heaptrack a révélé que la méthode `vk_draw_frame_internal` (\[`src/vk_engine_frame.cpp:245`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/vk_engine_frame.cpp#L245)) et le module \[`src/rhi/render_graph.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/rhi/render_graph.cpp) instancient des `std::vector<rhi::PassDependency>` temporaires via `std::initializer_list` à chaque frame ($65,000\\text{ allocs/sec}$).
+L'analyse Heaptrack a révélé que la méthode `vk_draw_frame_internal` (\[`src/vk_engine_frame.cpp:245`\](../src/vk_engine_frame.cpp#L245)) et le module \[`src/rhi/render_graph.cpp`\](../src/rhi/render_graph.cpp) instancient des `std::vector<rhi::PassDependency>` temporaires via `std::initializer_list` à chaque frame ($65,000\\text{ allocs/sec}$).
 
 ### 2.2 Modifications Architecturales Phase 1
 

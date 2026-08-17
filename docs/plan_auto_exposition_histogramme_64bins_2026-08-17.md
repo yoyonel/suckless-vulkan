@@ -3,7 +3,7 @@
 - **Date** : 17 Août 2026
 - **Projet** : `suckless-vulkan`
 - **Branche** : `feature/render-graph-integration`
-- **Statut** : ✅ **Implémentation Complète, Validée & Stabilisée** (Voir \[Post-Mortem Technique\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/docs/postmortem_integration_auto_exposition_2026-08-17.md))
+- **Statut** : ✅ **Implémentation Complète, Validée & Stabilisée** (Voir \[Post-Mortem Technique\](postmortem_integration_auto_exposition_2026-08-17.md))
 
 ______________________________________________________________________
 
@@ -82,9 +82,9 @@ ______________________________________________________________________
 
 ### ✅ Étape 1 : Shaders Compute & Shader PostProcess
 
-- [x] \[`shaders/autoexposure_histogram.comp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/shaders/autoexposure_histogram.comp) (LDS 64-bins, seuillage ombres `lum > 0.05`).
-- [x] \[`shaders/autoexposure_adapt.comp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/shaders/autoexposure_adapt.comp) (Percentiles $[5%, 98%]$, adaptation asymétrique, texture $1 \\times 1$ `RGBA32F`).
-- [x] \[`shaders/postprocess.frag`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/shaders/postprocess.frag) (Sampling texture 1x1, overlay dynamique 64 barres avec aiguille).
+- [x] \[`shaders/autoexposure_histogram.comp`\](../shaders/autoexposure_histogram.comp) (LDS 64-bins, seuillage ombres `lum > 0.05`).
+- [x] \[`shaders/autoexposure_adapt.comp`\](../shaders/autoexposure_adapt.comp) (Percentiles $[5%, 98%]$, adaptation asymétrique, texture $1 \\times 1$ `RGBA32F`).
+- [x] \[`shaders/postprocess.frag`\](../shaders/postprocess.frag) (Sampling texture 1x1, overlay dynamique 64 barres avec aiguille).
 
 ### ✅ Étape 2 : Module C++ Dédié (`src/vk_engine_autoexposure.h/.cpp`)
 
@@ -94,13 +94,13 @@ ______________________________________________________________________
 
 ### ✅ Étape 3 : Intégration dans le RenderGraph & Contrôles Runtime
 
-- [x] Intégration dans \[`src/vk_engine_frame.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/vk_engine_frame.cpp) et désactivation de fusion sous Auto-Exposition.
+- [x] Intégration dans \[`src/vk_engine_frame.cpp`\](../src/vk_engine_frame.cpp) et désactivation de fusion sous Auto-Exposition.
 - [x] Contrôles interactifs : `F8` (Toggle ON/OFF), `SHIFT+F8` (Toggle Debug Overlay).
 
 ### ✅ Étape 4 : Validation Qualité, Tests GPU Déterministes & Profiling
 
-- [x] Test mathématique unitaire dans \[`tests/test_logic.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/tests/test_logic.cpp#L709).
-- [x] Test synthétique GPU déterministe dans \[`tests/test_main.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/tests/test_main.cpp#L600).
+- [x] Test mathématique unitaire dans \[`tests/test_logic.cpp`\](../tests/test_logic.cpp#L709).
+- [x] Test synthétique GPU déterministe dans \[`tests/test_main.cpp`\](../tests/test_main.cpp#L600).
 - [x] `just check && just test-all && just test-asan` : 100% SUCCESS.
 
 ______________________________________________________________________

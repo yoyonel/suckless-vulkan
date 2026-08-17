@@ -70,11 +70,12 @@ flowchart TD
 ### Étape 3 : Création des Ressources Texture RHI
 
 - Dans `BloomPipeline::RecreateTextures()` :
-  - Passer le format `TextureFormat::B10G11R11_UFLOAT_PACK32` aux créations d'images RHI.
+  - Passer le format `TextureFormat::B10G11R11_UFLOAT` aux créations d'images RHI.
 
-### Étape 4 : Mutualisation VMA (Aliasing)
+### Étape 4 : Mutualisation VMA (Aliasing) — Évaluation & Statut
 
-- Calculer l'offset mémoire maximal requis et allouer un pool mémoire VMA unique sous-jacent.
+- **Évaluation** : L'adoption du format `B10G11R11_UFLOAT` a déjà réduit l'empreinte VRAM globale de 5.5 MB à 1.4 MB. L'aliasing dynamique des 9 mips nécessiterait une complexité RHI accrue pour un gain résiduel de $\\approx 0.7\\text{ MB}$.
+- **Statut** : ⚪ **Non Retenue (Closed)** — Gain VRAM résiduel négligeable face au surcoût de complexité (conforme à `pistes_optimisations_bloom_futures_2026-08-17.md`).
 
 ______________________________________________________________________
 

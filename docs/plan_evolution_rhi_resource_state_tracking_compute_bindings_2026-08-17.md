@@ -112,7 +112,7 @@ ______________________________________________________________________
 
 ### 🔹 Phase 3 : Refactorisation de l'Auto-Exposition (`AutoExposurePipeline`)
 
-- [ ] Remplacer les appels directs Vulkan dans \[`src/vk_engine_autoexposure.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/vk_engine_autoexposure.cpp) par les appels RHI unifiés :
+- [ ] Remplacer les appels directs Vulkan dans \[`src/vk_engine_autoexposure.cpp`\](../src/vk_engine_autoexposure.cpp) par les appels RHI unifiés :
   - `rhi->TransitionTexture(cmd, exposureTex, ResourceState::ComputeShaderReadWrite);`
   - `rhi->BindComputePipeline(cmd, histogramPipeline);`
   - `rhi->DispatchCompute(cmd, width / 16, height / 16, 1);`

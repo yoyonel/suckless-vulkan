@@ -74,7 +74,7 @@ ______________________________________________________________________
 - **Impact sur la régression** : **Élevé** (Supprime le pic de saturation thermique qui déclenche le throttling GPU).
 - **Principe** : `abandoned_garage_4k.hdr.ktx2` contient déjà toute la pyramide de mips. Uploader directement les 13 niveaux en 1 transfert DMA (`vkCmdCopyBufferToImage`) et supprimer les 12 passes de `vkCmdBlitImage`.
 - **Gain espéré** : **$-100%$ du temps de blit GPU** ($\\sim 15\\text{ ms}$ de charge GPU éliminés lors du switch) et forte réduction de la surchauffe SoC.
-- **Coût d'implémentation** : **Moyen** ($\\sim 60-80$ lignes de code dans \[`src/asset_ktx.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/asset_ktx.cpp) et \[`src/vk_engine_envmap.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/vk_engine_envmap.cpp)).
+- **Coût d'implémentation** : **Moyen** ($\\sim 60-80$ lignes de code dans \[`src/asset_ktx.cpp`\](../src/asset_ktx.cpp) et \[`src/vk_engine_envmap.cpp`\](../src/vk_engine_envmap.cpp)).
 - **Risque** : **Faible** (Format KTX2 standardisé, supprime du code de blit complexe).
 
 ______________________________________________________________________
@@ -84,7 +84,7 @@ ______________________________________________________________________
 - **Impact sur la régression** : **Moyen à Élevé** (Maintient le GPU dans son enveloppe thermique $PL1 \\le 15\\text{ W}$).
 - **Principe** : Limiter la soumission des compute shaders IBL à $1\\text{ ou }2$ tranches spéculaires par frame au lieu de 24.
 - **Gain espéré** : **$+0.20\\text{ à }+0.35\\text{ ms}$ GPU par frame** en prévenant la chute de fréquence d'horloge de $1.40\\text{ GHz} \\to 850\\text{ MHz}$.
-- **Coût d'implémentation** : **Très faible** (Ajustement des constantes `totalSlices` dans \[`src/vk_engine_envmap.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/vk_engine_envmap.cpp)).
+- **Coût d'implémentation** : **Très faible** (Ajustement des constantes `totalSlices` dans \[`src/vk_engine_envmap.cpp`\](../src/vk_engine_envmap.cpp)).
 - **Risque** : **Négligeable** (Prolonge imperceptiblement le chargement de quelques frames sans aucun artefact visuel).
 
 ______________________________________________________________________
@@ -94,7 +94,7 @@ ______________________________________________________________________
 - **Impact sur la régression** : **Moyen** (Élimine le churn mémoire et la fragmentation des caches).
 - **Principe** : Pré-allouer 2 slots fixes de textures IBL (`Slot A` / `Slot B`). Zéro allocation/destruction `VkImage` / `VmaAllocation` au runtime.
 - **Gain espéré** : **$+0.10\\text{ à }+0.15\\text{ ms}$** de latence mémoire GPU, $0\\text{ allocation VMA}$ en cours de jeu.
-- **Coût d'implémentation** : **Moyen** ($\\sim 100-150$ lignes de refactor dans \[`src/vk_engine_envmap.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/vk_engine_envmap.cpp)).
+- **Coût d'implémentation** : **Moyen** ($\\sim 100-150$ lignes de refactor dans \[`src/vk_engine_envmap.cpp`\](../src/vk_engine_envmap.cpp)).
 - **Risque** : **Moyen** (Nécessite de verrouiller la synchronisation des descripteurs entre les deux slots).
 
 ______________________________________________________________________

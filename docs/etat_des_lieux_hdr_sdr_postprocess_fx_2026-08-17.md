@@ -59,7 +59,7 @@ ______________________________________________________________________
 ### 🌟 FX 1 : Bloom Dual-Filtering (Jimenez / Karis)
 
 - **Principe** : Extraction de l'énergie des zones sur-éclairées ($> 1.0$) et diffusion spatiale en double pyramide.
-- **Shaders** : \[`shaders/bloom_downsample.comp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/shaders/bloom_downsample.comp) et \[`shaders/bloom_upsample.comp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/shaders/bloom_upsample.comp).
+- **Shaders** : \[`shaders/bloom_downsample.comp`\](../shaders/bloom_downsample.comp) et \[`shaders/bloom_upsample.comp`\](../shaders/bloom_upsample.comp).
 - **Détail technique** :
   - **Downsampling** : 5 passes Compute. Filtre Jimenez à 13 échantillons entrelacés + pondération Karis anti-firefly $w = \\frac{1}{1 + \\text{Luma}}$ + courbe continue Soft-Knee sur le premier niveau.
   - **Upsampling** : 4 passes Compute. Filtre tente $3\\times 3$ à 9 échantillons avec accumulation additive progressive.
@@ -110,12 +110,12 @@ ______________________________________________________________________
 - **Principe** : Compression de la plage dynamique infinie $\[0.0, +\\infty\[$ vers la plage d'affichage LDR standard $[0.0, 1.0]$ avec courbe en S (préservation du contraste dans les sombres et roll-off doux des hautes lumières sans saturation brutale).
 - **Formule ACES Narkowicz / Unreal** :
   $$\\text{Tonemap}(x) = \\text{clamp}\\left(\\frac{x \\cdot (2.51 \\cdot x + 0.03)}{x \\cdot (2.43 \\cdot x + 0.0) + 0.154}, 0.0, 1.0\\right)$$
-- **Fichier** : \[`shaders/postprocess.frag`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/shaders/postprocess.frag).
+- **Fichier** : \[`shaders/postprocess.frag`\](../shaders/postprocess.frag).
 
 ### 🔍 FX 6 : Anti-Aliasing Analytique Sous-Pixel (Sphères Billboards)
 
 - **Principe** : Antialiasing géométrique parfait résolu analytiquement par lissage du discriminant de raymarching au bord de la sphère sans recours à un TAA ou FXAA.
-- **Fichier** : \[`shaders/billboard.frag`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/shaders/billboard.frag).
+- **Fichier** : \[`shaders/billboard.frag`\](../shaders/billboard.frag).
 - **Formule** : $\\text{edgeFactor} = \\text{smoothstep}\\left(0.0, 1.0, \\frac{r^2 - d^2}{2r \\cdot \\text{pixelSizeWorld}}\\right)$.
 
 ### 🌐 FX 7 : Éclairage Physique IBL (Image-Based Lighting)

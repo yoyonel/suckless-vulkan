@@ -34,7 +34,7 @@ ______________________________________________________________________
 
 ### Hotspots d'Allocations Identifiés
 
-1. **`vk_draw_frame_internal` (\[`src/vk_engine_frame.cpp:245`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/vk_engine_frame.cpp#L245))** :
+1. **`vk_draw_frame_internal` (\[`src/vk_engine_frame.cpp:245`\](../src/vk_engine_frame.cpp#L245))** :
    - **161,352 allocations** temporaires de `std::vector<rhi::PassDependency>` réallouées à chaque frame via `std::initializer_list`.
    - *Opportunité d'optimisation* : Remplacer par un tableau statique ou `std::span` pour atteindre 0 allocation par frame lors du rendu.
 1. **Chargement de textures KTX / IBL** :

@@ -170,7 +170,7 @@ Lors du profiling avec Tracy :
 
 ### Solution Appliquée
 
-Dans \[`src/module_loader.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/module_loader.cpp), lors de la compilation avec `TRACY_ENABLE`, le drapeau POSIX `RTLD_NODELETE` est ajouté au `dlopen` :
+Dans \[`src/module_loader.cpp`\](../src/module_loader.cpp), lors de la compilation avec `TRACY_ENABLE`, le drapeau POSIX `RTLD_NODELETE` est ajouté au `dlopen` :
 
 ```cpp
 #ifdef TRACY_ENABLE
