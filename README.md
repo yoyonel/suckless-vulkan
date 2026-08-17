@@ -92,19 +92,21 @@ just tracy-profiler
 
 Current pinned Tracy release: `v0.13.1`.
 
-### Tracy Automated Benchmark
+### Tracy Automated Benchmark & Trace Verification
 
-You can run an automated headless benchmark to extract CPU cache misses (L1/L2/L3) and Tracy execution zones:
+You can run an automated headless benchmark to extract CPU cache misses (L1/L2/L3) and validate Tracy execution zones (CPU & GPU):
 ```bash
 just perf-benchmark
 just benchmark-tracy
+just verify-tracy-trace
 ```
 
 This will:
 1. Compile the app and the `tracy-capture`/`tracy-csvexport` upstream CLI tools.
 2. Run the application headless for 10 seconds.
-3. Output a formatted table of CPU/GPU Zones execution times.
-4. Save the full memory & execution trace to `build/tracy/benchmark.tracy`.
+3. Automatically verify GPU timeline invariants (Vulkan Graphics Queue emission, RenderGraph passes, IBL compute passes) via `scripts/verify_tracy_trace.py`.
+4. Output a formatted table of CPU/GPU Zones execution times.
+5. Save the full memory & execution trace to `build/tracy/benchmark.tracy`.
 
 **Note on Memory Profiling**: The `tracy-csvexport` CLI tool does *not* export memory statistics. To analyze heap allocations, leaks, and peak memory, you must open the generated `benchmark.tracy` file in the **Tracy Profiler UI**. For CLI-based memory summaries (CI/CD), stick to `heaptrack` via the standard `just benchmark` recipe.
 
@@ -143,6 +145,7 @@ Runtime controls:
 ### Environment Variables
 
 - `SVK_VSYNC`: Set to `1` to enable VSync at startup.
+- `SVK_BLOOM_QUARTER_RES`: Set to `1` to enable Quarter-Resolution Bloom Start ($480\times270$ at 1080p, $-44\%$ GPU compute duration, $0.189\text{ ms}$ total).
 - `VULKAN_LOG_LEVEL`: Configures logging verbosity (INFO, DEBUG, ERROR, etc.).
 - `SVK_UPDATE_REFERENCES`: Set to `1` to update visual regression reference images during tests.
 

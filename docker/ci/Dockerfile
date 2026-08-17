@@ -23,11 +23,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libglfw3-dev \
     libglm-dev \
     libvulkan-dev \
+    libdbus-1-dev \
+    libssl-dev \
     vulkan-tools \
     mesa-vulkan-drivers \
     glslang-tools \
     xvfb \
     xauth \
+    xdotool \
     shellcheck \
     ccache \
     python3 \
@@ -65,6 +68,17 @@ RUN pip3 install --break-system-packages --no-cache-dir \
     yamllint==1.38.0 \
     pymarkdownlnt==0.9.36 \
     ruff==0.2.1
+
+# Pre-compile Tracy CLI tools (tracy-capture, tracy-csvexport)
+ARG TRACY_VERSION=v0.13.1
+RUN git clone --depth 1 --branch "${TRACY_VERSION}" https://github.com/wolfpld/tracy.git /tmp/tracy \
+    && cmake -B /tmp/tracy/capture/build -S /tmp/tracy/capture -DCMAKE_BUILD_TYPE=Release -DNO_ISA_EXTENSIONS=ON \
+    && cmake --build /tmp/tracy/capture/build -j"$(nproc)" \
+    && cp /tmp/tracy/capture/build/tracy-capture /usr/local/bin/ \
+    && cmake -B /tmp/tracy/csvexport/build -S /tmp/tracy/csvexport -DCMAKE_BUILD_TYPE=Release -DNO_ISA_EXTENSIONS=ON \
+    && cmake --build /tmp/tracy/csvexport/build -j"$(nproc)" \
+    && cp /tmp/tracy/csvexport/build/tracy-csvexport /usr/local/bin/ \
+    && rm -rf /tmp/tracy
 
 # Copy ASan suppressions file for Vulkan SDK/driver false-positives
 COPY .asan_ignorefile /work/.asan_ignorefile

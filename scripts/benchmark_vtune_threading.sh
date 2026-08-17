@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "========================================="
+echo "   BENCHMARK VTUNE (Threading & Locks)"
+echo "========================================="
+
+APP_BIN="./build/relwithdebinfo/vulkan_app"
+if [ ! -f "$APP_BIN" ]; then
+	echo "Erreur: $APP_BIN manquant. Lancez 'just build-relwithdebinfo'."
+	exit 1
+fi
+
+VTUNE_BIN=""
+if command -v vtune >/dev/null 2>&1; then
+	VTUNE_BIN=$(command -v vtune)
+elif [ -x /opt/intel/oneapi/vtune/latest/bin64/vtune ]; then
+	VTUNE_BIN="/opt/intel/oneapi/vtune/latest/bin64/vtune"
+elif [ -d /opt/intel/oneapi/vtune ]; then
+	VTUNE_BIN=$(find /opt/intel/oneapi/vtune -name vtune -type f -perm -111 2>/dev/null | grep bin64 | head -n1 || true)
+fi
+
+if [ -z "$VTUNE_BIN" ] || [ ! -x "$VTUNE_BIN" ]; then
+	echo "Erreur: Intel VTune Profiler (vtune) introuvable dans PATH ou /opt/intel/oneapi/vtune."
+	exit 1
+fi
+
+if [ -f /opt/intel/oneapi/setvars.sh ]; then
+	# shellcheck disable=SC1091
+	source /opt/intel/oneapi/setvars.sh --force >/dev/null 2>&1 || true
+fi
+
+RES_DIR="/tmp/vtune_results_threading_$(date +%s)"
+OUT_DIR="./build/profiling/vtune"
+mkdir -p "$OUT_DIR"
+
+TMP_DIR=$(mktemp -d)
+export TMP_DIR
+trap 'rm -rf "$TMP_DIR"' EXIT
+
+echo "[vtune] Collection threading avec sudo..."
+sudo -E "$VTUNE_BIN" -collect threading -result-dir "$RES_DIR" env TMP_DIR="$TMP_DIR" ./scripts/interactive_runner.sh "$APP_BIN" --no-vsync
+sudo chown -R "$USER":"$USER" "$RES_DIR"
+
+echo ""
+echo "=========================================================================="
+echo "📊 RÉSUMÉ THREADING & WAITS (Intel VTune)"
+echo "=========================================================================="
+SUMMARY_FILE="$OUT_DIR/vtune_threading_summary.txt"
+"$VTUNE_BIN" -report hotspots -r "$RES_DIR" -format=text -limit=15 | grep -v "^vtune:" | c++filt >"$SUMMARY_FILE" 2>&1 || true
+cat "$SUMMARY_FILE"
+echo "=========================================================================="
+
+echo ""
+echo "✅ Résultats enregistrés dans : $RES_DIR"
+echo "👉 Pour voir la timeline des threads (Gantt) : vtune-gui $RES_DIR"

@@ -39,20 +39,28 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Resolve CI image (GHCR or local fallback)
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          TARGET_BRANCH="${{ github.base_ref || github.ref_name }}"
+          TARGET_BRANCH="${HEAD_REF:-$REF_NAME}"
+          CLEAN_TAG=$(echo "$TARGET_BRANCH" | tr '/' '-')
           if [ "$TARGET_BRANCH" = "master" ]; then
             TAG="latest"
           else
-            TAG="$TARGET_BRANCH"
+            TAG="$CLEAN_TAG"
           fi
           REGISTRY="ghcr.io/${{ github.repository_owner }}"
           IMAGE="$REGISTRY/suckless-vulkan-ci:$TAG"
           FALLBACK="$REGISTRY/suckless-vulkan-ci:latest"
-          docker pull "$IMAGE" || docker pull "$FALLBACK" || true
-          docker build --network=host -t local/suckless-vulkan-ci:latest \
-            --cache-from "$IMAGE" --cache-from "$FALLBACK" \
-            -f docker/ci/Dockerfile .
+          if docker pull "$IMAGE"; then
+            docker tag "$IMAGE" local/suckless-vulkan-ci:latest
+          elif docker pull "$FALLBACK"; then
+            docker tag "$FALLBACK" local/suckless-vulkan-ci:latest
+          else
+            docker build --network=host -t local/suckless-vulkan-ci:latest \
+              -f docker/ci/Dockerfile .
+          fi
           echo "CI_IMAGE=local/suckless-vulkan-ci:latest" >> "$GITHUB_ENV"
 
       - name: Run lint inside CI container
@@ -79,20 +87,28 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Resolve CI image (GHCR or local fallback)
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          TARGET_BRANCH="${{ github.base_ref || github.ref_name }}"
+          TARGET_BRANCH="${HEAD_REF:-$REF_NAME}"
+          CLEAN_TAG=$(echo "$TARGET_BRANCH" | tr '/' '-')
           if [ "$TARGET_BRANCH" = "master" ]; then
             TAG="latest"
           else
-            TAG="$TARGET_BRANCH"
+            TAG="$CLEAN_TAG"
           fi
           REGISTRY="ghcr.io/${{ github.repository_owner }}"
           IMAGE="$REGISTRY/suckless-vulkan-ci:$TAG"
           FALLBACK="$REGISTRY/suckless-vulkan-ci:latest"
-          docker pull "$IMAGE" || docker pull "$FALLBACK" || true
-          docker build --network=host -t local/suckless-vulkan-ci:latest \
-            --cache-from "$IMAGE" --cache-from "$FALLBACK" \
-            -f docker/ci/Dockerfile .
+          if docker pull "$IMAGE"; then
+            docker tag "$IMAGE" local/suckless-vulkan-ci:latest
+          elif docker pull "$FALLBACK"; then
+            docker tag "$FALLBACK" local/suckless-vulkan-ci:latest
+          else
+            docker build --network=host -t local/suckless-vulkan-ci:latest \
+              -f docker/ci/Dockerfile .
+          fi
           echo "CI_IMAGE=local/suckless-vulkan-ci:latest" >> "$GITHUB_ENV"
 
       - name: Build and test inside CI container (${{ matrix.build_type }})
@@ -124,20 +140,28 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Resolve CI image (GHCR or local fallback)
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          TARGET_BRANCH="${{ github.base_ref || github.ref_name }}"
+          TARGET_BRANCH="${HEAD_REF:-$REF_NAME}"
+          CLEAN_TAG=$(echo "$TARGET_BRANCH" | tr '/' '-')
           if [ "$TARGET_BRANCH" = "master" ]; then
             TAG="latest"
           else
-            TAG="$TARGET_BRANCH"
+            TAG="$CLEAN_TAG"
           fi
           REGISTRY="ghcr.io/${{ github.repository_owner }}"
           IMAGE="$REGISTRY/suckless-vulkan-ci:$TAG"
           FALLBACK="$REGISTRY/suckless-vulkan-ci:latest"
-          docker pull "$IMAGE" || docker pull "$FALLBACK" || true
-          docker build --network=host -t local/suckless-vulkan-ci:latest \
-            --cache-from "$IMAGE" --cache-from "$FALLBACK" \
-            -f docker/ci/Dockerfile .
+          if docker pull "$IMAGE"; then
+            docker tag "$IMAGE" local/suckless-vulkan-ci:latest
+          elif docker pull "$FALLBACK"; then
+            docker tag "$FALLBACK" local/suckless-vulkan-ci:latest
+          else
+            docker build --network=host -t local/suckless-vulkan-ci:latest \
+              -f docker/ci/Dockerfile .
+          fi
           echo "CI_IMAGE=local/suckless-vulkan-ci:latest" >> "$GITHUB_ENV"
 
       - name: Test with AddressSanitizer (ASan/UBSan)
@@ -161,23 +185,44 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Resolve CI image (GHCR or local fallback)
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          TARGET_BRANCH="${{ github.base_ref || github.ref_name }}"
+          TARGET_BRANCH="${HEAD_REF:-$REF_NAME}"
+          CLEAN_TAG=$(echo "$TARGET_BRANCH" | tr '/' '-')
           if [ "$TARGET_BRANCH" = "master" ]; then
             TAG="latest"
           else
-            TAG="$TARGET_BRANCH"
+            TAG="$CLEAN_TAG"
           fi
           REGISTRY="ghcr.io/${{ github.repository_owner }}"
           IMAGE="$REGISTRY/suckless-vulkan-ci:$TAG"
           FALLBACK="$REGISTRY/suckless-vulkan-ci:latest"
-          docker pull "$IMAGE" || docker pull "$FALLBACK" || true
-          docker build --network=host -t local/suckless-vulkan-ci:latest \
-            --cache-from "$IMAGE" --cache-from "$FALLBACK" \
-            -f docker/ci/Dockerfile .
+          if docker pull "$IMAGE"; then
+            docker tag "$IMAGE" local/suckless-vulkan-ci:latest
+          elif docker pull "$FALLBACK"; then
+            docker tag "$FALLBACK" local/suckless-vulkan-ci:latest
+          else
+            docker build --network=host -t local/suckless-vulkan-ci:latest \
+              -f docker/ci/Dockerfile .
+          fi
           echo "CI_IMAGE=local/suckless-vulkan-ci:latest" >> "$GITHUB_ENV"
 
-      - name: Build with Tracy enabled
+      - name: Cache Tracy Tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/tracy-capture
+            build/tracy-csvexport
+            ~/.cache/cpm
+          key: >-
+            tracy-${{ runner.os }}-${{
+            hashFiles('cmake/Dependencies.cmake') }}
+          restore-keys: |
+            tracy-${{ runner.os }}-
+
+      - name: Build with Tracy enabled and run integration test
         run: |
           docker run --rm \
             --user "$(id -u):$(id -g)" \
@@ -186,8 +231,15 @@ jobs:
             -v "${{ github.workspace }}:/work" \
             -w /work \
             "$CI_IMAGE" \
-            bash -lc "just build-tracy && \\
-              scripts/smoke_test_app.sh build/tracy/vulkan_app"
+            bash -lc "bash scripts/ci/run_ci_tracy.sh"
+
+      - name: Upload Tracy trace artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: tracy-integration-trace
+          path: build/tracy/integration.tracy
+          if-no-files-found: ignore
 
   memory-checks-validation-layers:
     needs: static-checks
@@ -199,20 +251,28 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Resolve CI image (GHCR or local fallback)
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          TARGET_BRANCH="${{ github.base_ref || github.ref_name }}"
+          TARGET_BRANCH="${HEAD_REF:-$REF_NAME}"
+          CLEAN_TAG=$(echo "$TARGET_BRANCH" | tr '/' '-')
           if [ "$TARGET_BRANCH" = "master" ]; then
             TAG="latest"
           else
-            TAG="$TARGET_BRANCH"
+            TAG="$CLEAN_TAG"
           fi
           REGISTRY="ghcr.io/${{ github.repository_owner }}"
           IMAGE="$REGISTRY/suckless-vulkan-ci:$TAG"
           FALLBACK="$REGISTRY/suckless-vulkan-ci:latest"
-          docker pull "$IMAGE" || docker pull "$FALLBACK" || true
-          docker build --network=host -t local/suckless-vulkan-ci:latest \
-            --cache-from "$IMAGE" --cache-from "$FALLBACK" \
-            -f docker/ci/Dockerfile .
+          if docker pull "$IMAGE"; then
+            docker tag "$IMAGE" local/suckless-vulkan-ci:latest
+          elif docker pull "$FALLBACK"; then
+            docker tag "$FALLBACK" local/suckless-vulkan-ci:latest
+          else
+            docker build --network=host -t local/suckless-vulkan-ci:latest \
+              -f docker/ci/Dockerfile .
+          fi
           echo "CI_IMAGE=local/suckless-vulkan-ci:latest" >> "$GITHUB_ENV"
 
       - name: Test with Vulkan Validation Layers
@@ -235,20 +295,28 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Resolve CI image (GHCR or local fallback)
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          TARGET_BRANCH="${{ github.base_ref || github.ref_name }}"
+          TARGET_BRANCH="${HEAD_REF:-$REF_NAME}"
+          CLEAN_TAG=$(echo "$TARGET_BRANCH" | tr '/' '-')
           if [ "$TARGET_BRANCH" = "master" ]; then
             TAG="latest"
           else
-            TAG="$TARGET_BRANCH"
+            TAG="$CLEAN_TAG"
           fi
           REGISTRY="ghcr.io/${{ github.repository_owner }}"
           IMAGE="$REGISTRY/suckless-vulkan-ci:$TAG"
           FALLBACK="$REGISTRY/suckless-vulkan-ci:latest"
-          docker pull "$IMAGE" || docker pull "$FALLBACK" || true
-          docker build --network=host -t local/suckless-vulkan-ci:latest \
-            --cache-from "$IMAGE" --cache-from "$FALLBACK" \
-            -f docker/ci/Dockerfile .
+          if docker pull "$IMAGE"; then
+            docker tag "$IMAGE" local/suckless-vulkan-ci:latest
+          elif docker pull "$FALLBACK"; then
+            docker tag "$FALLBACK" local/suckless-vulkan-ci:latest
+          else
+            docker build --network=host -t local/suckless-vulkan-ci:latest \
+              -f docker/ci/Dockerfile .
+          fi
           echo "CI_IMAGE=local/suckless-vulkan-ci:latest" >> "$GITHUB_ENV"
 
       - name: Build tests and generate LLVM coverage report

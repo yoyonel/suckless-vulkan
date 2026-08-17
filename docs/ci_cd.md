@@ -13,13 +13,19 @@ La CI est executee dans une image Docker dediee (`docker/ci/Dockerfile`) basee s
 
 ## CI: Build et tests
 
-Le workflow `ci.yml` execute les etapes suivantes :
+Le workflow `ci.yml` exécute les 8 jobs suivants en parallèle optimisé (~2 minutes) :
 
-1. **`static-checks`** (runner hote, sans conteneur) : `hadolint` sur le Dockerfile +
-   `actionlint` sur les workflows. Bloque les jobs suivants en cas d'echec.
-1. **`lint`** : resolution de l'image CI puis lint complet dans le conteneur.
-1. **`build-and-test`** (matrice `Release`/`Debug`) : build+tests dans le conteneur CI.
-1. **Upload systématique** des captures de tests (`test_*.png`) en artefact de job en cas d'échec ou de succès.
+1. **`static-checks`** (runner hôte, sans conteneur) : `hadolint` sur le Dockerfile + `actionlint` sur les workflows. Bloque les jobs suivants en cas d'échec.
+1. **`lint`** : vérification des formats et lints (C++, CMake, Shell, YAML, Markdown, Shaders, Python).
+1. **`memory-checks-asan`** : tests de logique sous AddressSanitizer/UBSan pour détecter fuites CPU et undefined behaviors.
+1. **`memory-checks-validation-layers`** : validation stricte Vulkan (`VK_LAYER_KHRONOS_validation`) sur les tests graphiques.
+1. **`build-and-test`** (matrice `Release` et `Debug`) : compilation complète, exécution des tests unitaires et d'intégration avec upload systématique des captures visuelles (`test_*.png`).
+1. **`coverage`** : compilation instrumentée Clang et génération du rapport de couverture HTML via `llvm-cov`.
+1. **`build-tracy`** : compilation avec instrumentation Tracy (`ENABLE_TRACY=ON`), test d'intégration de trace automatisé (`just test-integration-tracy`) sous Xvfb + xdotool, et extraction/validation des captures de traces `.tracy`.
+
+### Optimisation Image GHCR Pré-compilée
+
+Pour éviter la recompilation locale de l'image Docker sur chaque runner GitHub Actions (gain de ~4 minutes par job), l'image de base est pré-compilée et publiée sur GitHub Container Registry (`ghcr.io/yoyonel/suckless-vulkan-ci:<tag>`). Chaque job CI résout et télécharge directement l'image en ~15 secondes via `docker pull` + `docker tag`.
 
 Notes:
 

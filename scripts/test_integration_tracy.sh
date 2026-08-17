@@ -1,14 +1,21 @@
 #!/bin/bash
 set -euo pipefail
 
+export PATH="/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/bin:${PATH:-}"
+
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 
 APP_BIN="${APP_BIN:-$REPO_ROOT/build/tracy/vulkan_app}"
-CAPTURE_BIN="${CAPTURE_BIN:-$REPO_ROOT/build/tracy-capture/tracy-capture}"
+if [ -f "$REPO_ROOT/build/tracy-capture/tracy-capture" ]; then
+	CAPTURE_BIN="${CAPTURE_BIN:-$REPO_ROOT/build/tracy-capture/tracy-capture}"
+elif command -v tracy-capture >/dev/null 2>&1; then
+	CAPTURE_BIN="${CAPTURE_BIN:-$(command -v tracy-capture)}"
+else
+	CAPTURE_BIN="${CAPTURE_BIN:-$REPO_ROOT/build/tracy-capture/tracy-capture}"
+fi
 WINDOW_NAME="${WINDOW_NAME:-Vulkan - Icosphere Full GPU}"
-CAPTURE_SECONDS="${1:-12}"
-TRACE_FILE="${2:-$REPO_ROOT/build/tracy/integration.tracy}"
+TRACE_FILE="${1:-$REPO_ROOT/build/tracy/integration.tracy}"
 LOG_DIR="${LOG_DIR:-$REPO_ROOT/build/tracy}"
 APP_LOG="$LOG_DIR/tracy_integration_app.log"
 CAPTURE_LOG="$LOG_DIR/tracy_integration_capture.log"
@@ -89,6 +96,10 @@ run_scenario() {
 	xdotool key --window "$wid" --delay 120 Page_Down
 	sleep 2
 
+	echo "[scenario] toggle Bloom ON"
+	xdotool key --window "$wid" --delay 120 F7
+	sleep 2
+
 	echo "[scenario] adjust env LOD"
 	xdotool key --window "$wid" --delay 120 shift+Page_Up
 	sleep 1
@@ -149,7 +160,7 @@ else
 fi
 
 echo "[capture] writing trace to $TRACE_FILE"
-"$CAPTURE_BIN" -a 127.0.0.1 -p 8086 -o "$TRACE_FILE" -f -s "$CAPTURE_SECONDS" >"$CAPTURE_LOG" 2>&1 &
+"$CAPTURE_BIN" -a 127.0.0.1 -p 8086 -o "$TRACE_FILE" -f >"$CAPTURE_LOG" 2>&1 &
 CAPTURE_PID=$!
 
 echo "[app] starting $APP_BIN"
@@ -160,7 +171,7 @@ WID=$(wait_for_window_start "$APP_PID" "$WINDOW_NAME")
 focus_window "$WID"
 
 echo "[scenario] waiting for app to finish IBL baking..."
-timeout=60
+timeout=180
 elapsed=0
 while ((elapsed < timeout)); do
 	if grep -q "Initialization complete" "$APP_LOG" 2>/dev/null; then
@@ -179,14 +190,15 @@ echo "[scenario] app initialized in ${elapsed}s, starting inputs."
 
 run_scenario "$WID"
 
+echo "[scenario] inputs completed, terminating app..."
+kill -SIGTERM "$APP_PID" 2>/dev/null || true
+
+# Wait for capture to finalize trace file after app exit
 if ! wait "$CAPTURE_PID"; then
 	echo "Error: tracy capture failed. See $CAPTURE_LOG"
 	exit 1
 fi
 CAPTURE_PID=""
-
-echo "[scenario] trace capture completed, terminating app..."
-kill -SIGTERM "$APP_PID" 2>/dev/null || true
 
 # Tracy client may hang flushing network data after capture disconnects.
 # Wait up to 5s for clean exit, then force-kill.
@@ -227,6 +239,12 @@ echo "================================================="
 if ((frames < 10)); then
 	echo "Error: trace captured too few frames ($frames). App may have failed to initialize properly or bake took too long."
 	exit 1
+fi
+
+CSVEXPORT_BIN="$REPO_ROOT/build/tracy-csvexport/tracy-csvexport"
+if [[ -f "$CSVEXPORT_BIN" ]]; then
+	echo "[scenario] verifying GPU timeline invariants with verify_tracy_trace.py..."
+	python3 "$SCRIPT_DIR/verify_tracy_trace.py" "$TRACE_FILE" --csvexport-bin "$CSVEXPORT_BIN" --min-gpu-zones 10 --require-render-passes
 fi
 
 echo "SUCCESS: trace generated and validated at $TRACE_FILE"

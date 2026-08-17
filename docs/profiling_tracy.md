@@ -63,6 +63,20 @@ Arguments utiles:
 just test-integration-tracy capture_seconds=18 trace_file=build/tracy/hdr_ibl.tracy
 ```
 
+Valider automatiquement les invariants de trace Tracy (zones GPU matérielles et passes RenderGraph) :
+
+```bash
+just verify-tracy-trace
+just verify-tracy-trace trace_file=build/tracy/hdr_ibl.tracy
+```
+
+Le script `scripts/verify_tracy_trace.py` vérifie :
+
+- l'émission active d'événements GPU sur `Vulkan Graphics Queue`
+- la présence des passes de rendu par frame (`Forward Pass`, `GPU Geometry`, `GPU Skybox`, `PostProcess Pass`)
+- la validité physique des timestamps matériels (`GPU Time > 0`)
+- à la demande, la complétion des passes compute IBL (`--require-compute-passes`)
+
 ## Details d'implementation
 
 Le projet active Tracy via l'option CMake locale suivante:
@@ -143,10 +157,27 @@ Une tranche GPU complementaire couvre desormais les dispatch compute IBL:
 
 - zone GPU `GPU IBL Luminance` (reduction luminance pass 1 + pass 2)
 - zone GPU `GPU IBL BRDF LUT`
-- zone GPU `GPU IBL Irradiance`
-- zone GPU `GPU IBL Specular`
-- collecte Tracy Vulkan explicite sur les command buffers one-shot utilises par `vk_ibl_bake`
 
-Le but de cette tranche n'est pas encore l'analyse fine des performances, mais la validation fonctionnelle de l'integration du profiler Tracy cote CPU et cote Vulkan.
+## Modules Dynamiques (.so) & Persistance des Métadonnées (`RTLD_NODELETE`)
 
-Cette page sera enrichie quand les premieres zones Tracy seront posees dans le moteur.
+Le moteur charge dynamiquement son backend de rendu (`libvulkan_rhi.so`) via `dlopen`.
+
+Lors du profiling avec Tracy :
+
+- Chaque zone de profiling (`ZoneScopedNC`, `ZoneNamedNC`) génère une structure statique `tracy::SourceLocationData` résidant dans la section `.rodata` de la bibliothèque partagée `libvulkan_rhi.so`.
+- Si `dlclose()` est appelé lors de l'arrêt de l'application (`main()`), la mémoire contenant les chaînes de caractères (nom de la zone, fonction, fichier) est désallouée de l'espace d'adressage du processus avant que le client d'arrière-plan de Tracy ne transmette ces informations au serveur/fichier de trace.
+- En conséquence, les zones exécutées en fin de cycle de vie (telles que `Engine: Shutdown Vulkan`) apparaissaient sous le libellé de secours `???` dans Tracy Profiler.
+
+### Solution Appliquée
+
+Dans \[`src/module_loader.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/module_loader.cpp), lors de la compilation avec `TRACY_ENABLE`, le drapeau POSIX `RTLD_NODELETE` est ajouté au `dlopen` :
+
+```cpp
+#ifdef TRACY_ENABLE
+    handle = dlopen(full_path.c_str(), RTLD_NOW | RTLD_LOCAL | RTLD_NODELETE);
+#else
+    handle = dlopen(full_path.c_str(), RTLD_NOW | RTLD_LOCAL);
+#endif
+```
+
+Ce drapeau indique au chargeur dynamique du système d'exploitation (`ld.so`) de ne pas démapper la table de symboles et les segments de lecture seule du module lors d'un `dlclose()`, garantissant ainsi la validité et la lisibilité permanente de 100% des métadonnées de profiling jusqu'à la fermeture complète du processus.

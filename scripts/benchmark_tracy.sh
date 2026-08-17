@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e
 
+export PATH="/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/bin:${PATH:-}"
+
 APP_BIN="./build/tracy/vulkan_app"
 if [ ! -f "$APP_BIN" ]; then
 	echo "Erreur: $APP_BIN manquant. Lancez 'just build-tracy'."
@@ -34,14 +36,22 @@ echo "========================================="
 
 CAPTURE_BIN="./build/tracy-capture/tracy-capture"
 if [ ! -f "$CAPTURE_BIN" ]; then
-	echo "Erreur: $CAPTURE_BIN manquant. Lancez 'just build-tracy-capture'."
-	exit 1
+	if command -v tracy-capture >/dev/null 2>&1; then
+		CAPTURE_BIN="$(command -v tracy-capture)"
+	else
+		echo "Erreur: $CAPTURE_BIN manquant. Lancez 'just build-tracy-capture'."
+		exit 1
+	fi
 fi
 
 CSVEXPORT_BIN="./build/tracy-csvexport/tracy-csvexport"
 if [ ! -f "$CSVEXPORT_BIN" ]; then
-	echo "Erreur: $CSVEXPORT_BIN manquant. Lancez 'just build-tracy-csvexport'."
-	exit 1
+	if command -v tracy-csvexport >/dev/null 2>&1; then
+		CSVEXPORT_BIN="$(command -v tracy-csvexport)"
+	else
+		echo "Erreur: $CSVEXPORT_BIN manquant. Lancez 'just build-tracy-csvexport'."
+		exit 1
+	fi
 fi
 
 TRACE_FILE="build/tracy/benchmark.tracy"
@@ -97,6 +107,7 @@ if [ -f "$TRACE_FILE" ]; then
 		}
         
 		printf "%-35s | %5.2f %% | %10d | %10.3f | %10.3f\n", name, total_perc, counts, mean_ms, max_ms
+	}
 	' "profiling/tracy_stats.csv" | sort -t '|' -k2 -nr
 
 	echo ""
@@ -106,9 +117,16 @@ if [ -f "$TRACE_FILE" ]; then
 	echo "🔍 Interprétation Rapide :"
 	echo "- La zone la plus gourmande est '${TOP_ZONE}' consommant ~${TOP_PERC}% du temps processeur capturé."
 	echo "- Utilisez Tracy Profiler GUI pour explorer l'historique complet, les flamegraphs et la timeline mémoire."
+
+	echo ""
+	echo "========================================="
+	echo "   VÉRIFICATION GPU TIMELINE (TRACY)     "
+	echo "========================================="
+	python3 scripts/verify_tracy_trace.py "$TRACE_FILE" --csvexport-bin "$CSVEXPORT_BIN" --min-gpu-zones 50 --require-render-passes
 else
 	echo "Erreur: Trace non générée."
 	cat "$CAPTURE_LOG"
+	exit 1
 fi
 
 echo "========================================="
