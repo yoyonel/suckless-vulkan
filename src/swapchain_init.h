@@ -20,6 +20,8 @@ struct SwapchainManager {
 
     VkFormat depthFormat{VK_FORMAT_UNDEFINED};
     rhi::TexturePtr depthImage;
+    rhi::TexturePtr colorAttachment;
+    VkFramebuffer colorFramebuffer{VK_NULL_HANDLE};
 
     GfxResult init(VulkanEngine* engine);
     void cleanup_targets(VulkanEngine* engine);
