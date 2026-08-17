@@ -6,5 +6,7 @@
 GfxResult vk_init_vulkan_engine(VulkanEngine* engine);
 void vk_cleanup_vulkan_engine(VulkanEngine* engine);
 GfxResult vk_recreate_swapchain(VulkanEngine* engine);
+void update_postprocess_bloom_texture(VulkanEngine* engine, TextureHandle newBloomTexture);
+void update_global_bind_group(VulkanEngine* engine);
 
 #endif

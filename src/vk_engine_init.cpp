@@ -18,6 +18,9 @@
 #include <cstring>
 #include <string>
 #include <vector>
+#include <vulkan/vulkan.h>
+
+void update_postprocess_descriptor_set(VulkanEngine* engine);
 
 using namespace config;
 
@@ -160,6 +163,7 @@ void cleanup_buffer_resources(VulkanEngine* engine) {
 void cleanup_render_resources(VulkanEngine* engine) {
     engine->swapchainMgr.cleanup_dependent_resources(engine);
     destroy_device_handle(engine->ctx.device, engine->renderPass, vkDestroyRenderPass);
+    destroy_device_handle(engine->ctx.device, engine->renderPassLoad, vkDestroyRenderPass);
     destroy_device_handle(engine->ctx.device, engine->ctx.transferCompleteSemaphore, vkDestroySemaphore);
     destroy_device_handle(engine->ctx.device, engine->ctx.transferCommandPool, vkDestroyCommandPool);
     destroy_device_handle(engine->ctx.device, engine->ctx.commandPool, vkDestroyCommandPool);
@@ -194,6 +198,11 @@ void cleanup_raii_resources(VulkanEngine* engine) {
     engine->billboardBuffer.Reset();
     engine->billboardPosSSBO.Reset();
     engine->billboardMatSSBO.Reset();
+
+    engine->postProcessSampler.Reset();
+    engine->postProcessPipeline.Reset();
+    engine->postProcessBindGroup.Reset();
+    engine->globalBindGroup.Reset();
 }
 
 void cleanup_core_resources(VulkanEngine* engine) {
@@ -267,6 +276,104 @@ GfxResult select_physical_device(VulkanEngine* engine, const std::vector<VkPhysi
     return GfxResult::ErrorUnsupportedFeature;
 }
 
+std::vector<const char*> get_desired_device_extensions(VkPhysicalDevice physicalDevice) {
+    std::vector<const char*> deviceExt = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+
+    uint32_t devExtCount = 0;
+    if (vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &devExtCount, nullptr) == VK_SUCCESS && devExtCount > 0) {
+        std::vector<VkExtensionProperties> availableDevExts(devExtCount);
+        if (vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &devExtCount, availableDevExts.data()) == VK_SUCCESS) {
+            bool hasExtCalibrated = false;
+            bool hasKhrCalibrated = false;
+            for (const auto& ext : availableDevExts) {
+                if (strcmp(ext.extensionName, VK_EXT_CALIBRATED_TIMESTAMPS_EXTENSION_NAME) == 0) {
+                    hasExtCalibrated = true;
+                }
+#ifdef VK_KHR_CALIBRATED_TIMESTAMPS_EXTENSION_NAME
+                if (strcmp(ext.extensionName, VK_KHR_CALIBRATED_TIMESTAMPS_EXTENSION_NAME) == 0) {
+                    hasKhrCalibrated = true;
+                }
+#endif
+            }
+            if (hasExtCalibrated) {
+                deviceExt.push_back(VK_EXT_CALIBRATED_TIMESTAMPS_EXTENSION_NAME);
+            }
+#ifdef VK_KHR_CALIBRATED_TIMESTAMPS_EXTENSION_NAME
+            else if (hasKhrCalibrated) {
+                deviceExt.push_back(VK_KHR_CALIBRATED_TIMESTAMPS_EXTENSION_NAME);
+            }
+#endif
+        }
+    }
+    return deviceExt;
+}
+
+GfxResult create_logical_device(VulkanEngine* engine) {
+    float queuePriority = 1.0f;
+    VkDeviceQueueCreateInfo queueInfos[4] = {};
+    uint32_t queueInfoCount = 0;
+
+    std::vector<uint32_t> uniqueQueueFamilies = {engine->ctx.graphicsQueueFamilyIndex};
+
+    auto add_unique = [&](uint32_t qf) {
+        if (std::find(uniqueQueueFamilies.begin(), uniqueQueueFamilies.end(), qf) == uniqueQueueFamilies.end()) {
+            uniqueQueueFamilies.push_back(qf);
+        }
+    };
+    add_unique(engine->ctx.presentQueueFamilyIndex);
+    add_unique(engine->ctx.transferQueueFamilyIndex);
+    add_unique(engine->ctx.computeQueueFamilyIndex);
+
+    for (uint32_t qf : uniqueQueueFamilies) {
+        queueInfos[queueInfoCount].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        queueInfos[queueInfoCount].queueFamilyIndex = qf;
+        queueInfos[queueInfoCount].queueCount = 1;
+        queueInfos[queueInfoCount].pQueuePriorities = &queuePriority;
+        queueInfoCount++;
+    }
+
+    std::vector<const char*> deviceExt = get_desired_device_extensions(engine->ctx.physicalDevice);
+
+    VkPhysicalDeviceVulkan14Features features14{};
+    features14.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES;
+    features14.hostImageCopy = VK_TRUE;
+
+    VkPhysicalDeviceVulkan12Features supportedFeatures12{};
+    supportedFeatures12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+    VkPhysicalDeviceFeatures2 supportedFeatures2{};
+    supportedFeatures2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+    supportedFeatures2.pNext = &supportedFeatures12;
+    vkGetPhysicalDeviceFeatures2(engine->ctx.physicalDevice, &supportedFeatures2);
+
+    VkPhysicalDeviceVulkan12Features features12{};
+    features12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+    features12.hostQueryReset = VK_TRUE;
+    if (supportedFeatures12.shaderFloat16 == VK_TRUE) {
+        features12.shaderFloat16 = VK_TRUE;
+    }
+    features12.pNext = &features14;
+
+    VkPhysicalDeviceFeatures2 deviceFeatures2{};
+    deviceFeatures2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+    deviceFeatures2.features.samplerAnisotropy = VK_TRUE;
+    deviceFeatures2.features.fillModeNonSolid = VK_TRUE;
+    deviceFeatures2.pNext = &features12;
+
+    VkDeviceCreateInfo deviceInfo{};
+    deviceInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+    deviceInfo.pNext = &deviceFeatures2;
+    deviceInfo.queueCreateInfoCount = queueInfoCount;
+    deviceInfo.pQueueCreateInfos = queueInfos;
+    deviceInfo.enabledExtensionCount = static_cast<uint32_t>(deviceExt.size());
+    deviceInfo.ppEnabledExtensionNames = deviceExt.data();
+    deviceInfo.pEnabledFeatures = nullptr;
+
+    if (vkCreateDevice(engine->ctx.physicalDevice, &deviceInfo, NULL, &engine->ctx.device) != VK_SUCCESS)
+        return GfxResult::ErrorInitializationFailed;
+    vk_set_object_name(engine->ctx.device, (uint64_t)engine->ctx.device, VK_OBJECT_TYPE_DEVICE, "Logical_Device");
+    return GfxResult::Success;
+}
+
 GfxResult init_core(VulkanEngine* engine) {
     if (engine->appState->window == nullptr) {
         return GfxResult::ErrorInitializationFailed;
@@ -309,53 +416,9 @@ GfxResult init_core(VulkanEngine* engine) {
         return res;
     }
 
-    float queuePriority = 1.0f;
-    VkDeviceQueueCreateInfo queueInfos[4] = {};
-    uint32_t queueInfoCount = 0;
-
-    std::vector<uint32_t> uniqueQueueFamilies = {engine->ctx.graphicsQueueFamilyIndex};
-
-    auto add_unique = [&](uint32_t qf) {
-        if (std::find(uniqueQueueFamilies.begin(), uniqueQueueFamilies.end(), qf) == uniqueQueueFamilies.end()) {
-            uniqueQueueFamilies.push_back(qf);
-        }
-    };
-    add_unique(engine->ctx.presentQueueFamilyIndex);
-    add_unique(engine->ctx.transferQueueFamilyIndex);
-    add_unique(engine->ctx.computeQueueFamilyIndex);
-
-    for (uint32_t qf : uniqueQueueFamilies) {
-        queueInfos[queueInfoCount].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-        queueInfos[queueInfoCount].queueFamilyIndex = qf;
-        queueInfos[queueInfoCount].queueCount = 1;
-        queueInfos[queueInfoCount].pQueuePriorities = &queuePriority;
-        queueInfoCount++;
+    if (GfxResult res = create_logical_device(engine); res != GfxResult::Success) {
+        return res;
     }
-
-    const char* deviceExt[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
-
-    VkPhysicalDeviceVulkan14Features features14{};
-    features14.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES;
-    features14.hostImageCopy = VK_TRUE;
-
-    VkPhysicalDeviceFeatures2 deviceFeatures2{};
-    deviceFeatures2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-    deviceFeatures2.features.samplerAnisotropy = VK_TRUE;
-    deviceFeatures2.features.fillModeNonSolid = VK_TRUE;
-    deviceFeatures2.pNext = &features14;
-
-    VkDeviceCreateInfo deviceInfo{};
-    deviceInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-    deviceInfo.pNext = &deviceFeatures2;
-    deviceInfo.queueCreateInfoCount = queueInfoCount;
-    deviceInfo.pQueueCreateInfos = queueInfos;
-    deviceInfo.enabledExtensionCount = 1;
-    deviceInfo.ppEnabledExtensionNames = deviceExt;
-    deviceInfo.pEnabledFeatures = nullptr;
-
-    if (vkCreateDevice(engine->ctx.physicalDevice, &deviceInfo, NULL, &engine->ctx.device) != VK_SUCCESS)
-        return GfxResult::ErrorInitializationFailed;
-    vk_set_object_name(engine->ctx.device, (uint64_t)engine->ctx.device, VK_OBJECT_TYPE_DEVICE, "Logical_Device");
 
     VkPhysicalDeviceProperties props;
     vkGetPhysicalDeviceProperties(engine->ctx.physicalDevice, &props);
@@ -393,13 +456,125 @@ GfxResult init_allocator(VulkanEngine* engine) {
 }
 
 GfxResult init_render_pass(VulkanEngine* engine) {
+    if (engine->useSubpassFusion) {
+        VkAttachmentDescription attachments[3] = {};
+        // 0: Intermediate color attachment (on-chip)
+        attachments[0].format = engine->swapchainMgr.swapchainImageFormat;
+        attachments[0].samples = VK_SAMPLE_COUNT_1_BIT;
+        attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        attachments[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        attachments[0].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+        // 1: Depth attachment (on-chip)
+        attachments[1].format = engine->swapchainMgr.depthFormat;
+        attachments[1].samples = VK_SAMPLE_COUNT_1_BIT;
+        attachments[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        attachments[1].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        attachments[1].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        attachments[1].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+        // 2: Swapchain presentation attachment (written by postprocess subpass)
+        attachments[2].format = engine->swapchainMgr.swapchainImageFormat;
+        attachments[2].samples = VK_SAMPLE_COUNT_1_BIT;
+        attachments[2].loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        attachments[2].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        attachments[2].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        attachments[2].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+        VkAttachmentReference colorRef{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+        VkAttachmentReference depthRef{1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
+        VkAttachmentReference inputRef{0, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        VkAttachmentReference swapchainRef{2, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+
+        VkSubpassDescription subpasses[2] = {};
+        subpasses[0].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+        subpasses[0].colorAttachmentCount = 1;
+        subpasses[0].pColorAttachments = &colorRef;
+        subpasses[0].pDepthStencilAttachment = &depthRef;
+
+        subpasses[1].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+        subpasses[1].inputAttachmentCount = 1;
+        subpasses[1].pInputAttachments = &inputRef;
+        subpasses[1].colorAttachmentCount = 1;
+        subpasses[1].pColorAttachments = &swapchainRef;
+
+        VkSubpassDependency dependencies[2] = {};
+        dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+        dependencies[0].dstSubpass = 0;
+        dependencies[0].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+        dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+        dependencies[0].srcAccessMask = 0;
+        dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+        dependencies[1].srcSubpass = 0;
+        dependencies[1].dstSubpass = 1;
+        dependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        dependencies[1].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        dependencies[1].dstAccessMask = VK_ACCESS_INPUT_ATTACHMENT_READ_BIT;
+        dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+        VkRenderPassCreateInfo rpInfo{};
+        rpInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+        rpInfo.attachmentCount = 3;
+        rpInfo.pAttachments = attachments;
+        rpInfo.subpassCount = 2;
+        rpInfo.pSubpasses = subpasses;
+        rpInfo.dependencyCount = 2;
+        rpInfo.pDependencies = dependencies;
+
+        if (vkCreateRenderPass(engine->ctx.device, &rpInfo, NULL, &engine->renderPass) != VK_SUCCESS)
+            return GfxResult::ErrorInitializationFailed;
+        vk_set_object_name(engine->ctx.device, (uint64_t)engine->renderPass, VK_OBJECT_TYPE_RENDER_PASS, "Main_Fused_RenderPass");
+
+        VkImageView depthImageView = ((VulkanRHI*)engine->appState->rhi)->GetVkImageView(engine->swapchainMgr.depthImage);
+        VkImageView colorImageView = ((VulkanRHI*)engine->appState->rhi)->GetVkImageView(engine->swapchainMgr.colorAttachment);
+
+        for (uint32_t i = 0; i < engine->swapchainMgr.imageCount; i++) {
+            VkImageView fbAtt[] = {colorImageView, depthImageView, engine->swapchainMgr.swapchainImageViews[i]};
+            VkFramebufferCreateInfo fbInfo{};
+            fbInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+            fbInfo.renderPass = engine->renderPass;
+            fbInfo.attachmentCount = 3;
+            fbInfo.pAttachments = fbAtt;
+            fbInfo.width = engine->swapchainMgr.swapchainExtent.width;
+            fbInfo.height = engine->swapchainMgr.swapchainExtent.height;
+            fbInfo.layers = 1;
+            if (vkCreateFramebuffer(engine->ctx.device, &fbInfo, NULL, &engine->swapchainMgr.swapchainFramebuffers[i]) != VK_SUCCESS) {
+                return GfxResult::ErrorInitializationFailed;
+            }
+            const char* framebufferName = log_format("Swapchain_Framebuffer_%d", i);
+            vk_set_object_name(engine->ctx.device, (uint64_t)engine->swapchainMgr.swapchainFramebuffers[i], VK_OBJECT_TYPE_FRAMEBUFFER, framebufferName);
+        }
+
+        // Color Framebuffer for secondary CB compatibility
+        {
+            VkImageView fbAtt[] = {colorImageView, depthImageView, engine->swapchainMgr.swapchainImageViews[0]};
+            VkFramebufferCreateInfo fbInfo{};
+            fbInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+            fbInfo.renderPass = engine->renderPass;
+            fbInfo.attachmentCount = 3;
+            fbInfo.pAttachments = fbAtt;
+            fbInfo.width = engine->swapchainMgr.swapchainExtent.width;
+            fbInfo.height = engine->swapchainMgr.swapchainExtent.height;
+            fbInfo.layers = 1;
+            if (vkCreateFramebuffer(engine->ctx.device, &fbInfo, NULL, &engine->swapchainMgr.colorFramebuffer) != VK_SUCCESS) {
+                return GfxResult::ErrorInitializationFailed;
+            }
+            vk_set_object_name(engine->ctx.device, (uint64_t)engine->swapchainMgr.colorFramebuffer, VK_OBJECT_TYPE_FRAMEBUFFER, "Main_Color_Framebuffer");
+        }
+
+        return GfxResult::Success;
+    }
+
     VkAttachmentDescription attachments[2] = {};
-    attachments[0].format = engine->swapchainMgr.swapchainImageFormat;
+    attachments[0].format = VK_FORMAT_R16G16B16A16_SFLOAT;
     attachments[0].samples = VK_SAMPLE_COUNT_1_BIT;
     attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
     attachments[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    attachments[0].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    attachments[0].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
     attachments[1].format = engine->swapchainMgr.depthFormat;
     attachments[1].samples = VK_SAMPLE_COUNT_1_BIT;
@@ -428,13 +603,37 @@ GfxResult init_render_pass(VulkanEngine* engine) {
         return GfxResult::ErrorInitializationFailed;
     vk_set_object_name(engine->ctx.device, (uint64_t)engine->renderPass, VK_OBJECT_TYPE_RENDER_PASS, "Main_RenderPass");
 
+    VkAttachmentDescription postAttachments[1] = {};
+    postAttachments[0].format = engine->swapchainMgr.swapchainImageFormat;
+    postAttachments[0].samples = VK_SAMPLE_COUNT_1_BIT;
+    postAttachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    postAttachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    postAttachments[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    postAttachments[0].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+    VkAttachmentReference postColorRef{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+    VkSubpassDescription postSubpass{};
+    postSubpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    postSubpass.colorAttachmentCount = 1;
+    postSubpass.pColorAttachments = &postColorRef;
+
+    VkRenderPassCreateInfo postRpInfo{};
+    postRpInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    postRpInfo.attachmentCount = 1;
+    postRpInfo.pAttachments = postAttachments;
+    postRpInfo.subpassCount = 1;
+    postRpInfo.pSubpasses = &postSubpass;
+
+    if (vkCreateRenderPass(engine->ctx.device, &postRpInfo, NULL, &engine->renderPassLoad) != VK_SUCCESS)
+        return GfxResult::ErrorInitializationFailed;
+    vk_set_object_name(engine->ctx.device, (uint64_t)engine->renderPassLoad, VK_OBJECT_TYPE_RENDER_PASS, "Main_RenderPass_PostProcess");
+
     for (uint32_t i = 0; i < engine->swapchainMgr.imageCount; i++) {
-        VkImageView depthImageView = ((VulkanRHI*)engine->appState->rhi)->GetVkImageView(engine->swapchainMgr.depthImage);
-        VkImageView fbAtt[] = {engine->swapchainMgr.swapchainImageViews[i], depthImageView};
+        VkImageView fbAtt[] = {engine->swapchainMgr.swapchainImageViews[i]};
         VkFramebufferCreateInfo fbInfo{};
         fbInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-        fbInfo.renderPass = engine->renderPass;
-        fbInfo.attachmentCount = 2;
+        fbInfo.renderPass = engine->renderPassLoad;
+        fbInfo.attachmentCount = 1;
         fbInfo.pAttachments = fbAtt;
         fbInfo.width = engine->swapchainMgr.swapchainExtent.width;
         fbInfo.height = engine->swapchainMgr.swapchainExtent.height;
@@ -445,140 +644,129 @@ GfxResult init_render_pass(VulkanEngine* engine) {
         const char* framebufferName = log_format("Swapchain_Framebuffer_%d", i);
         vk_set_object_name(engine->ctx.device, (uint64_t)engine->swapchainMgr.swapchainFramebuffers[i], VK_OBJECT_TYPE_FRAMEBUFFER, framebufferName);
     }
+
+    // Create Color Framebuffer
+    {
+        VkImageView depthImageView = ((VulkanRHI*)engine->appState->rhi)->GetVkImageView(engine->swapchainMgr.depthImage);
+        VkImageView colorImageView = ((VulkanRHI*)engine->appState->rhi)->GetVkImageView(engine->swapchainMgr.colorAttachment);
+        VkImageView fbAtt[] = {colorImageView, depthImageView};
+        VkFramebufferCreateInfo fbInfo{};
+        fbInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        fbInfo.renderPass = engine->renderPass;
+        fbInfo.attachmentCount = 2;
+        fbInfo.pAttachments = fbAtt;
+        fbInfo.width = engine->swapchainMgr.swapchainExtent.width;
+        fbInfo.height = engine->swapchainMgr.swapchainExtent.height;
+        fbInfo.layers = 1;
+        if (vkCreateFramebuffer(engine->ctx.device, &fbInfo, NULL, &engine->swapchainMgr.colorFramebuffer) != VK_SUCCESS) {
+            return GfxResult::ErrorInitializationFailed;
+        }
+        vk_set_object_name(engine->ctx.device, (uint64_t)engine->swapchainMgr.colorFramebuffer, VK_OBJECT_TYPE_FRAMEBUFFER, "Main_Color_Framebuffer");
+    }
+
     return GfxResult::Success;
 }
 
 GfxResult init_descriptor_layout(VulkanEngine* engine) {
-    std::vector<DescriptorSetLayoutBinding> bindings = {
-        {0, DescriptorType::UniformBuffer, 1, ShaderStage::AllGraphics},     {1, DescriptorType::CombinedImageSampler, 1, ShaderStage::Fragment},
-        {2, DescriptorType::CombinedImageSampler, 1, ShaderStage::Fragment}, {3, DescriptorType::CombinedImageSampler, 1, ShaderStage::Fragment},
-        {4, DescriptorType::CombinedImageSampler, 1, ShaderStage::Fragment}, {5, DescriptorType::StorageBuffer, 1, ShaderStage::Fragment},
-        {6, DescriptorType::StorageBuffer, 1, ShaderStage::Vertex},          {7, DescriptorType::StorageBuffer, 1, ShaderStage::Vertex},
-        {8, DescriptorType::StorageBuffer, 1, ShaderStage::Vertex},          {9, DescriptorType::StorageBuffer, 1, ShaderStage::Vertex}};
+    std::vector<DescriptorSetLayoutBinding> bindings = {{0, DescriptorType::UniformBufferDynamic, 1, ShaderStage::AllGraphics},
+                                                        {1, DescriptorType::CombinedImageSampler, 1, ShaderStage::Fragment},
+                                                        {2, DescriptorType::CombinedImageSampler, 1, ShaderStage::Fragment},
+                                                        {3, DescriptorType::CombinedImageSampler, 1, ShaderStage::Fragment},
+                                                        {4, DescriptorType::CombinedImageSampler, 1, ShaderStage::Fragment},
+                                                        {5, DescriptorType::StorageBuffer, 1, ShaderStage::Fragment},
+                                                        {6, DescriptorType::StorageBuffer, 1, ShaderStage::Vertex},
+                                                        {7, DescriptorType::StorageBuffer, 1, ShaderStage::Vertex},
+                                                        {8, DescriptorType::StorageBuffer, 1, ShaderStage::Vertex},
+                                                        {9, DescriptorType::StorageBuffer, 1, ShaderStage::Vertex}};
     DescriptorLayoutDesc desc{bindings.data(), static_cast<uint32_t>(bindings.size())};
     engine->globalDescriptorLayout.Reset(engine->appState->rhi, engine->appState->rhi->CreateDescriptorLayout(desc, "Global_DescriptorSetLayout"));
+
     return engine->globalDescriptorLayout.is_valid() ? GfxResult::Success : GfxResult::ErrorInitializationFailed;
 }
 
-std::vector<uint32_t> load_shader(const char* path) {
-    FILE* f = fopen(path, "rb");
-    if (!f)
-        return {};
-    fseek(f, 0, SEEK_END);
-    size_t size = static_cast<size_t>(ftell(f));
-    fseek(f, 0, SEEK_SET);
-    std::vector<uint32_t> buffer(size / 4);
-    if (fread(buffer.data(), 1, size, f) != size) {
-        fclose(f);
-        return {};
-    }
-    fclose(f);
-    return buffer;
+BindGroupLayoutDesc get_global_bindgroup_layout_desc() {
+    return BindGroupLayoutDesc{{
+        {0, BindingType::UniformBufferDynamic, 1, static_cast<uint32_t>(ShaderStage::AllGraphics)},
+        {1, BindingType::CombinedImageSampler, 1, static_cast<uint32_t>(ShaderStage::Fragment)},
+        {2, BindingType::CombinedImageSampler, 1, static_cast<uint32_t>(ShaderStage::Fragment)},
+        {3, BindingType::CombinedImageSampler, 1, static_cast<uint32_t>(ShaderStage::Fragment)},
+        {4, BindingType::CombinedImageSampler, 1, static_cast<uint32_t>(ShaderStage::Fragment)},
+        {5, BindingType::StorageBuffer, 1, static_cast<uint32_t>(ShaderStage::Fragment)},
+        {6, BindingType::StorageBuffer, 1, static_cast<uint32_t>(ShaderStage::Vertex)},
+        {7, BindingType::StorageBuffer, 1, static_cast<uint32_t>(ShaderStage::Vertex)},
+        {8, BindingType::StorageBuffer, 1, static_cast<uint32_t>(ShaderStage::Vertex)},
+        {9, BindingType::StorageBuffer, 1, static_cast<uint32_t>(ShaderStage::Vertex)},
+    }};
 }
 
-GfxResult create_main_graphics_pipeline(VulkanEngine* engine, const std::vector<uint32_t>& vsm, const std::vector<uint32_t>& fsm) {
+GfxResult create_main_graphics_pipeline(VulkanEngine* engine) {
     VertexInputBinding bindings[] = {{0, sizeof(Vertex), false}};
     VertexInputAttribute attrs[] = {{0, 0, VertexFormat::Float3, offsetof(Vertex, position)}, {1, 0, VertexFormat::Float3, offsetof(Vertex, color)}};
-    GraphicsPipelineDesc desc{};
-    desc.layout = engine->pipelineLayout;
-    desc.renderPass = engine->renderPass;
-    desc.vertexShaderCode = vsm.data();
-    desc.vertexShaderSize = vsm.size() * 4;
-    desc.fragmentShaderCode = fsm.data();
-    desc.fragmentShaderSize = fsm.size() * 4;
-    desc.vertexBindings = bindings;
-    desc.vertexBindingCount = 1;
-    desc.vertexAttributes = attrs;
-    desc.vertexAttributeCount = 2;
-    desc.topology = Topology::TriangleList;
+    DeclarativeGraphicsPipelineDesc desc{};
     desc.debugName = "Main_Graphics_Pipeline";
+    desc.vertexShaderPath = "shaders/vert.spv";
+    desc.fragmentShaderPath = "shaders/frag.spv";
+    desc.renderPass = engine->renderPass;
+    desc.bindGroupLayouts = {get_global_bindgroup_layout_desc()};
+    desc.vertexBindings = {bindings, bindings + 1};
+    desc.vertexAttributes = {attrs, attrs + 2};
+    desc.topology = Topology::TriangleList;
     engine->graphicsPipeline.Reset(engine->appState->rhi, engine->appState->rhi->CreateGraphicsPipeline(desc));
     return engine->graphicsPipeline.is_valid() ? GfxResult::Success : GfxResult::ErrorInitializationFailed;
 }
 
-GfxResult create_skybox_pipeline(VulkanEngine* engine, const std::vector<uint32_t>& vsm, const std::vector<uint32_t>& fsm) {
-    GraphicsPipelineDesc desc{};
-    desc.layout = engine->pipelineLayout;
+GfxResult create_skybox_pipeline(VulkanEngine* engine) {
+    DeclarativeGraphicsPipelineDesc desc{};
+    desc.debugName = "Skybox_Graphics_Pipeline";
+    desc.vertexShaderPath = "shaders/skybox_vert.spv";
+    desc.fragmentShaderPath = "shaders/skybox_frag.spv";
     desc.renderPass = engine->renderPass;
-    desc.vertexShaderCode = vsm.data();
-    desc.vertexShaderSize = vsm.size() * 4;
-    desc.fragmentShaderCode = fsm.data();
-    desc.fragmentShaderSize = fsm.size() * 4;
+    desc.bindGroupLayouts = {get_global_bindgroup_layout_desc()};
     desc.cullMode = CullMode::None;
     desc.depthWriteEnable = false;
     desc.depthCompareOp = CompareOp::LessOrEqual;
-    desc.debugName = "Skybox_Graphics_Pipeline";
     engine->skyboxPipeline.Reset(engine->appState->rhi, engine->appState->rhi->CreateGraphicsPipeline(desc));
     return engine->skyboxPipeline.is_valid() ? GfxResult::Success : GfxResult::ErrorInitializationFailed;
 }
 
 GfxResult create_billboard_pipeline(VulkanEngine* engine) {
-    auto bvm = load_shader("shaders/billboard_vert.spv");
-    auto bfm = load_shader("shaders/billboard_frag.spv");
-    if (bvm.empty() || bfm.empty())
-        return GfxResult::ErrorInitializationFailed;
-
-    GraphicsPipelineDesc desc{};
-    desc.layout = engine->pipelineLayout;
+    DeclarativeGraphicsPipelineDesc desc{};
+    desc.debugName = "Billboard_Graphics_Pipeline";
+    desc.vertexShaderPath = "shaders/billboard_vert.spv";
+    desc.fragmentShaderPath = "shaders/billboard_frag.spv";
     desc.renderPass = engine->renderPass;
-    desc.vertexShaderCode = bvm.data();
-    desc.vertexShaderSize = bvm.size() * 4;
-    desc.fragmentShaderCode = bfm.data();
-    desc.fragmentShaderSize = bfm.size() * 4;
+    desc.bindGroupLayouts = {get_global_bindgroup_layout_desc()};
     desc.cullMode = CullMode::None;
     desc.depthWriteEnable = false;
     desc.colorBlendEnable = true;
-    desc.vertexBindings = nullptr;
-    desc.vertexBindingCount = 0;
-    desc.vertexAttributes = nullptr;
-    desc.vertexAttributeCount = 0;
-    desc.debugName = "Billboard_Graphics_Pipeline";
     engine->billboardPipeline.Reset(engine->appState->rhi, engine->appState->rhi->CreateGraphicsPipeline(desc));
     return engine->billboardPipeline.is_valid() ? GfxResult::Success : GfxResult::ErrorInitializationFailed;
 }
 
-GfxResult create_wireframe_pipeline(VulkanEngine* engine, const std::vector<uint32_t>& vsm, const std::vector<uint32_t>& fsm) {
+GfxResult create_wireframe_pipeline(VulkanEngine* engine) {
     VertexInputBinding bindings[] = {{0, sizeof(Vertex), false}};
     VertexInputAttribute attrs[] = {{0, 0, VertexFormat::Float3, offsetof(Vertex, position)}, {1, 0, VertexFormat::Float3, offsetof(Vertex, color)}};
-    GraphicsPipelineDesc desc{};
-    desc.layout = engine->pipelineLayout;
-    desc.renderPass = engine->renderPass;
-    desc.vertexShaderCode = vsm.data();
-    desc.vertexShaderSize = vsm.size() * 4;
-    desc.fragmentShaderCode = fsm.data();
-    desc.fragmentShaderSize = fsm.size() * 4;
-    desc.vertexBindings = bindings;
-    desc.vertexBindingCount = 1;
-    desc.vertexAttributes = attrs;
-    desc.vertexAttributeCount = 2;
-    desc.polygonMode = PolygonMode::Line;
+    DeclarativeGraphicsPipelineDesc desc{};
     desc.debugName = "Wireframe_Pipeline";
+    desc.vertexShaderPath = "shaders/vert.spv";
+    desc.fragmentShaderPath = "shaders/frag.spv";
+    desc.renderPass = engine->renderPass;
+    desc.bindGroupLayouts = {get_global_bindgroup_layout_desc()};
+    desc.vertexBindings = {bindings, bindings + 1};
+    desc.vertexAttributes = {attrs, attrs + 2};
+    desc.polygonMode = PolygonMode::Line;
     engine->wireframePipeline.Reset(engine->appState->rhi, engine->appState->rhi->CreateGraphicsPipeline(desc));
     return engine->wireframePipeline.is_valid() ? GfxResult::Success : GfxResult::ErrorInitializationFailed;
 }
 
 GfxResult create_debug_pipelines(VulkanEngine* engine) {
-    auto dvm = load_shader("shaders/debug_vert.spv");
-    auto dfm = load_shader("shaders/debug_frag.spv");
-    if (dvm.empty() || dfm.empty())
-        return GfxResult::ErrorInitializationFailed;
-
-    PushConstantRange dPushRange{ShaderStage::Vertex | ShaderStage::Fragment, 0, sizeof(DebugPushConstant)};
-    DescriptorLayoutHandle d[] = {engine->globalDescriptorLayout};
-    PipelineLayoutDesc plDesc{d, 1, &dPushRange, 1};
-    engine->debugPipelineLayout.Reset(engine->appState->rhi, engine->appState->rhi->CreatePipelineLayout(plDesc, "Debug_PipelineLayout"));
-
-    GraphicsPipelineDesc desc{};
-    desc.layout = engine->debugPipelineLayout;
+    DeclarativeGraphicsPipelineDesc desc{};
+    desc.vertexShaderPath = "shaders/debug_vert.spv";
+    desc.fragmentShaderPath = "shaders/debug_frag.spv";
     desc.renderPass = engine->renderPass;
-    desc.vertexShaderCode = dvm.data();
-    desc.vertexShaderSize = dvm.size() * 4;
-    desc.fragmentShaderCode = dfm.data();
-    desc.fragmentShaderSize = dfm.size() * 4;
-    desc.vertexBindings = nullptr;
-    desc.vertexBindingCount = 0;
-    desc.vertexAttributes = nullptr;
-    desc.vertexAttributeCount = 0;
+    desc.bindGroupLayouts = {get_global_bindgroup_layout_desc()};
+    desc.pushConstantsSize = sizeof(DebugPushConstant);
+    desc.pushConstantStages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 
     desc.topology = Topology::LineList;
     desc.polygonMode = PolygonMode::Line;
@@ -601,24 +789,56 @@ GfxResult init_pipeline(VulkanEngine* engine) {
     PipelineLayoutDesc plDesc{d, 1, nullptr, 0};
     engine->pipelineLayout.Reset(engine->appState->rhi, engine->appState->rhi->CreatePipelineLayout(plDesc, "Main_Pipeline_Layout"));
 
-    auto vsm = load_shader("shaders/vert.spv");
-    auto fsm = load_shader("shaders/frag.spv");
-    auto skyboxVsm = load_shader("shaders/skybox_vert.spv");
-    auto skyboxFsm = load_shader("shaders/skybox_frag.spv");
-    if (vsm.empty() || fsm.empty() || skyboxVsm.empty() || skyboxFsm.empty())
-        return GfxResult::ErrorInitializationFailed;
+    PushConstantRange dPushRange{ShaderStage::Vertex | ShaderStage::Fragment, 0, sizeof(DebugPushConstant)};
+    PipelineLayoutDesc debugPlDesc{d, 1, &dPushRange, 1};
+    engine->debugPipelineLayout.Reset(engine->appState->rhi, engine->appState->rhi->CreatePipelineLayout(debugPlDesc, "Debug_PipelineLayout"));
 
     GfxResult success = GfxResult::Success;
-    if (create_main_graphics_pipeline(engine, vsm, fsm) != GfxResult::Success)
+    if (create_main_graphics_pipeline(engine) != GfxResult::Success)
         success = GfxResult::ErrorInitializationFailed;
-    if (create_skybox_pipeline(engine, skyboxVsm, skyboxFsm) != GfxResult::Success)
+    if (create_skybox_pipeline(engine) != GfxResult::Success)
         success = GfxResult::ErrorInitializationFailed;
-    if (create_wireframe_pipeline(engine, vsm, fsm) != GfxResult::Success)
+    if (create_wireframe_pipeline(engine) != GfxResult::Success)
         success = GfxResult::ErrorInitializationFailed;
     if (create_billboard_pipeline(engine) != GfxResult::Success)
         success = GfxResult::ErrorInitializationFailed;
     if (create_debug_pipelines(engine) != GfxResult::Success)
         success = GfxResult::ErrorInitializationFailed;
+
+    // --- PostProcess Pipeline ---
+    BindGroupLayoutDesc ppLayoutDesc{};
+    if (engine->useSubpassFusion) {
+        ppLayoutDesc.bindings = {{0, BindingType::InputAttachment, 1, static_cast<uint32_t>(ShaderStage::Fragment)}};
+    } else {
+        ppLayoutDesc.bindings = {
+            {0, BindingType::CombinedImageSampler, 1, static_cast<uint32_t>(ShaderStage::Fragment)},
+            {1, BindingType::CombinedImageSampler, 1, static_cast<uint32_t>(ShaderStage::Fragment)},
+            {2, BindingType::CombinedImageSampler, 1, static_cast<uint32_t>(ShaderStage::Fragment)},
+            {3, BindingType::StorageBuffer, 1, static_cast<uint32_t>(ShaderStage::Fragment)},
+        };
+    }
+
+    DeclarativeGraphicsPipelineDesc ppDesc{};
+    ppDesc.debugName = "PostProcess_Pipeline";
+    ppDesc.vertexShaderPath = "shaders/postprocess_vert.spv";
+    ppDesc.fragmentShaderPath = engine->useSubpassFusion ? "shaders/postprocess_subpass_frag.spv" : "shaders/postprocess_frag.spv";
+    ppDesc.renderPass = engine->useSubpassFusion ? engine->renderPass : engine->renderPassLoad;
+    ppDesc.subpass = engine->useSubpassFusion ? 1 : 0;
+    ppDesc.bindGroupLayouts = {ppLayoutDesc};
+    ppDesc.topology = Topology::TriangleList;
+    ppDesc.polygonMode = PolygonMode::Fill;
+    ppDesc.cullMode = CullMode::None;
+    ppDesc.frontFace = FrontFace::Clockwise;
+    ppDesc.depthTestEnable = false;
+    ppDesc.depthWriteEnable = false;
+    ppDesc.colorBlendEnable = false;
+    ppDesc.pushConstantsSize = engine->useSubpassFusion ? 0u : 64u;
+    ppDesc.pushConstantStages = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    engine->postProcessPipeline.Reset(engine->appState->rhi, engine->appState->rhi->CreateGraphicsPipeline(ppDesc));
+    if (!engine->postProcessPipeline.is_valid()) {
+        success = GfxResult::ErrorInitializationFailed;
+    }
 
     return success;
 }
@@ -698,7 +918,10 @@ GfxResult create_material_ssbo(VulkanEngine* engine) {
 }
 
 GfxResult create_global_uniform_buffer(VulkanEngine* engine) {
-    engine->uniformBuffer.Reset(engine->appState->rhi, engine->appState->rhi->CreateBuffer(sizeof(UBOData), BufferUsage::Uniform, nullptr, "Global_MVP_UBO"));
+    constexpr size_t kUboStride = (sizeof(UBOData) + 255) & ~255;
+    constexpr size_t kRingBufferFrames = 3;
+    engine->uniformBuffer.Reset(engine->appState->rhi, engine->appState->rhi->CreateBuffer(kUboStride * kRingBufferFrames, BufferUsage::Uniform, nullptr,
+                                                                                           "Global_MVP_UBO_TripleBuffered"));
     if (!engine->uniformBuffer.is_valid())
         return GfxResult::ErrorInitializationFailed;
     engine->uniformBufferMapped = engine->appState->rhi->MapBuffer(engine->uniformBuffer);
@@ -754,8 +977,13 @@ GfxResult init_buffers(VulkanEngine* engine) {
 }
 
 GfxResult init_descriptor_pool_and_sets(VulkanEngine* engine) {
-    DescriptorPoolSize sizes[3] = {{DescriptorType::UniformBuffer, 1}, {DescriptorType::CombinedImageSampler, 4}, {DescriptorType::StorageBuffer, 5}};
-    DescriptorPoolDesc desc{sizes, 3, 1};
+    engine->postProcessSampler.Reset(engine->appState->rhi, engine->appState->rhi->CreateSampler(1, true, "PostProcess_Sampler"));
+
+    DescriptorPoolSize sizes[4] = {{DescriptorType::UniformBufferDynamic, 1},
+                                   {DescriptorType::CombinedImageSampler, 12},
+                                   {DescriptorType::StorageBuffer, 7},
+                                   {DescriptorType::InputAttachment, 1}};
+    DescriptorPoolDesc desc{sizes, 4, 2};
     engine->globalDescriptorPool.Reset(engine->appState->rhi, engine->appState->rhi->CreateDescriptorPool(desc, "Global_Descriptor_Pool"));
     if (!engine->globalDescriptorPool.is_valid()) {
         return GfxResult::ErrorInitializationFailed;
@@ -844,7 +1072,7 @@ GfxResult init_descriptor_pool_and_sets(VulkanEngine* engine) {
     writes[0].dstBinding = 0;
     writes[0].dstArrayElement = 0;
     writes[0].descriptorCount = 1;
-    writes[0].descriptorType = DescriptorType::UniformBuffer;
+    writes[0].descriptorType = DescriptorType::UniformBufferDynamic;
     writes[0].pBufferInfo = &bi;
     writes[0].pImageInfo = nullptr;
 
@@ -921,6 +1149,10 @@ GfxResult init_descriptor_pool_and_sets(VulkanEngine* engine) {
     writes[9].pImageInfo = nullptr;
 
     engine->appState->rhi->UpdateDescriptorSets(10, writes);
+
+    update_postprocess_descriptor_set(engine);
+    update_global_bind_group(engine);
+
     return GfxResult::Success;
 }
 
@@ -934,6 +1166,19 @@ GfxResult init_commands_and_sync(VulkanEngine* engine) {
         return GfxResult::ErrorInitializationFailed;
     }
     vk_set_object_name(engine->ctx.device, (uint64_t)engine->commandBuffer, VK_OBJECT_TYPE_COMMAND_BUFFER, "Main_CommandBuffer");
+
+    VkCommandBufferAllocateInfo secAi{};
+    secAi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    secAi.commandPool = engine->ctx.commandPool;
+    secAi.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
+    secAi.commandBufferCount = 3;
+    if (vkAllocateCommandBuffers(engine->ctx.device, &secAi, engine->secondaryForwardCb) != VK_SUCCESS) {
+        return GfxResult::ErrorInitializationFailed;
+    }
+    for (int i = 0; i < 3; ++i) {
+        const char* secName = log_format("Secondary_Forward_CommandBuffer_%d", i);
+        vk_set_object_name(engine->ctx.device, (uint64_t)engine->secondaryForwardCb[i], VK_OBJECT_TYPE_COMMAND_BUFFER, secName);
+    }
 
     VkSemaphoreCreateInfo si{};
     si.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -960,6 +1205,107 @@ GfxResult init_commands_and_sync(VulkanEngine* engine) {
 
 // --- FONCTIONS PUBLIQUES (vk_engine_init) ---
 
+void update_postprocess_descriptor_set(VulkanEngine* engine) {
+    if (!engine || !engine->swapchainMgr.colorAttachment.is_valid()) {
+        return;
+    }
+
+    BindGroupLayoutDesc ppLayoutDesc{};
+    std::vector<BindGroupEntry> entries;
+
+    if (engine->useSubpassFusion) {
+        ppLayoutDesc.bindings = {{0, BindingType::InputAttachment, 1, static_cast<uint32_t>(ShaderStage::Fragment)}};
+        entries.push_back({0, BindingType::InputAttachment, engine->swapchainMgr.colorAttachment.get(), INVALID_HANDLE, INVALID_HANDLE, INVALID_HANDLE, 0, 0});
+    } else {
+        ppLayoutDesc.bindings = {
+            {0, BindingType::CombinedImageSampler, 1, static_cast<uint32_t>(ShaderStage::Fragment)},
+            {1, BindingType::CombinedImageSampler, 1, static_cast<uint32_t>(ShaderStage::Fragment)},
+            {2, BindingType::CombinedImageSampler, 1, static_cast<uint32_t>(ShaderStage::Fragment)},
+            {3, BindingType::StorageBuffer, 1, static_cast<uint32_t>(ShaderStage::Fragment)},
+        };
+
+        SamplerHandle ppSampler = engine->postProcessSampler.is_valid() ? engine->postProcessSampler.get() : INVALID_HANDLE;
+        TextureHandle bloomTex =
+            engine->bloom.upMips[0].texture.is_valid() ? engine->bloom.upMips[0].texture.get() : engine->swapchainMgr.colorAttachment.get();
+        SamplerHandle bloomSampler = engine->bloom.linearSampler.is_valid() ? engine->bloom.linearSampler.get() : ppSampler;
+
+        TextureHandle expTex =
+            engine->autoexposure.exposureTexture.is_valid() ? engine->autoexposure.exposureTexture.get() : engine->swapchainMgr.colorAttachment.get();
+        SamplerHandle expSampler = engine->autoexposure.pointSampler.is_valid() ? engine->autoexposure.pointSampler.get() : ppSampler;
+
+        BufferHandle dbgBuf =
+            engine->autoexposure.debugHistogramBuffer.is_valid() ? engine->autoexposure.debugHistogramBuffer.get() : engine->materialBuffer.get();
+
+        entries.push_back({0, BindingType::CombinedImageSampler, engine->swapchainMgr.colorAttachment.get(), INVALID_HANDLE, ppSampler, INVALID_HANDLE, 0, 0});
+        entries.push_back({1, BindingType::CombinedImageSampler, bloomTex, INVALID_HANDLE, bloomSampler, INVALID_HANDLE, 0, 0});
+        entries.push_back({2, BindingType::CombinedImageSampler, expTex, INVALID_HANDLE, expSampler, INVALID_HANDLE, 0, 0});
+        entries.push_back({3, BindingType::StorageBuffer, INVALID_HANDLE, INVALID_HANDLE, INVALID_HANDLE, dbgBuf, 0, 64 * sizeof(uint32_t)});
+    }
+
+    BindGroupDesc bgDesc{
+        "PostProcess_BindGroup",
+        ppLayoutDesc,
+        entries,
+    };
+    engine->postProcessBindGroup.Reset(engine->appState->rhi, engine->appState->rhi->CreateBindGroup(bgDesc));
+}
+
+void update_postprocess_bloom_texture(VulkanEngine* engine, TextureHandle /*newBloomTexture*/) {
+    if (!engine || engine->useSubpassFusion) {
+        return;
+    }
+    update_postprocess_descriptor_set(engine);
+}
+
+void update_global_bind_group(VulkanEngine* engine) {
+    if (!engine) {
+        return;
+    }
+
+    SamplerHandle hdrSampler = engine->envHdrSampler.is_valid() ? engine->envHdrSampler.get() : INVALID_HANDLE;
+    TextureHandle hdrTex = engine->envHdrImage.is_valid() ? engine->envHdrImage.get() : INVALID_HANDLE;
+    if (hdrTex == INVALID_HANDLE) {
+        hdrTex = engine->iblBaker.irradianceMap.is_valid() ? engine->iblBaker.irradianceMap.get() : INVALID_HANDLE;
+    }
+    if (hdrSampler == INVALID_HANDLE) {
+        hdrSampler = engine->iblBaker.irradianceSampler.is_valid() ? engine->iblBaker.irradianceSampler.get() : INVALID_HANDLE;
+    }
+
+    TextureHandle irrTex = engine->iblBaker.irradianceMap.is_valid() ? engine->iblBaker.irradianceMap.get() : hdrTex;
+    SamplerHandle irrSampler = engine->iblBaker.irradianceSampler.is_valid() ? engine->iblBaker.irradianceSampler.get() : hdrSampler;
+
+    TextureHandle prefTex = engine->iblBaker.prefilteredMap.is_valid() ? engine->iblBaker.prefilteredMap.get() : hdrTex;
+    SamplerHandle prefSampler = engine->iblBaker.prefilteredSampler.is_valid() ? engine->iblBaker.prefilteredSampler.get() : hdrSampler;
+
+    TextureHandle lutTex = engine->iblBaker.brdfLut.is_valid() ? engine->iblBaker.brdfLut.get() : hdrTex;
+    SamplerHandle lutSampler = engine->iblBaker.brdfLutSampler.is_valid() ? engine->iblBaker.brdfLutSampler.get() : hdrSampler;
+
+    if (hdrTex == INVALID_HANDLE || irrTex == INVALID_HANDLE || prefTex == INVALID_HANDLE || lutTex == INVALID_HANDLE || !engine->uniformBuffer.is_valid() ||
+        !engine->materialBuffer.is_valid()) {
+        return;
+    }
+
+    std::vector<BindGroupEntry> entries = {
+        {0, BindingType::UniformBufferDynamic, INVALID_HANDLE, INVALID_HANDLE, INVALID_HANDLE, engine->uniformBuffer.get(), 0, sizeof(UBOData)},
+        {1, BindingType::CombinedImageSampler, hdrTex, INVALID_HANDLE, hdrSampler, INVALID_HANDLE, 0, 0},
+        {2, BindingType::CombinedImageSampler, irrTex, INVALID_HANDLE, irrSampler, INVALID_HANDLE, 0, 0},
+        {3, BindingType::CombinedImageSampler, prefTex, INVALID_HANDLE, prefSampler, INVALID_HANDLE, 0, 0},
+        {4, BindingType::CombinedImageSampler, lutTex, INVALID_HANDLE, lutSampler, INVALID_HANDLE, 0, 0},
+        {5, BindingType::StorageBuffer, INVALID_HANDLE, INVALID_HANDLE, INVALID_HANDLE, engine->materialBuffer.get(), 0, 0},
+        {6, BindingType::StorageBuffer, INVALID_HANDLE, INVALID_HANDLE, INVALID_HANDLE, engine->billboardPosSSBO.get(), 0, 0},
+        {7, BindingType::StorageBuffer, INVALID_HANDLE, INVALID_HANDLE, INVALID_HANDLE, engine->billboardMatSSBO.get(), 0, 0},
+        {8, BindingType::StorageBuffer, INVALID_HANDLE, INVALID_HANDLE, INVALID_HANDLE, engine->billboardBuffer.get(), 0, 0},
+        {9, BindingType::StorageBuffer, INVALID_HANDLE, INVALID_HANDLE, INVALID_HANDLE, engine->transformBuffer.get(), 0, 0},
+    };
+
+    BindGroupDesc bgDesc{
+        "Global_BindGroup",
+        get_global_bindgroup_layout_desc(),
+        entries,
+    };
+    engine->globalBindGroup.Reset(engine->appState->rhi, engine->appState->rhi->CreateBindGroup(bgDesc));
+}
+
 GfxResult vk_recreate_swapchain(VulkanEngine* engine) {
     int width = 0;
     int height = 0;
@@ -975,17 +1321,35 @@ GfxResult vk_recreate_swapchain(VulkanEngine* engine) {
 
     engine->swapchainMgr.cleanup_dependent_resources(engine);
     destroy_device_handle(engine->ctx.device, engine->renderPass, vkDestroyRenderPass);
+    destroy_device_handle(engine->ctx.device, engine->renderPassLoad, vkDestroyRenderPass);
 
-    return (engine->swapchainMgr.init(engine) == GfxResult::Success && init_render_pass(engine) == GfxResult::Success &&
-            init_pipeline(engine) == GfxResult::Success)
-               ? GfxResult::Success
-               : GfxResult::ErrorInitializationFailed;
+    GfxResult res = (engine->swapchainMgr.init(engine) == GfxResult::Success && init_render_pass(engine) == GfxResult::Success &&
+                     init_pipeline(engine) == GfxResult::Success)
+                        ? GfxResult::Success
+                        : GfxResult::ErrorInitializationFailed;
+
+    if (res == GfxResult::Success) {
+        if (engine->bloom.RecreateTextures(engine, engine->swapchainMgr.swapchainExtent.width, engine->swapchainMgr.swapchainExtent.height) !=
+            GfxResult::Success) {
+            LOG_WARNING("bloom", "Failed to recreate bloom textures after swapchain resize");
+        }
+        update_postprocess_descriptor_set(engine);
+        engine->secondaryForwardRecorded = false;
+    }
+    return res;
 }
 
 GfxResult vk_init_vulkan_engine(VulkanEngine* engine) {
-    SVK_TRACY_ZONE_SCOPED("vk_init_vulkan_engine");
+    SVK_TRACY_ZONE_SCOPED_C("Engine: Initialize Vulkan", tracy_color::InitShutdown);
     LOG_INFO("app", "Starting engine initialization...");
     LOG_INFO("vulkan", "Vulkan Debug Callback initialized (High Sensitivity)");
+
+    engine->useSubpassFusion = false;
+    const char* envFusion = std::getenv("SVK_SUBPASS_FUSION");
+    if (envFusion != nullptr) {
+        engine->useSubpassFusion = (std::strcmp(envFusion, "1") == 0 || std::strcmp(envFusion, "ON") == 0 || std::strcmp(envFusion, "true") == 0);
+    }
+    LOG_INFO("engine", "Subpass Fusion: %s", engine->useSubpassFusion ? "ENABLED" : "DISABLED");
 
     LOG_INFO("app", "init_core...");
     if (init_core(engine) != GfxResult::Success) {
@@ -1045,6 +1409,10 @@ GfxResult vk_init_vulkan_engine(VulkanEngine* engine) {
         return GfxResult::ErrorInitializationFailed;
     }
 
+    if (init_tracy_frame_capture(engine) != GfxResult::Success) {
+        LOG_WARNING("tracy", "init_tracy_frame_capture failed (thumbnails disabled)");
+    }
+
     LOG_INFO("app", "Initializing environment texture (triggers bake)...");
     if (vk_init_environment_texture(engine) != GfxResult::Success) {
         LOG_ERROR("app", "vk_init_environment_texture failed");
@@ -1056,6 +1424,19 @@ GfxResult vk_init_vulkan_engine(VulkanEngine* engine) {
         LOG_ERROR("app", "init_descriptor_pool_and_sets failed");
         return GfxResult::ErrorInitializationFailed;
     }
+
+    if (engine->bloom.Init(engine) == GfxResult::Success) {
+        if (engine->bloom.RecreateTextures(engine, engine->swapchainMgr.swapchainExtent.width, engine->swapchainMgr.swapchainExtent.height) !=
+            GfxResult::Success) {
+            LOG_WARNING("bloom", "Failed to allocate initial bloom textures");
+        }
+    }
+
+    if (engine->autoexposure.Init(engine) != GfxResult::Success) {
+        LOG_WARNING("autoexposure", "Failed to initialize autoexposure compute pipeline");
+    }
+
+    update_postprocess_descriptor_set(engine);
 
     LOG_INFO("app", "Initialization complete.");
 
@@ -1085,17 +1466,23 @@ GfxResult vk_init_vulkan_engine(VulkanEngine* engine) {
 }
 
 void vk_cleanup_vulkan_engine(VulkanEngine* engine) {
-    SVK_TRACY_ZONE_SCOPED("vk_cleanup_vulkan_engine");
+    if (!engine || engine->ctx.device == VK_NULL_HANDLE) {
+        return;
+    }
+    SVK_TRACY_ZONE_SCOPED_C("Engine: Shutdown Vulkan", tracy_color::InitShutdown);
     LOG_INFO("app", "Total frames rendered during this run: %llu", (unsigned long long)engine->totalFramesRendered);
+
+    vkDeviceWaitIdle(engine->ctx.device);
+
+    engine->iblBaker.cleanupPendingResources(engine);
     vk_stop_hdr_io_thread(engine);
     LOG_INFO("async", "Async loader destroyed");
 
-    if (engine->ctx.device != VK_NULL_HANDLE) {
-        vkDeviceWaitIdle(engine->ctx.device);
-    }
-
+    cleanup_tracy_frame_capture(engine);
     tracy_vk_context_destroy(engine);
 
+    engine->bloom.Cleanup();
+    engine->autoexposure.Cleanup();
     cleanup_sync_objects(engine);
     cleanup_descriptor_resources(engine);
     cleanup_ibl(engine);

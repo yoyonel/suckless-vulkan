@@ -79,6 +79,15 @@ struct CoreInput {
 
     InputState billboardPressed;
     InputState wireframePressed;
+    InputState bloomTogglePressed;
+    InputState bloomDebugCyclePressed;
+    InputState bloomMipCyclePressed;
+    InputState bloomIntensityIncPressed;
+    InputState bloomIntensityDecPressed;
+    InputState bloomThresholdIncPressed;
+    InputState bloomThresholdDecPressed;
+    InputState autoExposureTogglePressed;
+    InputState autoExposureDebugTogglePressed;
 };
 
 struct TimeState {
@@ -118,6 +127,15 @@ struct InputTracker {
     bool postExposureSubKeyWasDown{false};
     bool billboardKeyWasDown{false};
     bool wireframeKeyWasDown{false};
+    bool bloomKeyWasDown{false};
+    bool bloomDebugKeyWasDown{false};
+    bool bloomMipKeyWasDown{false};
+    bool bloomIntensityIncWasDown{false};
+    bool bloomIntensityDecWasDown{false};
+    bool bloomThresholdIncWasDown{false};
+    bool bloomThresholdDecWasDown{false};
+    bool autoExposureKeyWasDown{false};
+    bool autoExposureDebugKeyWasDown{false};
     bool vsyncKeyWasDown{false};
 };
 
@@ -146,6 +164,24 @@ struct RenderSettings {
     bool showEnvmap{true};
     bool pbrEnabled{true};
     bool iblEnabled{true};
+
+    // Bloom Dual-Filtering settings (ISO suckless-ogl)
+    bool bloomEnabled{false};
+    float bloomIntensity{0.30f};
+    float bloomThreshold{1.0f};
+    float bloomSoftKnee{0.5f};
+    float bloomFilterRadius{1.0f};
+    int32_t bloomDebugMode{0}; // 0: Off, 1: FinalMap, 2: Prefilter, 3: Downsample, 4: Upsample
+    int32_t bloomDebugMip{0};  // 0 to 4
+
+    // Auto-Exposure settings (64-bin histogram & temporal adaptation)
+    bool autoExposureEnabled{false};
+    bool autoExposureDebug{false};
+    float autoExposureSpeedUp{2.0f};
+    float autoExposureSpeedDown{1.0f};
+    float autoExposureKeyValue{0.18f};
+    float autoExposureMinPercentile{0.05f};
+    float autoExposureMaxPercentile{0.98f};
 };
 
 struct CoreEngine {

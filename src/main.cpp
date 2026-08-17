@@ -50,6 +50,8 @@ AppResult parse_arguments(int argc, char** argv, EngineState* state) {
         } else if (arg == "--no-focus") {
             state->noFocus = true;
             state->core.cameraEnabled = false;
+        } else if (arg == "--max-frames" && i + 1 < argc) {
+            state->maxFrames = std::strtoll(argv[++i], nullptr, 10);
         }
     }
     return AppResult::Success;
@@ -89,12 +91,25 @@ AppResult load_initial_rhi(EngineState* state, std::string& libName, CreateRHIFu
     return AppResult::Success;
 }
 
+#include <atomic>
+#include <csignal>
+
 #ifdef __linux__
 #include <pthread.h>
 #include <sched.h>
 #endif
 
+namespace {
+std::atomic<bool> g_sig_exit{false};
+void signal_handler(int /*sig*/) {
+    g_sig_exit.store(true, std::memory_order_relaxed);
+}
+} // namespace
+
 int main(int argc, char** argv) {
+    std::signal(SIGINT, signal_handler);
+    std::signal(SIGTERM, signal_handler);
+
 #ifdef __linux__
     cpu_set_t cpuset;
     CPU_ZERO(&cpuset);
@@ -132,7 +147,11 @@ int main(int argc, char** argv) {
     LOG_INFO("app", "Vulkan initialise avec succes ! La fenetre devrait apparaitre.");
 
     bool f5_was_down = false;
-    while (!glfwWindowShouldClose(state.window)) {
+    int64_t frameCount = 0;
+    while (!glfwWindowShouldClose(state.window) && !g_sig_exit.load(std::memory_order_relaxed)) {
+        if (state.maxFrames > 0 && frameCount >= state.maxFrames) {
+            break;
+        }
         glfwPollEvents();
 
         bool is_f5_down = (glfwGetKey(state.window, GLFW_KEY_F5) == GLFW_PRESS);
@@ -146,11 +165,15 @@ int main(int argc, char** argv) {
         runtime_update_controls(&state, runtime_default_window_ops());
         (void)tracy_client_poll_connection();
         state.rhi->HandleInputs(runtime_default_window_ops());
+        if (glfwWindowShouldClose(state.window)) {
+            break;
+        }
         if (state.rhi->DrawFrame() != RHIResult::Success) {
             LOG_ERROR("app", "Echec du rendu d'une frame.");
             break;
         }
         tracy_client_mark_frame();
+        frameCount++;
     }
 
     LOG_INFO("app", "Nettoyage et fermeture...");

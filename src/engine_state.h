@@ -12,6 +12,7 @@ constexpr std::size_t RHI_ARENA_CAPACITY_BYTES = 2ULL * 1024ULL * 1024ULL;
 struct EngineState {
     bool useNullRHI{false};
     bool noFocus{false};
+    int64_t maxFrames{-1};
     GLFWwindow* window{nullptr};
     CoreInput currentInput{};
     CoreEngine core{};

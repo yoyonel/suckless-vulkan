@@ -17,6 +17,7 @@ set(PROJECT_LINK_LIBS
 if(ENABLE_TRACY)
     message(STATUS "Enabling Tracy profiler integration")
     set(TRACY_ENABLE ON CACHE BOOL "Enable profiling in Tracy" FORCE)
+    set(TRACY_FIBERS ON CACHE BOOL "Enable fiber support in Tracy" FORCE)
     FetchContent_Declare(
         tracy
         GIT_REPOSITORY https://github.com/wolfpld/tracy.git
@@ -26,7 +27,7 @@ if(ENABLE_TRACY)
     set(CMAKE_POSITION_INDEPENDENT_CODE ON)
     FetchContent_MakeAvailable(tracy)
     
-    add_compile_definitions(TRACY_ENABLE)
+    add_compile_definitions(TRACY_ENABLE TRACY_FIBERS)
     include_directories(${tracy_SOURCE_DIR}/public)
     set(TRACY_AVAILABLE ON)
 endif()

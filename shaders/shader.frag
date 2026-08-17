@@ -37,80 +37,6 @@ layout(std140, set = 0, binding = 5) readonly buffer MaterialBuffer {
 
 const float PI = 3.14159265359;
 
-// ============================================================================
-// Post-Processing Functions (Legacy Parity)
-// ============================================================================
-
-vec3 applyWhiteBalance(vec3 color) {
-    float wb_temperature = ubo.postParams2.z;
-    float wb_tint = ubo.postParams2.w;
-
-    if (abs(wb_temperature - 6500.0) < 1.0 && abs(wb_tint) < 0.001) {
-        return color;
-    }
-
-    float tempShift = (wb_temperature - 6500.0) / 10000.0;
-    vec3 wbColor = vec3(1.0);
-
-    if (tempShift < 0.0) {
-        wbColor.b = 1.0 - tempShift;
-    } else {
-        wbColor.r = 1.0 + tempShift;
-        wbColor.g = 1.0 + tempShift * 0.5;
-    }
-    wbColor.g += wb_tint * 0.5;
-
-    return color * wbColor;
-}
-
-vec3 applyColorGrading(vec3 color) {
-    color = applyWhiteBalance(color);
-
-    float cg_saturation = ubo.postParams1.y;
-    float cg_contrast = ubo.postParams1.z;
-    float cg_gamma = ubo.postParams1.w;
-    float cg_gain = ubo.postParams2.x;
-    float cg_offset = ubo.postParams2.y;
-
-    // 1. Saturation
-    float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
-    color = mix(vec3(luminance), color, cg_saturation);
-
-    // 2. Contrast
-    color = (color - 0.5) * cg_contrast + 0.5;
-    color = max(vec3(0.0), color);
-
-    // 3. Gamma
-    if (cg_gamma > 0.001) {
-        color = pow(color, vec3(cg_gamma));
-    }
-
-    // 4. Gain
-    color = color * cg_gain;
-
-    // 5. Offset
-    color = color + cg_offset;
-
-    return max(vec3(0.0), color);
-}
-
-vec3 unrealTonemap(vec3 x) {
-    // Matches legacy `unrealTonemap()` exactly with Neutral defaults (slope=1.0, toe=0, shoulder=0)
-    const float a = 2.51;
-    const float b = 0.03;
-    const float c = 2.43;
-    const float d = 0.0;   // DEFAULT_FILMIC_SHOULDER = 0.0
-    const float e = 0.154; // 0.14 * (1.1 - DEFAULT_FILMIC_TOE) = 0.14 * 1.1
-
-    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
-}
-
-// ============================================================================
-// Gamma Correction — NOT APPLIED HERE
-// Swapchain is VK_FORMAT_B8G8R8A8_SRGB: hardware applies linear→sRGB
-// on framebuffer write automatically.
-// ============================================================================
-
 // Helper: Direction to Equirectangular UV
 vec2 dirToUV(vec3 v) {
     float phi = (abs(v.z) < 1e-5 && abs(v.x) < 1e-5) ? 0.0 : atan(v.z, v.x);
@@ -201,20 +127,6 @@ void main() {
             color = vec3(0.0);       // Not implemented yet
         }
     }
-
-    // ========================================================================
-    // Post-Processing Pipeline (Linear Space)
-    // ========================================================================
-
-    // 1. Exposure
-    float exposure = ubo.postParams1.x;
-    color *= exposure;
-
-    // 2. Color Grading (includes White Balance)
-    color = applyColorGrading(color);
-
-    // 3. Tone Mapping (HDR → LDR) — DISABLED by default in Legacy OGL-ISO
-    color = unrealTonemap(color);
 
     outColor = vec4(color, 1.0);
 }

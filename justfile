@@ -56,6 +56,14 @@ configure-asan:
         cmake -B build/asan -S . -DCMAKE_BUILD_TYPE=Debug -DENABLE_SANITIZERS=ON; \
     fi
 
+# Configure un build RelWithDebInfo (optimisé avec symboles pour profiling VTune, Heaptrack, Callgrind).
+configure-relwithdebinfo:
+    @if command -v ccache >/dev/null 2>&1; then \
+        cmake -B build/relwithdebinfo -S . -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_CXX_COMPILER_LAUNCHER=ccache; \
+    else \
+        cmake -B build/relwithdebinfo -S . -DCMAKE_BUILD_TYPE=RelWithDebInfo; \
+    fi
+
 # Configure un build instrumente pour llvm-cov (clang obligatoire).
 configure-coverage:
     @if command -v ccache >/dev/null 2>&1; then \
@@ -66,6 +74,9 @@ configure-coverage:
 
 # Configure un build RelWithDebInfo avec Tracy active.
 configure-tracy:
+    @if [ -f build/tracy/CMakeCache.txt ] && ! grep -q "$(pwd)" build/tracy/CMakeCache.txt 2>/dev/null; then \
+        rm -rf build/tracy build/tracy-capture build/tracy-csvexport build/tracy-profiler; \
+    fi
     @if command -v ccache >/dev/null 2>&1; then \
         cmake -B build/tracy -S . -DCMAKE_BUILD_TYPE=RelWithDebInfo -DENABLE_TRACY=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache; \
     else \
@@ -74,11 +85,15 @@ configure-tracy:
 
 # Configure le profiler Tracy upstream en backend X11 legacy.
 configure-tracy-profiler: configure-tracy
-    @cmake -B build/tracy-profiler -S build/tracy/_deps/tracy-src/profiler -DCMAKE_BUILD_TYPE=Release -DLEGACY=ON
+    @if [ ! -f build/tracy-profiler/CMakeCache.txt ]; then \
+        cmake -B build/tracy-profiler -S build/tracy/_deps/tracy-src/profiler -DCMAKE_BUILD_TYPE=Release -DLEGACY=ON; \
+    fi
 
 # Configure l'outil CLI tracy-capture upstream.
 configure-tracy-capture: configure-tracy
-    @cmake -B build/tracy-capture -S build/tracy/_deps/tracy-src/capture -DCMAKE_BUILD_TYPE=Release
+    @if [ ! -f build/tracy-capture/CMakeCache.txt ]; then \
+        PKG_CONFIG_PATH="/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig:${PKG_CONFIG_PATH:-}" cmake -B build/tracy-capture -S build/tracy/_deps/tracy-src/capture -DCMAKE_BUILD_TYPE=Release; \
+    fi
 
 # --- COMPILATION ---
 
@@ -86,7 +101,7 @@ configure-tracy-capture: configure-tracy
 shaders:
     @echo "Compilation des shaders..."
     @scripts/compile_shaders.sh raster
-    @scripts/compile_shaders.sh ibl
+    @scripts/compile_shaders.sh compute
 
 # Compile les shaders GLSL en SPIR-V orienté debug RenderDoc (source-level):
 # - glslc: -g -O0
@@ -131,6 +146,11 @@ build-coverage: configure-coverage shaders
     @echo "Compilation Debug avec couverture LLVM..."
     @cmake --build build/coverage --parallel
 
+# Compile l'application en RelWithDebInfo (optimisé avec symboles de débogage pour profiling).
+build-relwithdebinfo: configure-relwithdebinfo shaders
+    @echo "Compilation RelWithDebInfo..."
+    @cmake --build build/relwithdebinfo -j$(nproc)
+
 # Compile l'application avec Tracy active.
 build-tracy: configure-tracy shaders
     @echo "Compilation RelWithDebInfo avec Tracy..."
@@ -148,7 +168,9 @@ build-tracy-capture: configure-tracy-capture
 
 # Configure tracy-csvexport upstream.
 configure-tracy-csvexport: configure-tracy
-    @cmake -B build/tracy-csvexport -S build/tracy/_deps/tracy-src/csvexport -DCMAKE_BUILD_TYPE=Release
+    @if [ ! -f build/tracy-csvexport/CMakeCache.txt ]; then \
+        cmake -B build/tracy-csvexport -S build/tracy/_deps/tracy-src/csvexport -DCMAKE_BUILD_TYPE=Release; \
+    fi
 
 # Compile tracy-csvexport upstream.
 build-tracy-csvexport: configure-tracy-csvexport
@@ -161,6 +183,27 @@ build-tracy-csvexport: configure-tracy-csvexport
 run args="": build
     @./build/release/vulkan_app {{ args }}
 
+# Exécute l'application release avec l'overlay MangoHud (FPS, frame timing, CPU/GPU load).
+run-mangohud args="--no-vsync": build
+    @if command -v mangohud >/dev/null 2>&1; then \
+        mangohud ./build/release/vulkan_app {{ args }}; \
+    else \
+        echo "Erreur: mangohud n'est pas installé sur le système."; \
+        exit 1; \
+    fi
+
+# Exécute l'application release avec Mesa Vulkan Overlay (mode rapide sans requêtes de pipeline statistics).
+run-hud-mesa args="--no-vsync": build
+    @VK_INSTANCE_LAYERS=VK_LAYER_MESA_overlay \
+    VK_LAYER_MESA_OVERLAY_CONFIG="fps,frame_timing=1" \
+    ./build/release/vulkan_app {{ args }}
+
+# Exécute l'application release avec Mesa Vulkan Overlay complet (avec requêtes de pipeline statistics matérielles).
+run-hud-mesa-stats args="--no-vsync": build
+    @VK_INSTANCE_LAYERS=VK_LAYER_MESA_overlay \
+    VK_LAYER_MESA_OVERLAY_CONFIG="fps,frame_timing=1,draw_calls,vertices,pipeline_stats,memory" \
+    ./build/release/vulkan_app {{ args }}
+
 # Exécute l'application compilée avec ASan/UBSan.
 run-asan: build-asan
     @echo "Exécution avec AddressSanitizer + UndefinedBehaviorSanitizer..."
@@ -171,12 +214,23 @@ run-tracy args="": build-tracy
     @./build/tracy/vulkan_app {{ args }}
 
 # Lance le profiler Tracy compilé localement.
-tracy-profiler: build-tracy-profiler
+tracy-profiler:
+    @if [ ! -f build/tracy-profiler/tracy-profiler ]; then \
+        just build-tracy-profiler; \
+    fi
     @./build/tracy-profiler/tracy-profiler
 
 # Lance un scenario d'integration automatise Tracy (Xvfb + xdotool + capture CLI).
-test-integration-tracy capture_seconds="45" trace_file="build/tracy/integration.tracy": build-tracy build-tracy-capture
-    @scripts/test_integration_tracy.sh "{{ capture_seconds }}" "{{ trace_file }}"
+test-integration-tracy trace_file="build/tracy/integration.tracy": build-tracy
+    @scripts/test_integration_tracy.sh "{{ trace_file }}"
+
+# Vérifie la conformité et les invariants GPU d'une trace Tracy (.tracy).
+verify-tracy-trace trace_file="build/tracy/benchmark.tracy":
+    @CSVEXPORT_BIN="./build/tracy-csvexport/tracy-csvexport"; \
+    if [ ! -f "$CSVEXPORT_BIN" ] && command -v tracy-csvexport >/dev/null 2>&1; then \
+        CSVEXPORT_BIN="$(command -v tracy-csvexport)"; \
+    fi; \
+    python3 scripts/verify_tracy_trace.py "{{ trace_file }}" --csvexport-bin "$CSVEXPORT_BIN" --min-gpu-zones 10 --require-render-passes
 
 # Utilisation : just renderdoc_bin=/chemin/vers/qrenderdoc renderdoc
 renderdoc: build-debug-renderdoc
@@ -206,8 +260,59 @@ benchmark-tracy: build-tracy build-tracy-capture build-tracy-csvexport
 benchmark-analyze: benchmark-tracy
     @scripts/analyze_fps.sh
 
+# --- PROFILING & MEMORY ANALYSIS ---
+
+# Profiling des allocations mémoire Heap avec Heaptrack (CLI summary).
+profile-heaptrack: build-relwithdebinfo
+    @scripts/benchmark_heaptrack.sh
+
+# Ouvre les résultats Heaptrack dans l'interface graphique heaptrack_gui.
+profile-heaptrack-gui file="":
+    @file_path="{{ if file != "" { file } else { "$(ls -t build/profiling/heaptrack/heaptrack.*.zst 2>/dev/null | head -n1)" } }}"; \
+    if [ -z "${file_path}" ] || [ ! -f "${file_path}" ]; then \
+        echo "Erreur: Aucun fichier de dump Heaptrack trouvé. Lancez d'abord 'just profile-heaptrack'."; \
+        exit 1; \
+    fi; \
+    heaptrack_gui "${file_path}"
+
+# Profiling mémoire Intel VTune (L1/L2/L3 cache misses, DRAM bandwidth, latency).
+profile-vtune-memory: build-relwithdebinfo
+    @scripts/benchmark_vtune_memory.sh
+
+# Profiling CPU Hotspots Intel VTune (Top 15 des fonctions C++ les plus consommatrices).
+profile-vtune-hotspots: build-relwithdebinfo
+    @scripts/benchmark_vtune_hotspots.sh
+
+# Profiling Threading Intel VTune (Contentions de verrous, mutex, inactivité CPU).
+profile-vtune-threading: build-relwithdebinfo
+    @scripts/benchmark_vtune_threading.sh
+
+# Ouvre le dernier rapport VTune dans l'interface graphique vtune-gui.
+profile-vtune-gui dir="":
+    @res_dir="{{ if dir != "" { dir } else { "$(ls -td /tmp/vtune_*_results_* 2>/dev/null | head -n1)" } }}"; \
+    if [ -z "${res_dir}" ] || [ ! -d "${res_dir}" ]; then \
+        echo "Erreur: Aucun résultat VTune trouvé. Lancez d'abord un profilage VTune."; \
+        exit 1; \
+    fi; \
+    vtune-gui "${res_dir}"
+
+# Profiling Valgrind / Callgrind (Graphe d'appel et compteurs d'instructions).
+profile-callgrind: build-relwithdebinfo
+    @scripts/benchmark_callgrind.sh
+
+# Exécute la suite complète de profiling (Heaptrack + VTune Hotspots + VTune Memory).
+profile-all: profile-heaptrack profile-vtune-hotspots profile-vtune-memory
+
 test: build
     @ctest --test-dir build/release --output-on-failure
+
+# Stress test: rapid fullscreen/windowed toggling to find deadlocks
+stress-fullscreen iterations="100" delay="50": build
+    @scripts/stress_fullscreen.sh "./build/release/vulkan_app" "{{ iterations }}" "{{ delay }}"
+
+# Stress test fullscreen under ASan (slower but catches memory bugs)
+stress-fullscreen-asan iterations="50" delay="100": build-asan
+    @LSAN_OPTIONS=suppressions=./.asan_ignorefile scripts/stress_fullscreen.sh "./build/asan/vulkan_app" "{{ iterations }}" "{{ delay }}"
 
 # Exécute uniquement le test d'intégration de rendu.
 test-integration: build
@@ -534,6 +639,18 @@ ci-docker-asan: ci-image-build
         -w /work \
         local/suckless-vulkan-ci:latest \
         bash -lc "bash scripts/ci/run_ci_asan.sh"
+
+# Exécute le build et le test d'intégration Tracy dans le conteneur CI.
+ci-docker-tracy: ci-image-build
+    @echo "Test integration Tracy dans le conteneur CI..."
+    @docker run --rm \
+        --user "$(id -u):$(id -g)" \
+        -e CI=true \
+        -e HOME=/tmp \
+        -v "$PWD:/work" \
+        -w /work \
+        local/suckless-vulkan-ci:latest \
+        bash -lc "bash scripts/ci/run_ci_tracy.sh"
 
 # Installe les hooks git pre-commit et pre-push.
 pre-commit-install:

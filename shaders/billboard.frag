@@ -56,15 +56,6 @@ vec3 fresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness) {
     return F0 + (max(vec3(1.0 - roughness), F0) - F0) * f;
 }
 
-vec3 unrealTonemap(vec3 x) {
-    const float a = 2.51;
-    const float b = 0.03;
-    const float c = 2.43;
-    const float d = 0.0;
-    const float e = 0.154;
-    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
-}
-
 // ----------------------------------------------------------------------------
 // Ray-Sphere Intersection
 // ----------------------------------------------------------------------------
@@ -173,15 +164,6 @@ void main() {
         else if (debugMode == 8)
             color = vec3(brdf, 0.0);
     }
-
-    // Post-Processing
-    color *= ubo.postParams1.x; // Exposure
-    // Simplified Color Grading (Saturation here for brevity, full parity in main fragment if needed)
-    float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
-    color = mix(vec3(luma), color, ubo.postParams1.y);
-
-    // Tonemapping
-    color = unrealTonemap(color);
 
     // Analytic Edge Smoothing (AA)
     // h is the discriminant (r^2 - d^2)

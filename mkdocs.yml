@@ -43,3 +43,8 @@ nav:
   - Plan Opt. Logs & Labels: plan_opt_logs_2026-08-13.md
   - Post-Mortem IBL DRAM Bound: analysis_dram_bound_gpu.md
   - Suivi Benchmarks Heaptrack: benchmarking_heaptrack_2026-08-13.md
+  - Audit Vulkan Render Graph: audit_vulkan_render_graph_2026-08-14.md
+  - Analyse Traces RenderDoc: renderdoc_analysis_render_graph_2026-08-14.md
+  - Cartographie Zones Tracy: tracy_profiling_zones_2026-08-15.md
+  - Plan Parité Tracy: plan_opt_tracy_parity_suckless_ogl_2026-08-15.md
+  - Roadmap Chantiers Futurs: plan_futurs_chantiers_2026-08-13.md

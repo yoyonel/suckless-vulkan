@@ -1,6 +1,8 @@
 #include "vk_engine_envmap.h"
 #include "asset_ktx.h"
+#include "tracy_state.h"
 #include "vk_engine_ibl.h"
+#include "vk_engine_init.h"
 #include <sys/stat.h>
 
 #include "app_log.h"
@@ -69,6 +71,7 @@ static void update_envmap_descriptor_set(VulkanEngine* engine) {
     writes[3].pBufferInfo = nullptr;
 
     engine->appState->rhi->UpdateDescriptorSets(4, writes);
+    update_global_bind_group(engine);
 }
 
 #include "tracy_client.h"
@@ -206,7 +209,7 @@ void vk_generate_one_hdr_mipmap(VulkanEngine* engine) {
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(commandBuffer, &beginInfo);
 
-    SVK_TRACY_ZONE_SCOPED("Record_Generate_EnvHDR_Mipmap_Slice");
+    SVK_TRACY_ZONE_SCOPED_C("Async Loader: Mipmap Slice", tracy_color::CpuRecord);
     vk_begin_label(engine->ctx.device, commandBuffer, "Generate_EnvHDR_Mipmap_Slice", 0.0f, 0.4f, 0.8f);
 
     if (engine->envHdrMipLevels == 1) {
@@ -333,7 +336,7 @@ void start_hdr_bake(VulkanEngine* engine, bool asyncUpload, HdrLoadRequest& requ
 } // namespace
 
 void allocate_hdr_resources_async(VulkanEngine* engine, HdrLoadRequest& request) {
-    SVK_TRACY_ZONE_SCOPED("allocate_hdr_resources_async");
+    SVK_TRACY_ZONE_SCOPED_C("Async Loader: VMA Allocations", tracy_color::IoAlloc);
     uint32_t envHdrMipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(request.width, request.height)))) + 1;
 
     VkFormatProperties hdrFormatProps{};
@@ -357,7 +360,7 @@ void allocate_hdr_resources_async(VulkanEngine* engine, HdrLoadRequest& request)
 }
 
 ResourceResult init_environment_texture_from_staging(VulkanEngine* engine, HdrLoadRequest& request, bool isFallback, bool asyncUpload = false) {
-    SVK_TRACY_ZONE_SCOPED("init_environment_texture_from_staging");
+    SVK_TRACY_ZONE_SCOPED_C("Async Loader: Staging Upload", tracy_color::IoStaging);
     if (request.stagingBuffer == VK_NULL_HANDLE || request.width <= 0 || request.height <= 0) {
         return ResourceResult::ErrorParseFailed;
     }
@@ -390,7 +393,7 @@ ResourceResult init_environment_texture_from_staging(VulkanEngine* engine, HdrLo
     }
 
     {
-        SVK_TRACY_ZONE_SCOPED("start_hdr_bake_allocations");
+        SVK_TRACY_ZONE_SCOPED_C("Async Loader: Bake Allocations", tracy_color::IoBakeAlloc);
         start_hdr_bake(engine, asyncUpload, request);
     }
 
@@ -420,20 +423,16 @@ ResourceResult load_hdr_with_ktx2_cache(VulkanEngine* engine, const std::string&
         bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
 
         VmaAllocationCreateInfo stagingAllocInfo{};
-        stagingAllocInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+        stagingAllocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+        stagingAllocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
 
-        if (vmaCreateBuffer(engine->ctx.allocator, &bufferInfo, &stagingAllocInfo, &request->stagingBuffer, &request->stagingAllocation, nullptr) !=
+        VmaAllocationInfo allocInfo{};
+        if (vmaCreateBuffer(engine->ctx.allocator, &bufferInfo, &stagingAllocInfo, &request->stagingBuffer, &request->stagingAllocation, &allocInfo) !=
             VK_SUCCESS) {
             return nullptr;
         }
 
-        void* mapped = nullptr;
-        if (vmaMapMemory(engine->ctx.allocator, request->stagingAllocation, &mapped) != VK_SUCCESS) {
-            vmaDestroyBuffer(engine->ctx.allocator, request->stagingBuffer, request->stagingAllocation);
-            request->stagingBuffer = VK_NULL_HANDLE;
-            return nullptr;
-        }
-        return mapped;
+        return allocInfo.pMappedData;
     };
 
     if (ktxValid) {
@@ -441,7 +440,6 @@ ResourceResult load_hdr_with_ktx2_cache(VulkanEngine* engine, const std::string&
         int height;
         if (ktx2_load_from_file(ktxPath, &width, &height, allocator_func) == KtxResult::Success) {
             LOG_INFO("engine", "[KTX Cache] Load fast-path: %s", ktxPath.c_str());
-            vmaUnmapMemory(engine->ctx.allocator, request->stagingAllocation);
             request->width = static_cast<uint32_t>(width);
             request->height = static_cast<uint32_t>(height);
             return ResourceResult::Success;
@@ -457,7 +455,6 @@ ResourceResult load_hdr_with_ktx2_cache(VulkanEngine* engine, const std::string&
         void* mapped = allocator_func(size);
         if (mapped) {
             memcpy(mapped, pixels, size);
-            vmaUnmapMemory(engine->ctx.allocator, request->stagingAllocation);
 
             LOG_INFO("engine", "[KTX Cache] Baking %s...", ktxPath.c_str());
             ktx2_bake_hdr_to_file(ktxPath, width, height, pixels);
@@ -537,7 +534,7 @@ void push_to_cleanup_queue(VulkanEngine* engine, HdrCleanupRequest&& req) {
 }
 
 void request_environment_texture_async(VulkanEngine* engine, int newHdrIndex) {
-    SVK_TRACY_ZONE_SCOPED("request_environment_texture_async");
+    SVK_TRACY_ZONE_SCOPED_C("Async Loader: Request Envmap", tracy_color::CpuUpdate);
     if (newHdrIndex < 0 || newHdrIndex >= static_cast<int>(engine->hdrFiles.size()) || newHdrIndex == engine->currentHdrIndex) {
         return;
     }
@@ -562,6 +559,8 @@ void request_environment_texture_async(VulkanEngine* engine, int newHdrIndex) {
     request.width = 0;
     request.height = 0;
     request.channels = 0;
+
+    tracy_state::set_async_status(tracy_state::AsyncState::Pending);
     engine->io.hdrLoadQueue.push(std::move(request));
     engine->io.pendingHdrIndex = newHdrIndex;
     engine->iblBaker.envmapRequestTime = std::chrono::high_resolution_clock::now();
@@ -572,7 +571,7 @@ void request_environment_texture_async(VulkanEngine* engine, int newHdrIndex) {
 void process_hdr_cleanup_queue(VulkanEngine* engine) {
     HdrCleanupRequest cleanupReq;
     while (engine->io.hdrCleanupQueue.pop(cleanupReq)) {
-        SVK_TRACY_ZONE_SCOPED("hdr_io_thread_cleanup");
+        SVK_TRACY_ZONE_SCOPED_C("Async Loader: Cleanup", tracy_color::IoCleanup);
         if (cleanupReq.buffer != VK_NULL_HANDLE) {
             vmaDestroyBuffer(engine->ctx.allocator, cleanupReq.buffer, cleanupReq.allocation);
         }
@@ -585,47 +584,57 @@ void process_hdr_cleanup_queue(VulkanEngine* engine) {
     }
 }
 
+void process_one_hdr_load_request(VulkanEngine* engine, HdrLoadRequest& request) {
+    SVK_TRACY_ZONE_SCOPED_C("Async Loader: Process Request", tracy_color::IoProcess);
+
+    tracy_state::set_async_status(tracy_state::AsyncState::Loading);
+    request.state = HdrLoadRequestState::Loading;
+    engine->io.hdrLoadInFlight = true;
+
+    if (request.hdrIndex < 0 || request.hdrIndex >= static_cast<int>(engine->hdrFiles.size())) {
+        request.state = HdrLoadRequestState::Failed;
+        tracy_state::set_async_status(tracy_state::AsyncState::Failed);
+        engine->io.hdrReadyQueue.push(std::move(request));
+        engine->io.hdrLoadInFlight = false;
+        return;
+    }
+
+    SVK_TRACY_ZONE_NAMED_C(decodeZone, "Async Loader: Decode File", tracy_color::IoDecode);
+    const std::string hdrPath = engine->hdrFiles[static_cast<size_t>(request.hdrIndex)];
+
+    tracy_state::set_async_status(tracy_state::AsyncState::Convert);
+    bool success = (load_hdr_with_ktx2_cache(engine, hdrPath, &request) == ResourceResult::Success && request.width > 0 && request.height > 0);
+
+    if (success) {
+        request.channels = 4;
+        request.sourcePathOrLabel = hdrPath;
+        allocate_hdr_resources_async(engine, request);
+        request.state = HdrLoadRequestState::Ready;
+        tracy_state::set_async_status(tracy_state::AsyncState::Ready);
+    } else {
+        request.state = HdrLoadRequestState::Failed;
+        tracy_state::set_async_status(tracy_state::AsyncState::Failed);
+    }
+
+    engine->io.hdrReadyQueue.push(std::move(request));
+    engine->io.hdrLoadInFlight = false;
+}
+
 void hdr_io_thread_main(VulkanEngine* engine) {
 #ifdef TRACY_ENABLE
     TracyCSetThreadName("HDR I/O Thread");
 #endif
 
-    for (;;) {
-        SVK_TRACY_ZONE_SCOPED("hdr_io_thread_iteration");
-
-        if (!engine->io.hdrIoThreadRunning.load(std::memory_order_relaxed)) {
-            break;
-        }
-
+    while (engine->io.hdrIoThreadRunning.load(std::memory_order_relaxed)) {
         HdrLoadRequest request{};
         if (!engine->io.hdrLoadQueue.pop(request)) {
+            tracy_state::set_async_status(tracy_state::AsyncState::Idle);
             process_hdr_cleanup_queue(engine);
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
             continue;
         }
 
-        request.state = HdrLoadRequestState::Loading;
-        engine->io.hdrLoadInFlight = true;
-
-        if (request.hdrIndex >= 0 && request.hdrIndex < static_cast<int>(engine->hdrFiles.size())) {
-            SVK_TRACY_ZONE_SCOPED("hdr_io_thread_decode");
-            const std::string hdrPath = engine->hdrFiles[static_cast<size_t>(request.hdrIndex)];
-
-            if (load_hdr_with_ktx2_cache(engine, hdrPath, &request) == ResourceResult::Success && request.width > 0 && request.height > 0) {
-                request.channels = 4;
-                request.sourcePathOrLabel = hdrPath;
-                allocate_hdr_resources_async(engine, request);
-                request.state = HdrLoadRequestState::Ready;
-            } else {
-                request.state = HdrLoadRequestState::Failed;
-            }
-        } else {
-            request.state = HdrLoadRequestState::Failed;
-        }
-
-        engine->io.hdrReadyQueue.push(std::move(request));
-        engine->io.hdrLoadInFlight = false;
-
+        process_one_hdr_load_request(engine, request);
         process_hdr_cleanup_queue(engine);
     }
 }
@@ -720,7 +729,7 @@ void vk_stop_hdr_io_thread(VulkanEngine* engine) {
 }
 
 void vk_process_ready_environment_texture(VulkanEngine* engine) {
-    SVK_TRACY_ZONE_SCOPED("vk_process_ready_environment_texture");
+    SVK_TRACY_ZONE_SCOPED_C("Frame Process Ready Texture", tracy_color::CpuUpdateChild);
     auto t0 = std::chrono::high_resolution_clock::now();
     HdrLoadRequest ready{};
     bool hasReady = false;
@@ -808,6 +817,7 @@ void IblBaker::cleanupPendingResources(VulkanEngine* engine) {
     }
     pendingStagingBuffers.clear();
     pendingStagingAllocations.clear();
+    currentStagingBuffer = VK_NULL_HANDLE;
 }
 
 static void vk_finalize_ibl_bake(VulkanEngine* engine) {
@@ -822,6 +832,7 @@ static void vk_finalize_ibl_bake(VulkanEngine* engine) {
     }
 
     engine->iblBaker.bakeState = IblBakeState::Idle;
+    tracy_state::set_async_status(tracy_state::AsyncState::Idle);
 }
 
 static void vk_process_luminance_wait(VulkanEngine* engine) {
@@ -878,6 +889,7 @@ void vk_check_ibl_bake_status(VulkanEngine* engine) {
     }
 
     if (engine->iblBaker.iblBakeFence != VK_NULL_HANDLE) {
+        SVK_TRACY_FIBER_ZONE_C(fiberSync, "Hybrid Perf", "Sync (GPU Wait)", tracy_color::FiberHybridGpuWait);
         if (vkGetFenceStatus(engine->ctx.device, engine->iblBaker.iblBakeFence) != VK_SUCCESS) {
             return;
         }
