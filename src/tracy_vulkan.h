@@ -9,12 +9,19 @@
 #include <tracy/TracyVulkan.hpp>
 #define SVK_TRACY_VK_NAMED_ZONE(varname, engine, commandBuffer, name)                                                                                          \
     TracyVkNamedZone(static_cast<TracyVkCtx>((engine)->tracyVkContext), varname, commandBuffer, name, true)
+#define SVK_TRACY_VK_ZONE_C(varname, engine, commandBuffer, name, color)                                                                                       \
+    TracyVkNamedZoneC(static_cast<TracyVkCtx>((engine)->tracyVkContext), varname, commandBuffer, name, color, true)
 #define SVK_RHI_GPU_ZONE(varname, rhi, name)                                                                                                                   \
     TracyVkNamedZone(static_cast<TracyVkCtx>((rhi)->GetOpaqueTracyContext()), varname, static_cast<VkCommandBuffer>((rhi)->GetOpaqueCommandBuffer().ptr),      \
                      name, true)
+#define SVK_RHI_GPU_ZONE_C(varname, rhi, name, color)                                                                                                          \
+    TracyVkNamedZoneC(static_cast<TracyVkCtx>((rhi)->GetOpaqueTracyContext()), varname, static_cast<VkCommandBuffer>((rhi)->GetOpaqueCommandBuffer().ptr),     \
+                      name, color, true)
 #else
 #define SVK_TRACY_VK_NAMED_ZONE(varname, engine, commandBuffer, name)
+#define SVK_TRACY_VK_ZONE_C(varname, engine, commandBuffer, name, color)
 #define SVK_RHI_GPU_ZONE(varname, rhi, name)
+#define SVK_RHI_GPU_ZONE_C(varname, rhi, name, color)
 #endif
 
 GfxResult tracy_vk_context_init(VulkanEngine* engine);

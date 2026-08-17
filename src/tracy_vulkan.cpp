@@ -15,14 +15,41 @@ GfxResult tracy_vk_context_init(VulkanEngine* engine) {
         return GfxResult::Success;
     }
 
-    engine->tracyVkContext = TracyVkContext(engine->ctx.physicalDevice, engine->ctx.device, engine->ctx.graphicsQueue, engine->commandBuffer);
+    auto gpdctd = reinterpret_cast<PFN_vkGetPhysicalDeviceCalibrateableTimeDomainsEXT>(
+        vkGetInstanceProcAddr(engine->ctx.instance, "vkGetPhysicalDeviceCalibrateableTimeDomainsEXT"));
+    if (gpdctd == nullptr) {
+        gpdctd = reinterpret_cast<PFN_vkGetPhysicalDeviceCalibrateableTimeDomainsEXT>(
+            vkGetInstanceProcAddr(engine->ctx.instance, "vkGetPhysicalDeviceCalibrateableTimeDomainsKHR"));
+    }
+
+    auto gct = reinterpret_cast<PFN_vkGetCalibratedTimestampsEXT>(vkGetDeviceProcAddr(engine->ctx.device, "vkGetCalibratedTimestampsEXT"));
+    if (gct == nullptr) {
+        gct = reinterpret_cast<PFN_vkGetCalibratedTimestampsEXT>(vkGetDeviceProcAddr(engine->ctx.device, "vkGetCalibratedTimestampsKHR"));
+    }
+
+    auto qpreset = reinterpret_cast<PFN_vkResetQueryPoolEXT>(vkGetDeviceProcAddr(engine->ctx.device, "vkResetQueryPool"));
+    if (qpreset == nullptr) {
+        qpreset = reinterpret_cast<PFN_vkResetQueryPoolEXT>(vkGetDeviceProcAddr(engine->ctx.device, "vkResetQueryPoolEXT"));
+    }
+
+    if (qpreset != nullptr && gpdctd != nullptr && gct != nullptr) {
+        engine->tracyVkContext = TracyVkContextHostCalibrated(engine->ctx.physicalDevice, engine->ctx.device, qpreset, gpdctd, gct);
+        LOG_INFO("tracy", "Contexte Tracy Vulkan Host-Calibre (hostQueryReset + VK_EXT_calibrated_timestamps) initialise.");
+    } else if (gpdctd != nullptr && gct != nullptr) {
+        engine->tracyVkContext =
+            TracyVkContextCalibrated(engine->ctx.physicalDevice, engine->ctx.device, engine->ctx.graphicsQueue, engine->commandBuffer, gpdctd, gct);
+        LOG_INFO("tracy", "Contexte Tracy Vulkan calibre (VK_EXT_calibrated_timestamps) initialise.");
+    } else {
+        engine->tracyVkContext = TracyVkContext(engine->ctx.physicalDevice, engine->ctx.device, engine->ctx.graphicsQueue, engine->commandBuffer);
+        LOG_INFO("tracy", "Contexte Tracy Vulkan standard initialise.");
+    }
+
     if (engine->tracyVkContext == nullptr) {
         LOG_ERROR("tracy", "Echec de creation du contexte Tracy Vulkan.");
         return GfxResult::ErrorInitializationFailed;
     }
 
-    TracyVkContextName(static_cast<TracyVkCtx>(engine->tracyVkContext), "Vulkan Graphics Queue", 20);
-    LOG_INFO("tracy", "Contexte Tracy Vulkan initialise.");
+    TracyVkContextName(static_cast<TracyVkCtx>(engine->tracyVkContext), "Vulkan Graphics Queue", 21);
     return GfxResult::Success;
 }
 
@@ -37,11 +64,16 @@ void tracy_vk_context_destroy(VulkanEngine* engine) {
 }
 
 void tracy_vk_collect(VulkanEngine* engine, VkCommandBuffer commandBuffer) {
-    if (engine == nullptr || engine->tracyVkContext == nullptr || commandBuffer == VK_NULL_HANDLE) {
+    if (engine == nullptr || engine->tracyVkContext == nullptr) {
         return;
     }
 
-    TracyVkCollect(static_cast<TracyVkCtx>(engine->tracyVkContext), commandBuffer);
+    auto ctx = static_cast<TracyVkCtx>(engine->tracyVkContext);
+    if (commandBuffer != VK_NULL_HANDLE) {
+        TracyVkCollect(ctx, commandBuffer);
+    } else {
+        TracyVkCollectHost(ctx);
+    }
 }
 
 #else

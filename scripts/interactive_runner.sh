@@ -57,9 +57,13 @@ if [ "$APP_COMM" = "perf" ] || [ "$APP_COMM" = "heaptrack" ]; then
 	CHILD=$(pgrep -P "$APP_PID" || echo "")
 	if [ -n "$CHILD" ]; then
 		kill -SIGTERM "$CHILD" 2>/dev/null || true
+		sleep 1
+		kill -SIGKILL "$CHILD" 2>/dev/null || true
 	fi
 else
 	kill -SIGTERM "$APP_PID" 2>/dev/null || true
+	sleep 1
+	kill -SIGKILL "$APP_PID" 2>/dev/null || true
 fi
 
 echo "[Runner] Attente de la fin du processus pour flush..."

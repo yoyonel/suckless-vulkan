@@ -67,11 +67,11 @@ compile_raster() {
 	fi
 }
 
-compile_ibl() {
+compile_compute() {
 	local glslc_flags="$1"
 	local glslang_flags="$2"
 
-	mapfile -t files < <(find shaders -maxdepth 1 -type f -name 'ibl_*.comp' | sort)
+	mapfile -t files < <(find shaders -maxdepth 1 -type f -name '*.comp' | sort)
 
 	if command -v glslc >/dev/null 2>&1; then
 		for src in "${files[@]}"; do
@@ -79,7 +79,7 @@ compile_ibl() {
 			base="$(basename "$src")"
 			stem="${base%.*}"
 			# shellcheck disable=SC2086
-			glslc ${glslc_flags} "$src" -o "shaders/${stem}.spv"
+			glslc --target-env=vulkan1.2 ${glslc_flags} "$src" -o "shaders/${stem}.spv"
 		done
 	else
 		for src in "${files[@]}"; do
@@ -87,7 +87,7 @@ compile_ibl() {
 			base="$(basename "$src")"
 			stem="${base%.*}"
 			# shellcheck disable=SC2086
-			glslangValidator ${glslang_flags} -V "$src" -o "shaders/${stem}.spv"
+			glslangValidator ${glslang_flags} -V --target-env vulkan1.2 "$src" -o "shaders/${stem}.spv"
 		done
 	fi
 }
@@ -95,7 +95,7 @@ compile_ibl() {
 lint_all() {
 	mapfile -t files < <(find shaders -maxdepth 1 -type f \( -name '*.vert' -o -name '*.frag' -o -name '*.comp' \) | sort)
 	for src in "${files[@]}"; do
-		glslangValidator -V "$src" -o /dev/null
+		glslangValidator -V --target-env vulkan1.2 "$src" -o /dev/null
 	done
 }
 
@@ -109,11 +109,11 @@ main() {
 	raster-debug)
 		compile_raster "-g -O0" "-g -Od" "1"
 		;;
-	ibl)
-		compile_ibl "" ""
+	compute | ibl)
+		compile_compute "" ""
 		;;
-	ibl-debug)
-		compile_ibl "-g -O0" "-g -Od"
+	compute-debug | ibl-debug)
+		compile_compute "-g -O0" "-g -Od"
 		;;
 	lint)
 		lint_all

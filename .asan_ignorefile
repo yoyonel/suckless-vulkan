@@ -12,4 +12,9 @@ leak:libX11.so
 
 # Known driver-level leaks in debug naming
 leak:vkSetDebugUtilsObjectNameEXT
-leak:vk_set_object_name
+# GCC/Clang UBSan internal vtable/RTTI cache allocations across dlopen/dlclose
+leak:libubsan.so
+leak:__ubsan
+leak:__ubsan_vptr_type_cache
+leak:ubsan
+
