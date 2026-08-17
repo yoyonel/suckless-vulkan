@@ -106,6 +106,10 @@ GfxResult device_supports_swapchain(VkPhysicalDevice physicalDevice, VkSurfaceKH
 }
 
 void SwapchainManager::cleanup_targets(VulkanEngine* engine) {
+    if (colorFramebuffer != VK_NULL_HANDLE) {
+        vkDestroyFramebuffer(engine->ctx.device, colorFramebuffer, nullptr);
+        colorFramebuffer = VK_NULL_HANDLE;
+    }
     for (uint32_t i = 0; i < imageCount; i++) {
         if (swapchainFramebuffers[i] != VK_NULL_HANDLE) {
             vkDestroyFramebuffer(engine->ctx.device, swapchainFramebuffers[i], nullptr);
@@ -127,6 +131,43 @@ void SwapchainManager::cleanup_dependent_resources(VulkanEngine* engine) {
     }
 
     depthImage.Reset();
+    colorAttachment.Reset();
+}
+
+static GfxResult create_swapchain_image_views(VulkanEngine* engine, SwapchainManager* mgr) {
+    for (uint32_t i = 0; i < mgr->imageCount; i++) {
+        VkImageViewCreateInfo viewInfo{};
+        viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        viewInfo.image = mgr->swapchainImages[i];
+        viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        viewInfo.format = mgr->swapchainImageFormat;
+        viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        viewInfo.subresourceRange.levelCount = 1;
+        viewInfo.subresourceRange.layerCount = 1;
+        if (vkCreateImageView(engine->ctx.device, &viewInfo, NULL, &mgr->swapchainImageViews[i]) != VK_SUCCESS) {
+            return GfxResult::ErrorInitializationFailed;
+        }
+        const char* swapchainViewName = log_format("Swapchain_ImageView_%d", i);
+        vk_set_object_name(engine->ctx.device, (uint64_t)mgr->swapchainImageViews[i], VK_OBJECT_TYPE_IMAGE_VIEW, swapchainViewName);
+    }
+    return GfxResult::Success;
+}
+
+static GfxResult create_depth_and_color_attachments(SwapchainManager* mgr, VulkanEngine* engine) {
+    if (!engine || !engine->appState || !engine->appState->rhi) {
+        return GfxResult::Success;
+    }
+    mgr->depthImage.Reset();
+    mgr->colorAttachment.Reset();
+
+    mgr->depthImage.Reset(engine->appState->rhi,
+                          engine->appState->rhi->CreateTexture(mgr->swapchainExtent.width, mgr->swapchainExtent.height, TextureFormat::Depth,
+                                                               TextureUsage::DepthAttachment, 1, "Main_DepthBuffer"));
+
+    mgr->colorAttachment.Reset(engine->appState->rhi,
+                               engine->appState->rhi->CreateTexture(mgr->swapchainExtent.width, mgr->swapchainExtent.height, TextureFormat::RGBA16_SFLOAT,
+                                                                    TextureUsage::ColorAttachment, 1, "Main_ColorAttachment"));
+    return GfxResult::Success;
 }
 
 GfxResult SwapchainManager::init(VulkanEngine* engine) {
@@ -217,20 +258,8 @@ GfxResult SwapchainManager::init(VulkanEngine* engine) {
         return GfxResult::ErrorInitializationFailed;
     }
 
-    for (uint32_t i = 0; i < imageCount; i++) {
-        VkImageViewCreateInfo viewInfo{};
-        viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        viewInfo.image = swapchainImages[i];
-        viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        viewInfo.format = swapchainImageFormat;
-        viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        viewInfo.subresourceRange.levelCount = 1;
-        viewInfo.subresourceRange.layerCount = 1;
-        if (vkCreateImageView(engine->ctx.device, &viewInfo, NULL, &swapchainImageViews[i]) != VK_SUCCESS) {
-            return GfxResult::ErrorInitializationFailed;
-        }
-        const char* swapchainViewName = log_format("Swapchain_ImageView_%d", i);
-        vk_set_object_name(engine->ctx.device, (uint64_t)swapchainImageViews[i], VK_OBJECT_TYPE_IMAGE_VIEW, swapchainViewName);
+    if (create_swapchain_image_views(engine, this) != GfxResult::Success) {
+        return GfxResult::ErrorInitializationFailed;
     }
 
     depthFormat = find_depth_format(engine->ctx.physicalDevice);
@@ -238,8 +267,5 @@ GfxResult SwapchainManager::init(VulkanEngine* engine) {
         return GfxResult::ErrorInitializationFailed;
     }
 
-    depthImage.Reset(engine->appState->rhi, engine->appState->rhi->CreateTexture(swapchainExtent.width, swapchainExtent.height, TextureFormat::Depth,
-                                                                                 TextureUsage::DepthAttachment, 1, "Main_DepthBuffer"));
-
-    return GfxResult::Success;
+    return create_depth_and_color_attachments(this, engine);
 }

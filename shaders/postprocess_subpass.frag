@@ -1,0 +1,21 @@
+#version 450
+
+layout(location = 0) in vec2 inUV;
+layout(location = 0) out vec4 outColor;
+
+layout(input_attachment_index = 0, set = 0, binding = 0) uniform subpassInput inputColor;
+
+vec3 unrealTonemap(vec3 x) {
+    const float a = 2.51;
+    const float b = 0.03;
+    const float c = 2.43;
+    const float d = 0.0;
+    const float e = 0.154;
+    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+}
+
+void main() {
+    vec4 color = subpassLoad(inputColor);
+    color.rgb = unrealTonemap(color.rgb);
+    outColor = color;
+}
