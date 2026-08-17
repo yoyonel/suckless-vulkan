@@ -26,6 +26,17 @@ InputState get_key_state(GLFWwindow* window, int key, bool* wasDown, const Windo
 }
 
 void handle_camera_and_envmap_toggles(VulkanEngine* engine, const WindowOps* ops) {
+    engine->appState->currentInput.bloomDebugCyclePressed = InputState::Released;
+    engine->appState->currentInput.bloomMipCyclePressed = InputState::Released;
+    engine->appState->currentInput.bloomTogglePressed = InputState::Released;
+    engine->appState->currentInput.billboardPressed = InputState::Released;
+    engine->appState->currentInput.bloomIntensityIncPressed = InputState::Released;
+    engine->appState->currentInput.bloomIntensityDecPressed = InputState::Released;
+    engine->appState->currentInput.bloomThresholdIncPressed = InputState::Released;
+    engine->appState->currentInput.bloomThresholdDecPressed = InputState::Released;
+    engine->appState->currentInput.autoExposureTogglePressed = InputState::Released;
+    engine->appState->currentInput.autoExposureDebugTogglePressed = InputState::Released;
+
     engine->appState->currentInput.cameraTogglePressed =
         get_key_state(engine->appState->window, GLFW_KEY_C, &engine->appState->core.inputTracking.cameraToggleKeyWasDown, ops);
 
@@ -35,12 +46,46 @@ void handle_camera_and_envmap_toggles(VulkanEngine* engine, const WindowOps* ops
             ops->set_input_mode(engine->appState->window, GLFW_CURSOR, newCameraState ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
         }
     }
-    engine->appState->currentInput.showEnvmapTogglePressed =
-        get_key_state(engine->appState->window, GLFW_KEY_K, &engine->appState->core.inputTracking.showEnvmapToggleKeyWasDown, ops);
-    engine->appState->currentInput.billboardPressed =
-        get_key_state(engine->appState->window, GLFW_KEY_B, &engine->appState->core.inputTracking.billboardKeyWasDown, ops);
+    bool shiftDown = is_shift_down(engine->appState->window, ops);
+    bool altDown =
+        ops->get_key(engine->appState->window, GLFW_KEY_LEFT_ALT) == GLFW_PRESS || ops->get_key(engine->appState->window, GLFW_KEY_RIGHT_ALT) == GLFW_PRESS;
+
+    InputState bState = get_key_state(engine->appState->window, GLFW_KEY_B, &engine->appState->core.inputTracking.billboardKeyWasDown, ops);
+    if (bState == InputState::PressedOnce) {
+        if (shiftDown) {
+            engine->appState->currentInput.bloomDebugCyclePressed = InputState::PressedOnce;
+        } else if (altDown) {
+            engine->appState->currentInput.bloomMipCyclePressed = InputState::PressedOnce;
+        } else {
+            engine->appState->currentInput.billboardPressed = InputState::PressedOnce;
+        }
+    }
+
     engine->appState->currentInput.wireframePressed =
         get_key_state(engine->appState->window, GLFW_KEY_Z, &engine->appState->core.inputTracking.wireframeKeyWasDown, ops);
+
+    engine->appState->currentInput.showEnvmapTogglePressed =
+        get_key_state(engine->appState->window, GLFW_KEY_K, &engine->appState->core.inputTracking.showEnvmapToggleKeyWasDown, ops);
+
+    InputState f7State = get_key_state(engine->appState->window, GLFW_KEY_F7, &engine->appState->core.inputTracking.bloomKeyWasDown, ops);
+    if (f7State == InputState::PressedOnce) {
+        if (shiftDown) {
+            engine->appState->currentInput.bloomDebugCyclePressed = InputState::PressedOnce;
+        } else if (altDown) {
+            engine->appState->currentInput.bloomMipCyclePressed = InputState::PressedOnce;
+        } else {
+            engine->appState->currentInput.bloomTogglePressed = InputState::PressedOnce;
+        }
+    }
+
+    InputState f8State = get_key_state(engine->appState->window, GLFW_KEY_F8, &engine->appState->core.inputTracking.autoExposureKeyWasDown, ops);
+    if (f8State == InputState::PressedOnce) {
+        if (shiftDown) {
+            engine->appState->currentInput.autoExposureDebugTogglePressed = InputState::PressedOnce;
+        } else {
+            engine->appState->currentInput.autoExposureTogglePressed = InputState::PressedOnce;
+        }
+    }
 }
 
 void handle_env_navigation(VulkanEngine* engine, bool shiftDown, const WindowOps* ops) {
@@ -66,10 +111,29 @@ void handle_ibl_debug_inputs(VulkanEngine* engine, const WindowOps* ops) {
             get_key_state(engine->appState->window, key, &engine->appState->core.inputTracking.iblDebugDigitKeyWasDown[digit], ops);
     }
 
-    engine->appState->currentInput.iblDebugPrevPressed =
-        get_key_state(engine->appState->window, GLFW_KEY_LEFT_BRACKET, &engine->appState->core.inputTracking.iblDebugPrevKeyWasDown, ops);
-    engine->appState->currentInput.iblDebugNextPressed =
+    bool shiftDown = is_shift_down(engine->appState->window, ops);
+    InputState leftBracket = get_key_state(engine->appState->window, GLFW_KEY_LEFT_BRACKET, &engine->appState->core.inputTracking.iblDebugPrevKeyWasDown, ops);
+    InputState rightBracket =
         get_key_state(engine->appState->window, GLFW_KEY_RIGHT_BRACKET, &engine->appState->core.inputTracking.iblDebugNextKeyWasDown, ops);
+
+    engine->appState->currentInput.iblDebugPrevPressed = InputState::Released;
+    engine->appState->currentInput.iblDebugNextPressed = InputState::Released;
+
+    if (leftBracket == InputState::PressedOnce) {
+        if (shiftDown) {
+            engine->appState->currentInput.bloomThresholdDecPressed = InputState::PressedOnce;
+        } else {
+            engine->appState->currentInput.iblDebugPrevPressed = InputState::PressedOnce;
+        }
+    }
+    if (rightBracket == InputState::PressedOnce) {
+        if (shiftDown) {
+            engine->appState->currentInput.bloomThresholdIncPressed = InputState::PressedOnce;
+        } else {
+            engine->appState->currentInput.iblDebugNextPressed = InputState::PressedOnce;
+        }
+    }
+
     engine->appState->currentInput.iblDebugF6Pressed =
         get_key_state(engine->appState->window, GLFW_KEY_F6, &engine->appState->core.inputTracking.iblDebugF6KeyWasDown, ops);
     engine->appState->currentInput.iblExportPressed =

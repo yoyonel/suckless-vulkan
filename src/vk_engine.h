@@ -23,6 +23,8 @@
 #include "rhi/rhi_ptr.h"
 #include "spsc_queue.h"
 #include "swapchain_init.h"
+#include "tracy_frame_capture.h"
+#include "vk_engine_autoexposure.h"
 
 // Configuration de GLM pour Vulkan
 #define GLM_FORCE_RADIANS
@@ -77,6 +79,7 @@ struct HdrCleanupRequest {
     HdrCleanupRequest& operator=(HdrCleanupRequest&&) = default;
 };
 
+#include "vk_engine_bloom.h"
 #include "vk_engine_ibl.h"
 #include "vk_renderer_context.h"
 
@@ -85,7 +88,7 @@ struct Vertex {
     float color[3];
 };
 
-struct alignas(16) UBOData {
+struct alignas(64) UBOData {
     glm::mat4 vp;
     glm::mat4 modelRotation;
     glm::mat4 invViewProj;
@@ -98,8 +101,9 @@ struct alignas(16) UBOData {
     glm::vec4 windowSize;
 };
 static_assert(sizeof(UBOData) % 16 == 0, "UBOData must be aligned to 16 bytes (std140)");
+static_assert(alignof(UBOData) == 64, "UBOData must be aligned to 64 bytes (L1 Cache line)");
 
-struct alignas(16) DebugPushConstant {
+struct alignas(64) DebugPushConstant {
     glm::mat4 model;
     glm::vec4 color;
     float radius;
@@ -108,6 +112,7 @@ struct alignas(16) DebugPushConstant {
     uint32_t _padding;
 };
 static_assert(sizeof(DebugPushConstant) % 16 == 0, "DebugPushConstant must be padded to a multiple of 16 bytes");
+static_assert(alignof(DebugPushConstant) == 64, "DebugPushConstant must be aligned to 64 bytes (L1 Cache line)");
 
 struct VulkanEngine {
 
@@ -115,7 +120,8 @@ struct VulkanEngine {
 
     SwapchainManager swapchainMgr;
 
-    VkRenderPass renderPass;
+    VkRenderPass renderPass = VK_NULL_HANDLE;
+    VkRenderPass renderPassLoad = VK_NULL_HANDLE;
     VkFormat depthFormat;
 
     // NOUVEAU : Le Layout de notre descripteur
@@ -129,6 +135,10 @@ struct VulkanEngine {
     rhi::PipelinePtr debugLinePipeline;
     rhi::PipelinePtr debugTrianglePipeline;
     rhi::PipelinePtr skyboxPipeline;
+
+    rhi::PipelinePtr postProcessPipeline;
+    rhi::BindGroupPtr postProcessBindGroup;
+    rhi::SamplerPtr postProcessSampler;
 
     rhi::BufferPtr vertexBuffer;
     rhi::BufferPtr indexBuffer;
@@ -148,6 +158,7 @@ struct VulkanEngine {
     // NOUVEAU : Le pool et le set de descripteurs
     rhi::DescriptorPoolPtr globalDescriptorPool;
     DescriptorSetHandle descriptorSet{INVALID_HANDLE};
+    rhi::BindGroupPtr globalBindGroup;
 
     rhi::TexturePtr envHdrImage;
     rhi::SamplerPtr envHdrSampler;
@@ -169,11 +180,14 @@ struct VulkanEngine {
     } io;
 
     VkCommandBuffer commandBuffer;
+    VkCommandBuffer secondaryForwardCb[3]{VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE};
+    bool secondaryForwardRecorded{false};
 
     VkSemaphore imageAvailableSemaphore;
     VkSemaphore renderFinishedSemaphore;
     VkFence inFlightFence;
-    uint32_t lastRenderedImageIndex;
+    uint32_t lastRenderedImageIndex{0};
+    uint32_t currentFrameIndex{0};
     void* tracyVkContext;
 
     rhi::BufferPtr billboardBuffer;
@@ -184,6 +198,11 @@ struct VulkanEngine {
     EngineState* appState;
 
     IblBaker iblBaker;
+    bool useSubpassFusion{false};
+    BloomPipeline bloom;
+    TextureHandle lastBoundBloomTexture{INVALID_HANDLE};
+    AutoExposurePipeline autoexposure;
+    TracyFrameCaptureState tracyCapture;
 
     uint64_t totalFramesRendered{0};
 };

@@ -89,6 +89,7 @@ void core_engine_init(CoreEngine* core) {
     core->inputTracking.billboardKeyWasDown = false;
     core->render.wireframeMode = false;
     core->inputTracking.wireframeKeyWasDown = false;
+    core->inputTracking.bloomKeyWasDown = false;
 
     core->render.exposure = 1.0f;
     core->render.saturation = 1.0f;
@@ -137,6 +138,45 @@ static void process_toggles_and_env_inputs(CoreEngine* core, const CoreInput* in
         core->render.billboardMode = !core->render.billboardMode;
     if (input->wireframePressed == InputState::PressedOnce)
         core->render.wireframeMode = !core->render.wireframeMode;
+    if (input->bloomTogglePressed == InputState::PressedOnce) {
+        core->render.bloomEnabled = !core->render.bloomEnabled;
+        LOG_INFO("bloom", "Bloom: %s (intensity=%.2f, threshold=%.2f)", core->render.bloomEnabled ? "ENABLED" : "DISABLED", core->render.bloomIntensity,
+                 core->render.bloomThreshold);
+    }
+    if (input->bloomDebugCyclePressed == InputState::PressedOnce) {
+        core->render.bloomDebugMode = (core->render.bloomDebugMode + 1) % 5;
+        const char* modeNames[] = {"OFF", "Final Map", "Prefilter", "Downsample", "Upsample"};
+        LOG_INFO("bloom", "Bloom Debug: %s | Mip: %d", modeNames[core->render.bloomDebugMode], core->render.bloomDebugMip);
+    }
+    if (input->bloomMipCyclePressed == InputState::PressedOnce) {
+        core->render.bloomDebugMip = (core->render.bloomDebugMip + 1) % 5;
+        const char* modeNames[] = {"OFF", "Final Map", "Prefilter", "Downsample", "Upsample"};
+        LOG_INFO("bloom", "Bloom Debug: %s | Mip: %d", modeNames[core->render.bloomDebugMode], core->render.bloomDebugMip);
+    }
+    if (input->bloomIntensityIncPressed == InputState::PressedOnce) {
+        core->render.bloomIntensity = std::min(5.0f, core->render.bloomIntensity + 0.05f);
+        LOG_INFO("bloom", "Bloom Intensity: %.2f", core->render.bloomIntensity);
+    }
+    if (input->bloomIntensityDecPressed == InputState::PressedOnce) {
+        core->render.bloomIntensity = std::max(0.0f, core->render.bloomIntensity - 0.05f);
+        LOG_INFO("bloom", "Bloom Intensity: %.2f", core->render.bloomIntensity);
+    }
+    if (input->bloomThresholdIncPressed == InputState::PressedOnce) {
+        core->render.bloomThreshold = std::min(10.0f, core->render.bloomThreshold + 0.1f);
+        LOG_INFO("bloom", "Bloom Threshold: %.2f", core->render.bloomThreshold);
+    }
+    if (input->bloomThresholdDecPressed == InputState::PressedOnce) {
+        core->render.bloomThreshold = std::max(0.0f, core->render.bloomThreshold - 0.1f);
+        LOG_INFO("bloom", "Bloom Threshold: %.2f", core->render.bloomThreshold);
+    }
+    if (input->autoExposureTogglePressed == InputState::PressedOnce) {
+        core->render.autoExposureEnabled = !core->render.autoExposureEnabled;
+        LOG_INFO("autoexposure", "Auto-Exposure: %s", core->render.autoExposureEnabled ? "ENABLED" : "DISABLED");
+    }
+    if (input->autoExposureDebugTogglePressed == InputState::PressedOnce) {
+        core->render.autoExposureDebug = !core->render.autoExposureDebug;
+        LOG_INFO("autoexposure", "Auto-Exposure Debug Overlay: %s", core->render.autoExposureDebug ? "ENABLED" : "DISABLED");
+    }
 
     constexpr float kEnvLodStep = 0.5f;
     if (input->envPageUpPressed == InputState::PressedOnce && input->envShiftDown) {

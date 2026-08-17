@@ -35,13 +35,15 @@ add_test(NAME EngineIntegrationTest
          COMMAND bash ${CMAKE_SOURCE_DIR}/scripts/run_test_vulkan.sh
                  $<TARGET_FILE:unit_tests>)
 set_tests_properties(EngineIntegrationTest PROPERTIES WORKING_DIRECTORY
-                                                      ${CMAKE_SOURCE_DIR})
+                                                      ${CMAKE_SOURCE_DIR}
+                                                      TIMEOUT 180)
 
 add_test(NAME SmokeTestApp
          COMMAND bash ${CMAKE_SOURCE_DIR}/scripts/smoke_test_app.sh
                  $<TARGET_FILE:vulkan_app>)
 set_tests_properties(SmokeTestApp PROPERTIES WORKING_DIRECTORY
-                                             ${CMAKE_SOURCE_DIR})
+                                             ${CMAKE_SOURCE_DIR}
+                                             TIMEOUT 180)
 
 add_executable(logic_tests ${LOGIC_TEST_SOURCES})
 target_include_directories(logic_tests PRIVATE ${PROJECT_INCLUDE_DIR})

@@ -3,6 +3,7 @@
 #include "rhi/vulkan_command_list.h"
 #include "rhi/vulkan_rhi.h"
 #include "tracy_client.h"
+#include "tracy_state.h"
 #include "tracy_vulkan.h"
 #include "vk_engine.h"
 #include <algorithm>
@@ -18,10 +19,8 @@
 namespace {
 
 VkCommandBuffer begin_single_time_commands(VulkanEngine* engine) {
-    if (!engine || engine->ctx.commandPool == VK_NULL_HANDLE) {
-        LOG_ERROR("ibl", "begin_single_time_commands: engine or commandPool is NULL");
+    if (!engine || engine->ctx.commandPool == VK_NULL_HANDLE || engine->ctx.device == VK_NULL_HANDLE)
         return VK_NULL_HANDLE;
-    }
 
     VkCommandBufferAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -29,7 +28,7 @@ VkCommandBuffer begin_single_time_commands(VulkanEngine* engine) {
     allocInfo.commandPool = engine->ctx.commandPool;
     allocInfo.commandBufferCount = 1;
 
-    VkCommandBuffer cb;
+    VkCommandBuffer cb = VK_NULL_HANDLE;
     if (vkAllocateCommandBuffers(engine->ctx.device, &allocInfo, &cb) != VK_SUCCESS) {
         LOG_ERROR("ibl", "Failed to allocate command buffer");
         return VK_NULL_HANDLE;
@@ -63,7 +62,10 @@ void end_single_time_commands(VulkanEngine* engine, VkCommandBuffer cb, VkFence 
     }
 
     if (fence == VK_NULL_HANDLE) {
-        vkQueueWaitIdle(engine->ctx.graphicsQueue);
+        {
+            SVK_TRACY_FIBER_ZONE_C(fiberSync, "Hybrid Perf", "Sync (GPU Wait)", tracy_color::FiberHybridGpuWait);
+            vkQueueWaitIdle(engine->ctx.graphicsQueue);
+        }
         vkFreeCommandBuffers(engine->ctx.device, engine->ctx.commandPool, 1, &cb);
     }
 }
@@ -406,15 +408,28 @@ GfxResult init_ibl(VulkanEngine* engine) {
 }
 
 void cleanup_ibl(VulkanEngine* engine) {
-    if (engine->ctx.device == VK_NULL_HANDLE)
+    if (engine->ctx.device == VK_NULL_HANDLE || engine->ctx.allocator == VK_NULL_HANDLE)
         return;
-    vmaDestroyBuffer(engine->ctx.allocator, engine->iblBaker.lumGroupSumsBuffer, engine->iblBaker.lumGroupSumsAllocation);
-    vmaDestroyBuffer(engine->ctx.allocator, engine->iblBaker.lumMeanBuffer, engine->iblBaker.lumMeanAllocation);
+    engine->iblBaker.cleanupPendingResources(engine);
+    if (engine->iblBaker.lumGroupSumsBuffer != VK_NULL_HANDLE) {
+        vmaDestroyBuffer(engine->ctx.allocator, engine->iblBaker.lumGroupSumsBuffer, engine->iblBaker.lumGroupSumsAllocation);
+        engine->iblBaker.lumGroupSumsBuffer = VK_NULL_HANDLE;
+    }
+    if (engine->iblBaker.lumMeanBuffer != VK_NULL_HANDLE) {
+        vmaDestroyBuffer(engine->ctx.allocator, engine->iblBaker.lumMeanBuffer, engine->iblBaker.lumMeanAllocation);
+        engine->iblBaker.lumMeanBuffer = VK_NULL_HANDLE;
+    }
+    if (engine->iblBaker.iblBakeFence != VK_NULL_HANDLE) {
+        vkDestroyFence(engine->ctx.device, engine->iblBaker.iblBakeFence, nullptr);
+        engine->iblBaker.iblBakeFence = VK_NULL_HANDLE;
+    }
+    engine->iblBaker.currentStagingBuffer = VK_NULL_HANDLE;
     LOG_INFO("ibl", "IBL resources cleaned up");
 }
 
 void vk_ibl_bake_luminance(VulkanEngine* engine) {
-    SVK_TRACY_ZONE_SCOPED("vk_ibl_bake_luminance");
+    SVK_TRACY_ZONE_SCOPED_C("IBL Bake: Luminance Pass", tracy_color::GpuComputeLum);
+    SVK_TRACY_FIBER_ZONE_C(fiberHost, "Hybrid Perf", "Host (CPU): Luminance", tracy_color::FiberHybridCpu);
     if (!engine || engine->ctx.device == VK_NULL_HANDLE || engine->ctx.allocator == VK_NULL_HANDLE || engine->ctx.commandPool == VK_NULL_HANDLE) {
         LOG_WARNING("ibl", "vk_ibl_bake_luminance: engine not fully initialized, skipping bake.");
         return;
@@ -452,7 +467,7 @@ void vk_ibl_bake_luminance(VulkanEngine* engine) {
 
     {
         vk_begin_label(engine->ctx.device, cb, "IBL_Luminance_Pass", 0.8f, 0.8f, 0.2f);
-        SVK_TRACY_VK_NAMED_ZONE(gpuIblLumZone, engine, cb, "GPU IBL Luminance");
+        SVK_TRACY_VK_ZONE_C(gpuIblLumZone, engine, cb, "GPU IBL Luminance", tracy_color::GpuComputeLum);
 
         VulkanCommandList cmdList((VulkanRHI*)engine->appState->rhi, cb);
         cmdList.BindPipeline(engine->iblBaker.lum1Pipeline, true);
@@ -530,6 +545,8 @@ void vk_ibl_bake_luminance(VulkanEngine* engine) {
 }
 
 void vk_ibl_bake_brdf(VulkanEngine* engine) {
+    SVK_TRACY_ZONE_SCOPED_C("IBL Bake: BRDF LUT Pass", tracy_color::GpuComputeBrdf);
+    SVK_TRACY_FIBER_ZONE_C(fiberHost, "Hybrid Perf", "Host (CPU): BRDF LUT", tracy_color::FiberHybridCpu);
     if (engine->iblBaker.brdfLutBaked) {
         if (engine->iblBaker.iblBakeFence != VK_NULL_HANDLE) {
             vkDestroyFence(engine->ctx.device, engine->iblBaker.iblBakeFence, nullptr);
@@ -547,34 +564,36 @@ void vk_ibl_bake_brdf(VulkanEngine* engine) {
     vk_begin_label(engine->ctx.device, cb, "IBL_Bake_BRDF", 0.3f, 0.6f, 0.9f);
     VulkanCommandList cmdList2((VulkanRHI*)engine->appState->rhi, cb);
 
-    SVK_TRACY_VK_NAMED_ZONE(gpuIblBrdfZone, engine, cb, "GPU IBL BRDF LUT");
-    cmdList2.BindPipeline(engine->iblBaker.brdfLutPipeline, true);
+    {
+        SVK_TRACY_VK_ZONE_C(gpuIblBrdfZone, engine, cb, "GPU IBL BRDF LUT", tracy_color::GpuComputeBrdf);
+        cmdList2.BindPipeline(engine->iblBaker.brdfLutPipeline, true);
 
-    DescriptorImageInfo inputImage{engine->envHdrSampler, INVALID_HANDLE, engine->envHdrImage, TextureLayout::ShaderReadOnlyOptimal};
-    DescriptorImageInfo outputImage{INVALID_HANDLE, INVALID_HANDLE, engine->iblBaker.brdfLut, TextureLayout::General};
+        DescriptorImageInfo inputImage{engine->envHdrSampler, INVALID_HANDLE, engine->envHdrImage, TextureLayout::ShaderReadOnlyOptimal};
+        DescriptorImageInfo outputImage{INVALID_HANDLE, INVALID_HANDLE, engine->iblBaker.brdfLut, TextureLayout::General};
 
-    WriteDescriptorSet writeSets[2] = {};
-    writeSets[0].dstSet = engine->iblBaker.brdfLutDescriptorSet;
-    writeSets[0].dstBinding = 0;
-    writeSets[0].dstArrayElement = 0;
-    writeSets[0].descriptorCount = 1;
-    writeSets[0].descriptorType = DescriptorType::CombinedImageSampler;
-    writeSets[0].pImageInfo = &inputImage;
+        WriteDescriptorSet writeSets[2] = {};
+        writeSets[0].dstSet = engine->iblBaker.brdfLutDescriptorSet;
+        writeSets[0].dstBinding = 0;
+        writeSets[0].dstArrayElement = 0;
+        writeSets[0].descriptorCount = 1;
+        writeSets[0].descriptorType = DescriptorType::CombinedImageSampler;
+        writeSets[0].pImageInfo = &inputImage;
 
-    writeSets[1].dstSet = engine->iblBaker.brdfLutDescriptorSet;
-    writeSets[1].dstBinding = 1;
-    writeSets[1].dstArrayElement = 0;
-    writeSets[1].descriptorCount = 1;
-    writeSets[1].descriptorType = DescriptorType::StorageImage;
-    writeSets[1].pImageInfo = &outputImage;
+        writeSets[1].dstSet = engine->iblBaker.brdfLutDescriptorSet;
+        writeSets[1].dstBinding = 1;
+        writeSets[1].dstArrayElement = 0;
+        writeSets[1].descriptorCount = 1;
+        writeSets[1].descriptorType = DescriptorType::StorageImage;
+        writeSets[1].pImageInfo = &outputImage;
 
-    engine->appState->rhi->UpdateDescriptorSets(2, writeSets);
-    cmdList2.BindDescriptorSets(engine->iblBaker.iblPipelineLayout, 0, 1, &engine->iblBaker.brdfLutDescriptorSet, true);
-    cmdList2.Dispatch(IBL_BRDF_SIZE / 32, IBL_BRDF_SIZE / 32, 1);
+        engine->appState->rhi->UpdateDescriptorSets(2, writeSets);
+        cmdList2.BindDescriptorSets(engine->iblBaker.iblPipelineLayout, 0, 1, &engine->iblBaker.brdfLutDescriptorSet, true);
+        cmdList2.Dispatch(IBL_BRDF_SIZE / 32, IBL_BRDF_SIZE / 32, 1);
 
-    transition_image_layout(engine, cb, ((VulkanRHI*)engine->appState->rhi)->GetVkImage(engine->iblBaker.brdfLut), 1, VK_IMAGE_LAYOUT_GENERAL,
-                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
-                            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+        transition_image_layout(engine, cb, ((VulkanRHI*)engine->appState->rhi)->GetVkImage(engine->iblBaker.brdfLut), 1, VK_IMAGE_LAYOUT_GENERAL,
+                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+                                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+    }
 
     vk_end_label(engine->ctx.device, cb);
 
@@ -588,6 +607,8 @@ void vk_ibl_bake_brdf(VulkanEngine* engine) {
 }
 
 void vk_ibl_bake_irradiance(VulkanEngine* engine) {
+    SVK_TRACY_ZONE_SCOPED_C("IBL Bake: Irradiance Pass", tracy_color::GpuComputeIrr);
+    SVK_TRACY_FIBER_ZONE_C(fiberHost, "Hybrid Perf", "Host (CPU): Irradiance", tracy_color::FiberHybridCpu);
     float threshold = engine->iblBaker.bakedMeanLuminance * 3.0f;
 
     VkCommandBuffer cb = begin_single_time_commands(engine);
@@ -604,51 +625,53 @@ void vk_ibl_bake_irradiance(VulkanEngine* engine) {
                                 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
     }
 
-    SVK_TRACY_VK_NAMED_ZONE(gpuIblIrrZone, engine, cb, "GPU IBL Irradiance Slice");
-    LOG_INFO("ibl", "Baking Irradiance Map (Slice %d/%d)...", engine->iblBaker.currentSlice + 1, engine->iblBaker.totalSlices);
+    {
+        SVK_TRACY_VK_ZONE_C(gpuIblIrrZone, engine, cb, "GPU IBL Irradiance Slice", tracy_color::GpuComputeIrr);
+        LOG_INFO("ibl", "Baking Irradiance Map (Slice %d/%d)...", engine->iblBaker.currentSlice + 1, engine->iblBaker.totalSlices);
 
-    cmdList2.BindPipeline(engine->iblBaker.irmapPipeline, true);
-    DescriptorImageInfo inputImage{engine->envHdrSampler, INVALID_HANDLE, engine->envHdrImage, TextureLayout::ShaderReadOnlyOptimal};
-    DescriptorImageInfo outputImage{INVALID_HANDLE, INVALID_HANDLE, engine->iblBaker.irradianceMap, TextureLayout::General};
+        cmdList2.BindPipeline(engine->iblBaker.irmapPipeline, true);
+        DescriptorImageInfo inputImage{engine->envHdrSampler, INVALID_HANDLE, engine->envHdrImage, TextureLayout::ShaderReadOnlyOptimal};
+        DescriptorImageInfo outputImage{INVALID_HANDLE, INVALID_HANDLE, engine->iblBaker.irradianceMap, TextureLayout::General};
 
-    WriteDescriptorSet writeSets[2] = {};
-    writeSets[0].dstSet = engine->iblBaker.irmapDescriptorSet;
-    writeSets[0].dstBinding = 0;
-    writeSets[0].dstArrayElement = 0;
-    writeSets[0].descriptorCount = 1;
-    writeSets[0].descriptorType = DescriptorType::CombinedImageSampler;
-    writeSets[0].pImageInfo = &inputImage;
+        WriteDescriptorSet writeSets[2] = {};
+        writeSets[0].dstSet = engine->iblBaker.irmapDescriptorSet;
+        writeSets[0].dstBinding = 0;
+        writeSets[0].dstArrayElement = 0;
+        writeSets[0].descriptorCount = 1;
+        writeSets[0].descriptorType = DescriptorType::CombinedImageSampler;
+        writeSets[0].pImageInfo = &inputImage;
 
-    writeSets[1].dstSet = engine->iblBaker.irmapDescriptorSet;
-    writeSets[1].dstBinding = 1;
-    writeSets[1].dstArrayElement = 0;
-    writeSets[1].descriptorCount = 1;
-    writeSets[1].descriptorType = DescriptorType::StorageImage;
-    writeSets[1].pImageInfo = &outputImage;
+        writeSets[1].dstSet = engine->iblBaker.irmapDescriptorSet;
+        writeSets[1].dstBinding = 1;
+        writeSets[1].dstArrayElement = 0;
+        writeSets[1].descriptorCount = 1;
+        writeSets[1].descriptorType = DescriptorType::StorageImage;
+        writeSets[1].pImageInfo = &outputImage;
 
-    engine->appState->rhi->UpdateDescriptorSets(2, writeSets);
+        engine->appState->rhi->UpdateDescriptorSets(2, writeSets);
 
-    int lines_per_slice = ((int)IBL_IRM_SIZE + engine->iblBaker.totalSlices - 1) / engine->iblBaker.totalSlices;
-    int start_y = engine->iblBaker.currentSlice * lines_per_slice;
-    int end_y = std::min((int)IBL_IRM_SIZE, start_y + lines_per_slice);
-    int actual_lines = end_y - start_y;
+        int lines_per_slice = ((int)IBL_IRM_SIZE + engine->iblBaker.totalSlices - 1) / engine->iblBaker.totalSlices;
+        int start_y = engine->iblBaker.currentSlice * lines_per_slice;
+        int end_y = std::min((int)IBL_IRM_SIZE, start_y + lines_per_slice);
+        int actual_lines = end_y - start_y;
 
-    if (actual_lines > 0) {
-        struct {
-            float t;
-            int oy;
-            int my;
-        } pc = {threshold, start_y, end_y};
-        cmdList2.PushConstants(engine->iblBaker.iblPipelineLayout, ShaderStage::Compute, 0, sizeof(pc), &pc);
-        cmdList2.BindDescriptorSets(engine->iblBaker.iblPipelineLayout, 0, 1, &engine->iblBaker.irmapDescriptorSet, true);
+        if (actual_lines > 0) {
+            struct {
+                float t;
+                int oy;
+                int my;
+            } pc = {threshold, start_y, end_y};
+            cmdList2.PushConstants(engine->iblBaker.iblPipelineLayout, ShaderStage::Compute, 0, sizeof(pc), &pc);
+            cmdList2.BindDescriptorSets(engine->iblBaker.iblPipelineLayout, 0, 1, &engine->iblBaker.irmapDescriptorSet, true);
 
-        cmdList2.Dispatch(IBL_IRM_SIZE / 32, (actual_lines + 31) / 32, 1);
-    }
+            cmdList2.Dispatch(IBL_IRM_SIZE / 32, (actual_lines + 31) / 32, 1);
+        }
 
-    if (engine->iblBaker.currentSlice == engine->iblBaker.totalSlices - 1) {
-        transition_image_layout(engine, cb, ((VulkanRHI*)engine->appState->rhi)->GetVkImage(engine->iblBaker.irradianceMap), 1, VK_IMAGE_LAYOUT_GENERAL,
-                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
-                                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+        if (engine->iblBaker.currentSlice == engine->iblBaker.totalSlices - 1) {
+            transition_image_layout(engine, cb, ((VulkanRHI*)engine->appState->rhi)->GetVkImage(engine->iblBaker.irradianceMap), 1, VK_IMAGE_LAYOUT_GENERAL,
+                                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+                                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+        }
     }
 
     vk_end_label(engine->ctx.device, cb);
@@ -660,6 +683,8 @@ void vk_ibl_bake_irradiance(VulkanEngine* engine) {
 }
 
 void vk_ibl_bake_prefilter(VulkanEngine* engine) {
+    SVK_TRACY_ZONE_SCOPED_C("IBL Bake: Specular Prefilter Pass", tracy_color::GpuComputeSpec);
+    SVK_TRACY_FIBER_ZONE_C(fiberHost, "Hybrid Perf", "Host (CPU): Specular", tracy_color::FiberHybridCpu);
     float threshold = engine->iblBaker.bakedMeanLuminance * 3.0f;
 
     VkCommandBuffer cb = begin_single_time_commands(engine);
@@ -681,7 +706,7 @@ void vk_ibl_bake_prefilter(VulkanEngine* engine) {
     DescriptorPoolHandle poolHandle = INVALID_HANDLE;
 
     {
-        SVK_TRACY_VK_NAMED_ZONE(gpuIblSpecZone, engine, cb, "GPU IBL Specular");
+        SVK_TRACY_VK_ZONE_C(gpuIblSpecZone, engine, cb, "GPU IBL Specular", tracy_color::GpuComputeSpec);
 
         if (engine->iblBaker.currentSlice == 0 && engine->iblBaker.currentMip == 0) {
             LOG_INFO("ibl", "Pass 2: Specular Map...");
