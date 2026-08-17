@@ -1,4 +1,5 @@
 #include "render_graph.h"
+#include "vulkan_state_mapper.h"
 #include <unordered_map>
 #include <queue>
 #include <stdexcept>
@@ -140,8 +141,14 @@ bool RenderGraph::PerformTopologicalSort(const std::vector<std::vector<size_t>>&
 
 void RenderGraph::GenerateTransitions() {
     std::unordered_map<ResourceHandle, ResourceState> currentState;
+    for (const auto& [handle, phys] : physicalResources) {
+        if (phys.initialState != ResourceState::Undefined) {
+            currentState[handle] = phys.initialState;
+        }
+    }
 
     for (auto& pass : sortedPasses) {
+        pass.transitions.clear();
         for (const auto& dep : pass.inputs) {
             ResourceState current = currentState.count(dep.resource) ? currentState[dep.resource] : ResourceState::Undefined;
             if (current != dep.state) {
@@ -255,60 +262,9 @@ void RenderGraph::CalculateLifetimes() {
     }
 }
 
-void RenderGraph::BindPhysicalResource(ResourceHandle handle, VkImage image, VkFormat format, VkImageAspectFlags aspect) {
-    physicalResources[handle] = {image, format, aspect};
-}
-
-struct TransitionStateInfo {
-    VkImageLayout layout;
-    VkAccessFlags access;
-    VkPipelineStageFlags stage;
-};
-
-static inline TransitionStateInfo get_src_transition_info(ResourceState state, VkImageAspectFlags aspect) {
-    switch (state) {
-    case ResourceState::Undefined:
-        return {VK_IMAGE_LAYOUT_UNDEFINED, 0, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT};
-    case ResourceState::RenderTarget:
-        if ((aspect & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)) != 0) {
-            return {VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-                    VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT};
-        }
-        return {VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
-    case ResourceState::ShaderRead:
-        return {VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_SHADER_READ_BIT,
-                VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT};
-    case ResourceState::ComputeWrite:
-        return {VK_IMAGE_LAYOUT_GENERAL, VK_ACCESS_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT};
-    case ResourceState::TransferRead:
-        return {VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT};
-    case ResourceState::TransferWrite:
-        return {VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT};
-    default:
-        return {VK_IMAGE_LAYOUT_GENERAL, VK_ACCESS_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT};
-    }
-}
-
-static inline TransitionStateInfo get_dst_transition_info(ResourceState state, VkImageAspectFlags aspect) {
-    switch (state) {
-    case ResourceState::RenderTarget:
-        if ((aspect & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)) != 0) {
-            return {VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-                    VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT};
-        }
-        return {VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
-    case ResourceState::ShaderRead:
-        return {VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_SHADER_READ_BIT,
-                VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT};
-    case ResourceState::ComputeWrite:
-        return {VK_IMAGE_LAYOUT_GENERAL, VK_ACCESS_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT};
-    case ResourceState::TransferRead:
-        return {VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT};
-    case ResourceState::TransferWrite:
-        return {VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT};
-    default:
-        return {VK_IMAGE_LAYOUT_GENERAL, VK_ACCESS_MEMORY_READ_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT};
-    }
+void RenderGraph::BindPhysicalResource(ResourceHandle handle, VkImage image, VkFormat format, VkImageAspectFlags aspect,
+                                       ResourceState initialState) {
+    physicalResources[handle] = {image, format, aspect, initialState};
 }
 
 static void emit_pass_barriers(VkCommandBuffer cb, const RenderPassNode& pass, const std::unordered_map<ResourceHandle, PhysicalResource>& physicalResources) {
@@ -323,8 +279,16 @@ static void emit_pass_barriers(VkCommandBuffer cb, const RenderPassNode& pass, c
         if (it == physicalResources.end()) continue;
 
         const PhysicalResource& phys = it->second;
-        TransitionStateInfo srcInfo = get_src_transition_info(transition.from, phys.aspect);
-        TransitionStateInfo dstInfo = get_dst_transition_info(transition.to, phys.aspect);
+        ResourceState fromState = transition.from;
+        ResourceState toState = transition.to;
+
+        if ((phys.aspect & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)) != 0) {
+            if (fromState == ResourceState::RenderTarget) fromState = ResourceState::DepthStencilWrite;
+            if (toState == ResourceState::RenderTarget) toState = ResourceState::DepthStencilWrite;
+        }
+
+        VulkanStateMapping srcInfo = map_resource_state_to_vulkan(fromState);
+        VulkanStateMapping dstInfo = map_resource_state_to_vulkan(toState);
 
         VkImageMemoryBarrier& barrier = vkBarriers[barrierCount++];
         barrier = {};
@@ -336,15 +300,15 @@ static void emit_pass_barriers(VkCommandBuffer cb, const RenderPassNode& pass, c
         barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         barrier.oldLayout = srcInfo.layout;
-        barrier.srcAccessMask = srcInfo.access;
+        barrier.srcAccessMask = srcInfo.accessMask;
         barrier.newLayout = dstInfo.layout;
-        barrier.dstAccessMask = dstInfo.access;
+        barrier.dstAccessMask = dstInfo.accessMask;
 
-        srcStages |= srcInfo.stage;
-        dstStages |= dstInfo.stage;
+        srcStages |= srcInfo.stageMask;
+        dstStages |= dstInfo.stageMask;
     }
 
-    if (barrierCount > 0) {
+    if (barrierCount > 0 && cb != VK_NULL_HANDLE) {
         if (srcStages == 0) srcStages = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
         if (dstStages == 0) dstStages = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
         vkCmdPipelineBarrier(cb, srcStages, dstStages, 0, 0, nullptr, 0, nullptr, barrierCount, vkBarriers);
@@ -352,6 +316,7 @@ static void emit_pass_barriers(VkCommandBuffer cb, const RenderPassNode& pass, c
 }
 
 void RenderGraph::Execute(VkCommandBuffer cb) {
+    GenerateTransitions();
     for (auto& pass : sortedPasses) {
         if (!pass.transitions.empty()) {
             emit_pass_barriers(cb, pass, physicalResources);

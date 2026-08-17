@@ -137,3 +137,34 @@ bool test_render_graph_stress() {
 
     return success;
 }
+
+bool test_render_graph_initial_state() {
+    bool success = true;
+    rhi::RenderGraph graph;
+
+    auto texPersistent = graph.CreateVirtualImage("PersistentTex");
+
+    graph.AddPass("PassCompute", {{texPersistent, rhi::ResourceState::ComputeShaderRead}}, {{texPersistent, rhi::ResourceState::ComputeShaderWrite}},
+                  [](VkCommandBuffer) {});
+
+    // Bind with initialState = ShaderResource (simulating previous frame state)
+    VkImage dummyImage = VK_NULL_HANDLE;
+    graph.BindPhysicalResource(texPersistent, dummyImage, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT, rhi::ResourceState::ShaderResource);
+
+    bool compiled = graph.Compile();
+    check(compiled, "Graph with initial state compiled", success);
+
+    graph.Execute(VK_NULL_HANDLE);
+
+    const auto& sorted = graph.GetSortedPasses();
+    check(sorted.size() == 1, "One sorted pass", success);
+    if (sorted.size() == 1) {
+        check(!sorted[0].transitions.empty(), "Pass has transitions", success);
+        if (!sorted[0].transitions.empty()) {
+            check(sorted[0].transitions[0].from == rhi::ResourceState::ShaderResource, "Transition 'from' matches initialState (not Undefined)", success);
+            check(sorted[0].transitions[0].to == rhi::ResourceState::ComputeShaderRead, "Transition 'to' is ComputeShaderRead", success);
+        }
+    }
+
+    return success;
+}

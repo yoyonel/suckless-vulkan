@@ -66,6 +66,7 @@ public:
     // Resource state & metadata accessors
     ResourceState GetTextureState(TextureHandle handle) const;
     void SetTextureState(TextureHandle handle, ResourceState state);
+    VkFormat GetTextureVkFormat(TextureHandle handle) const;
     uint32_t GetTextureMipLevels(TextureHandle handle) const;
     bool IsTextureDepth(TextureHandle handle) const;
     ResourceState GetBufferState(BufferHandle handle) const;

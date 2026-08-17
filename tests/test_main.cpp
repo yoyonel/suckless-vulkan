@@ -970,6 +970,7 @@ static bool test_rhi_reload_lifecycle() {
 
 extern bool test_render_graph();
 extern bool test_render_graph_stress();
+extern bool test_render_graph_initial_state();
 
 int main() {
     if (!test_integration_rendering()) {
@@ -989,6 +990,11 @@ int main() {
 
     if (!test_render_graph_stress()) {
         LOG_ERROR("test", "Le test RenderGraph Stress a echoue.");
+        return 1;
+    }
+
+    if (!test_render_graph_initial_state()) {
+        LOG_ERROR("test", "Le test RenderGraph Initial State a echoue.");
         return 1;
     }
 

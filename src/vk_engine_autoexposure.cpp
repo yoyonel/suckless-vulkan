@@ -126,9 +126,12 @@ void AutoExposurePipeline::RecordPasses(VulkanEngine* engine, VkCommandBuffer cb
     VulkanRHI* vkRhi = static_cast<VulkanRHI*>(engine->appState->rhi);
     VulkanCommandList cmd(vkRhi, cb);
 
+    vkRhi->BeginDebugLabel("Render_AutoExposure", 0.2f, 0.8f, 1.0f);
+
     // 1. Histogram Dispatch
     {
         SVK_TRACY_VK_ZONE_C(gpuHistZone, engine, cb, "AutoExposure Histogram", tracy_color::GpuCompute);
+        cmd.BeginDebugLabel("AutoExposure_Histogram", 0.3f, 0.7f, 0.9f);
         UpdateSceneDescriptor(engine, sceneHdrTexture);
 
         cmd.TransitionTexture(sceneHdrTexture, ResourceState::ComputeShaderRead);
@@ -148,11 +151,13 @@ void AutoExposurePipeline::RecordPasses(VulkanEngine* engine, VkCommandBuffer cb
         uint32_t groupCountX = (width + 15) / 16;
         uint32_t groupCountY = (height + 15) / 16;
         cmd.DispatchCompute(groupCountX, groupCountY, 1);
+        cmd.EndDebugLabel();
     }
 
     // 2. Adapt & Resolve Dispatch
     {
         SVK_TRACY_VK_ZONE_C(gpuAdaptZone, engine, cb, "AutoExposure Adapt", tracy_color::GpuCompute);
+        cmd.BeginDebugLabel("AutoExposure_Adapt", 0.1f, 0.9f, 0.6f);
 
         cmd.TransitionBuffer(histogramBuffer.get(), ResourceState::ComputeShaderRead);
         cmd.TransitionTexture(exposureTexture.get(), ResourceState::ComputeShaderWrite);
@@ -181,5 +186,8 @@ void AutoExposurePipeline::RecordPasses(VulkanEngine* engine, VkCommandBuffer cb
         cmd.TransitionTexture(exposureTexture.get(), ResourceState::ShaderResource);
         cmd.TransitionBuffer(debugHistogramBuffer.get(), ResourceState::ShaderResource);
         cmd.FlushBarriers();
+        cmd.EndDebugLabel();
     }
+
+    vkRhi->EndDebugLabel();
 }

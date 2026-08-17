@@ -1,6 +1,7 @@
 #ifndef SUCKLESS_VULKAN_RENDER_GRAPH_H
 #define SUCKLESS_VULKAN_RENDER_GRAPH_H
 
+#include "rhi_types.h"
 #include <string>
 #include <string_view>
 #include <vector>
@@ -13,6 +14,9 @@
 
 namespace rhi {
 
+// Use unified ResourceState from rhi_types.h
+using ::ResourceState;
+
 // Identifiant d'une ressource virtuelle dans le graphe
 using ResourceHandle = uint32_t;
 
@@ -20,6 +24,7 @@ struct PhysicalResource {
     VkImage image;
     VkFormat format;
     VkImageAspectFlags aspect;
+    ResourceState initialState = ResourceState::Undefined;
 };
 
 struct TransientImageDesc {
@@ -28,15 +33,6 @@ struct TransientImageDesc {
     VkFormat format;
     VkImageUsageFlags usage;
     VkImageAspectFlags aspect;
-};
-
-enum class ResourceState : std::uint8_t {
-    Undefined,
-    RenderTarget,
-    ShaderRead,
-    ComputeWrite,
-    TransferRead,
-    TransferWrite
 };
 
 struct ResourceTransition {
@@ -84,7 +80,8 @@ public:
     bool Compile();
 
     // Execution Phase (Hot Path)
-    void BindPhysicalResource(ResourceHandle handle, VkImage image, VkFormat format, VkImageAspectFlags aspect);
+    void BindPhysicalResource(ResourceHandle handle, VkImage image, VkFormat format, VkImageAspectFlags aspect,
+                              ResourceState initialState = ResourceState::Undefined);
     void Execute(VkCommandBuffer cb);
 
     const std::vector<RenderPassNode>& GetSortedPasses() const { return sortedPasses; }

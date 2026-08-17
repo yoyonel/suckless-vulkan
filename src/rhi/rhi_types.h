@@ -11,14 +11,18 @@ enum class ResourceState : uint16_t {
     IndexBuffer        = 1 << 2,
     UniformBuffer      = 1 << 3,
     ShaderResource     = 1 << 4, // Lecture Fragment/Vertex (SHADER_READ_ONLY_OPTIMAL)
+    ShaderRead         = 1 << 4, // Alias for ShaderResource / generic read
     ComputeShaderRead  = 1 << 5, // Lecture Compute Sampler (SHADER_READ_ONLY_OPTIMAL)
     ComputeShaderWrite = 1 << 6, // Écriture Storage Image / SSBO (GENERAL)
+    ComputeWrite       = 1 << 6, // Alias for ComputeShaderWrite
     ComputeReadWrite   = (1 << 5) | (1 << 6),
     RenderTarget       = 1 << 7, // Color Attachment (COLOR_ATTACHMENT_OPTIMAL)
     DepthStencilRead   = 1 << 8, // Depth Read Only (DEPTH_STENCIL_READ_ONLY_OPTIMAL)
     DepthStencilWrite  = 1 << 9, // Depth Write (DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
     TransferSrc        = 1 << 10,
     TransferDst        = 1 << 11,
+    TransferRead       = 1 << 10, // Alias for TransferSrc
+    TransferWrite      = 1 << 11, // Alias for TransferDst
     Present            = 1 << 12
 };
 
