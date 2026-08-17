@@ -70,6 +70,7 @@ using PipelinePtr = RhiHandle<PipelineHandle, &IRHI::DestroyPipeline>;
 using PipelineLayoutPtr = RhiHandle<PipelineLayoutHandle, &IRHI::DestroyPipelineLayout>;
 using DescriptorLayoutPtr = RhiHandle<DescriptorLayoutHandle, &IRHI::DestroyDescriptorLayout>;
 using DescriptorPoolPtr = RhiHandle<DescriptorPoolHandle, &IRHI::DestroyDescriptorPool>;
+using BindGroupPtr = RhiHandle<BindGroupHandle, &IRHI::DestroyBindGroup>;
 
 } // namespace rhi
 

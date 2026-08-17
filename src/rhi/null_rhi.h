@@ -42,7 +42,11 @@ class NullRHI : public IRHI {
     void DestroyPipelineLayout(PipelineLayoutHandle /*handle*/) override {}
 
     PipelineHandle CreateComputePipeline(const ComputePipelineDesc& /*desc*/) override { return INVALID_HANDLE; }
+    PipelineHandle CreateComputePipeline(const DeclarativeComputePipelineDesc& /*desc*/) override { return INVALID_HANDLE; }
+    BindGroupHandle CreateBindGroup(const BindGroupDesc& /*desc*/) override { return INVALID_HANDLE; }
+    void DestroyBindGroup(BindGroupHandle /*handle*/) override {}
     PipelineHandle CreateGraphicsPipeline(const GraphicsPipelineDesc& /*desc*/) override { return INVALID_HANDLE; }
+    PipelineHandle CreateGraphicsPipeline(const DeclarativeGraphicsPipelineDesc& /*desc*/) override { return INVALID_HANDLE; }
     void DestroyPipeline(PipelineHandle /*handle*/) override {}
 
     SwapchainStatus AcquireNextImage(uint32_t* /*imageIndex*/) override { return SwapchainStatus::Ok; }
@@ -54,6 +58,7 @@ class NullRHI : public IRHI {
     void EndFrame() override {}
     SwapchainStatus SubmitAndPresent(uint32_t /*imageIndex*/) override { return SwapchainStatus::Ok; }
     void BeginRenderPass() override {}
+    void BeginRenderPassLoad() override {}
     void EndRenderPass() override {}
     PipelineHandle GetPipeline(PipelineType /*type*/) const override { return INVALID_HANDLE; }
     void BindGlobalDescriptor(class IRenderCommandList* /*cmdList*/) override {}
