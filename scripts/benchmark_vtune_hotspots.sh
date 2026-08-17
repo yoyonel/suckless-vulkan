@@ -38,9 +38,16 @@ TMP_DIR=$(mktemp -d)
 export TMP_DIR
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-echo "[vtune] Collection hotspots avec sudo..."
-sudo -E "$VTUNE_BIN" -collect hotspots -result-dir "$RES_DIR" env TMP_DIR="$TMP_DIR" ./scripts/interactive_runner.sh "$APP_BIN" --no-vsync
-sudo chown -R "$USER":"$USER" "$RES_DIR"
+SUDO_CMD=""
+if sudo -n true 2>/dev/null; then
+	SUDO_CMD="sudo -E"
+fi
+
+echo "[vtune] Collection hotspots..."
+$SUDO_CMD "$VTUNE_BIN" -collect hotspots -result-dir "$RES_DIR" env TMP_DIR="$TMP_DIR" ./scripts/interactive_runner.sh "$APP_BIN" --no-vsync
+if [ -n "$SUDO_CMD" ]; then
+	sudo chown -R "$USER":"$USER" "$RES_DIR"
+fi
 
 echo ""
 echo "=========================================================================="
