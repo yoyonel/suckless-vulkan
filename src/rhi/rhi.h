@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstddef>
 #include <vector>
+#include "rhi_types.h"
 #include "../result.h"
 
 struct Vertex;
@@ -18,15 +19,19 @@ using SamplerHandle = uint32_t;
 using DescriptorLayoutHandle = uint32_t;
 using DescriptorPoolHandle = uint32_t;
 using DescriptorSetHandle = uint32_t;
+using BindGroupHandle = uint32_t;
+using BindGroupLayoutHandle = uint32_t;
 struct CommandBufferHandle { void* ptr; };
 
 static constexpr uint32_t INVALID_HANDLE = 0xFFFFFFFF;
 
 enum class TextureFormat : uint8_t {
     RGBA8_UNORM,
+    BGRA8_UNORM,
     RGBA32_SFLOAT,
     RGBA16_SFLOAT,
     RG16_SFLOAT,
+    B10G11R11_UFLOAT,
     Depth,
 };
 
@@ -92,29 +97,10 @@ struct PushConstantRange {
 };
 
 
-enum class PolygonMode : uint8_t { Fill, Line };
-enum class CullMode : uint8_t { None, Front, Back, FrontAndBack };
-enum class FrontFace : uint8_t { CounterClockwise, Clockwise };
-enum class CompareOp : uint8_t { Never, Less, Equal, LessOrEqual, Greater, NotEqual, GreaterOrEqual, Always };
-enum class Topology : uint8_t { TriangleList, LineList, PointList };
-enum class VertexFormat : uint8_t { Float1, Float2, Float3, Float4, Int1, UInt1 };
-
-struct VertexInputBinding {
-    uint32_t binding;
-    uint32_t stride;
-    bool isInstance;
-};
-
-struct VertexInputAttribute {
-    uint32_t location;
-    uint32_t binding;
-    VertexFormat format;
-    uint32_t offset;
-};
-
 struct GraphicsPipelineDesc {
     PipelineLayoutHandle layout;
     void* renderPass; // Opaque for now
+    uint32_t subpass = 0;
 
     const void* vertexShaderCode;
     size_t vertexShaderSize;
@@ -252,7 +238,11 @@ public:
     virtual void DestroyPipelineLayout(PipelineLayoutHandle handle) = 0;
 
     virtual PipelineHandle CreateComputePipeline(const ComputePipelineDesc& desc) = 0;
+    virtual PipelineHandle CreateComputePipeline(const DeclarativeComputePipelineDesc& desc) = 0;
+    virtual BindGroupHandle CreateBindGroup(const BindGroupDesc& desc) = 0;
+    virtual void DestroyBindGroup(BindGroupHandle handle) = 0;
     virtual PipelineHandle CreateGraphicsPipeline(const GraphicsPipelineDesc& desc) = 0;
+    virtual PipelineHandle CreateGraphicsPipeline(const DeclarativeGraphicsPipelineDesc& desc) = 0;
     virtual void DestroyPipeline(PipelineHandle handle) = 0;
 
     // Frame lifecycle
@@ -265,6 +255,7 @@ public:
 
     // Render pass
     virtual void BeginRenderPass() = 0;
+    virtual void BeginRenderPassLoad() = 0;
     virtual void EndRenderPass() = 0;
 
     // Binding (High-level helpers)

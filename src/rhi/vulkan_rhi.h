@@ -2,6 +2,8 @@
 #define VULKAN_RHI_H
 
 #include "rhi.h"
+#include "vulkan_descriptor_cache.h"
+#include "vulkan_descriptor_allocator.h"
 #include <vulkan/vulkan.h>
 #include <vma/vk_mem_alloc.h>
 
@@ -43,7 +45,11 @@ public:
     void DestroyPipelineLayout(PipelineLayoutHandle handle) override;
 
     PipelineHandle CreateComputePipeline(const ComputePipelineDesc& desc) override;
+    PipelineHandle CreateComputePipeline(const DeclarativeComputePipelineDesc& desc) override;
+    BindGroupHandle CreateBindGroup(const BindGroupDesc& desc) override;
+    void DestroyBindGroup(BindGroupHandle handle) override;
     PipelineHandle CreateGraphicsPipeline(const GraphicsPipelineDesc& desc) override;
+    PipelineHandle CreateGraphicsPipeline(const DeclarativeGraphicsPipelineDesc& desc) override;
     void DestroyPipeline(PipelineHandle handle) override;
     VkImage GetVkImage(TextureHandle handle) const;
     VkImageView GetVkImageView(TextureHandle handle) const;
@@ -52,8 +58,19 @@ public:
     VkDescriptorSetLayout GetVkDescriptorSetLayout(DescriptorLayoutHandle handle) const;
     VkDescriptorPool GetVkDescriptorPool(DescriptorPoolHandle handle) const;
     VkDescriptorSet GetVkDescriptorSet(DescriptorSetHandle handle) const;
+    VkDescriptorSet GetVkBindGroup(BindGroupHandle handle) const;
     VkPipelineLayout GetVkPipelineLayout(PipelineLayoutHandle handle) const;
+    VkPipelineLayout GetPipelineLayoutForPipeline(PipelineHandle handle) const;
     VkPipeline GetVkPipeline(PipelineHandle handle) const;
+
+    // Resource state & metadata accessors
+    ResourceState GetTextureState(TextureHandle handle) const;
+    void SetTextureState(TextureHandle handle, ResourceState state);
+    uint32_t GetTextureMipLevels(TextureHandle handle) const;
+    bool IsTextureDepth(TextureHandle handle) const;
+    ResourceState GetBufferState(BufferHandle handle) const;
+    void SetBufferState(BufferHandle handle, ResourceState state);
+    std::size_t GetBufferSize(BufferHandle handle) const;
 
     RHIResult BeginFrame() override;
     class IRenderCommandList* GetMainCommandList() override;
@@ -64,6 +81,7 @@ public:
     SwapchainStatus SubmitAndPresent(uint32_t imageIndex) override;
 
     void BeginRenderPass() override;
+    void BeginRenderPassLoad() override;
     void EndRenderPass() override;
 
     // Direct Vulkan commands wrapper for IBL/EnvMap
@@ -76,8 +94,6 @@ public:
     void BindGlobalDescriptor(class IRenderCommandList* cmdList) override;
     void BindMeshBuffers(class IRenderCommandList* cmdList, bool isBillboard) override;
 
-    
-    
     void UpdateBillboardInstances(const uint32_t* indices, std::size_t count) override;
     
     void PushDebugConstants(const void* data, uint32_t size) override;
@@ -93,6 +109,8 @@ private:
         VkBuffer buffer{VK_NULL_HANDLE};
         VmaAllocation allocation{VK_NULL_HANDLE};
         void* mappedData{nullptr};
+        std::size_t size{0};
+        ResourceState currentState{ResourceState::Undefined};
     };
 
     struct VulkanTexture {
@@ -100,6 +118,11 @@ private:
         VkImageView imageView{VK_NULL_HANDLE};
         VmaAllocation allocation{VK_NULL_HANDLE};
         VkFormat format{VK_FORMAT_UNDEFINED};
+        uint32_t width{0};
+        uint32_t height{0};
+        uint32_t mipLevels{1};
+        bool isDepth{false};
+        ResourceState currentState{ResourceState::Undefined};
     };
 
     struct VulkanImageView {
@@ -142,11 +165,21 @@ private:
     std::vector<VulkanDescriptorSet> m_descriptorSets;
     uint32_t m_nextDescriptorSetHandle{1};
 
+    VulkanDescriptorCache m_descriptorCache;
+    VulkanDescriptorAllocator m_descriptorAllocator;
+    std::vector<VkDescriptorSet> m_bindGroups;
+    std::vector<VkPipelineLayout> m_pipelineToLayout;
+    uint32_t m_nextBindGroupHandle{1};
+
+    VkDescriptorImageInfo PrepareImageDescriptor(const BindGroupEntry& entry, VkDescriptorType& outType) const;
+    VkDescriptorBufferInfo PrepareBufferDescriptor(const BindGroupEntry& entry, VkDescriptorType& outType) const;
+
     RHIResult DrawFrame() override;
 
 public:
     struct VulkanEngine* _engine;
     class VulkanCommandList* m_mainCmdList{nullptr};
+    bool m_isShutdown{false};
 };
 
 #endif
