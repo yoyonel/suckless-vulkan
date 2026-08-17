@@ -271,6 +271,13 @@ void VulkanRHI::SetTextureState(TextureHandle handle, ResourceState state) {
     }
 }
 
+VkFormat VulkanRHI::GetTextureVkFormat(TextureHandle handle) const {
+    if (handle != INVALID_HANDLE && handle < m_textures.size()) {
+        return m_textures[handle].format;
+    }
+    return VK_FORMAT_UNDEFINED;
+}
+
 uint32_t VulkanRHI::GetTextureMipLevels(TextureHandle handle) const {
     if (handle != INVALID_HANDLE && handle < m_textures.size()) {
         return m_textures[handle].mipLevels;

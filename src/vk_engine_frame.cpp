@@ -489,29 +489,11 @@ static void record_postprocess_pass(VkCommandBuffer cb, VulkanEngine* engine, co
 static void build_render_graph(rhi::RenderGraph& graph, VulkanEngine* engine, VulkanRHI* vkRhi, VkExtent2D currentExtent, bool runFused, bool currentDebugMode,
                                bool isBloomActive, bool isAutoExposureActive, rhi::ResourceHandle vSwapchain, rhi::ResourceHandle vColor,
                                rhi::ResourceHandle vDepth, rhi::ResourceHandle vBloom, rhi::ResourceHandle vExposure) {
-    // Dummy transient resources to test Memory Aliasing (Phase 4)
-    rhi::TransientImageDesc gbufferDesc = {currentExtent.width, currentExtent.height, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
-                                           VK_IMAGE_ASPECT_COLOR_BIT};
-    auto vGBuffer1 = graph.CreateTransientImage("GBuffer_Albedo", gbufferDesc);
-    auto vGBuffer2 = graph.CreateTransientImage("GBuffer_Normal", gbufferDesc);
-    auto vSSAO = graph.CreateTransientImage("SSAO_Mask", gbufferDesc);
-
-    // Dummy GBuffer Pass (Writes to GBuffer)
-    graph.AddPass("GBufferPass", {}, {{vGBuffer1, rhi::ResourceState::RenderTarget}, {vGBuffer2, rhi::ResourceState::RenderTarget}},
-                  [](VkCommandBuffer) { /* Dummy execute */ });
-
-    // Dummy SSAO Pass (Reads GBuffer, Writes SSAO)
-    graph.AddPass("SSAOPass", {{vGBuffer2, rhi::ResourceState::ShaderRead}}, {{vSSAO, rhi::ResourceState::RenderTarget}},
-                  [](VkCommandBuffer) { /* Dummy execute */ });
-
     if (runFused) {
-        graph.AddPass("FusedForwardPostProcessPass", {{vGBuffer1, rhi::ResourceState::ShaderRead}, {vSSAO, rhi::ResourceState::ShaderRead}},
-                      {{vSwapchain, rhi::ResourceState::RenderTarget}},
+        graph.AddPass("FusedForwardPostProcessPass", {}, {{vSwapchain, rhi::ResourceState::RenderTarget}},
                       [engine, vkRhi](VkCommandBuffer cb) { record_fused_pass(cb, engine, engine->appState->core, vkRhi, engine->lastRenderedImageIndex); });
     } else {
-        // ForwardPass reads SSAO and GBuffer1
-        graph.AddPass("ForwardPass", {{vGBuffer1, rhi::ResourceState::ShaderRead}, {vSSAO, rhi::ResourceState::ShaderRead}},
-                      {{vColor, rhi::ResourceState::RenderTarget}, {vDepth, rhi::ResourceState::RenderTarget}},
+        graph.AddPass("ForwardPass", {}, {{vColor, rhi::ResourceState::RenderTarget}, {vDepth, rhi::ResourceState::RenderTarget}},
                       [engine, vkRhi](VkCommandBuffer) { record_forward_pass(vkRhi->GetMainCommandList(), engine, engine->appState->core, vkRhi); });
 
         // AutoExposure Compute Pass (Reads Color HDR, Writes Exposure Texture)
@@ -651,17 +633,24 @@ GfxResult vk_draw_frame_internal(VulkanEngine* engine, RecreateSwapchainFn recre
 
             graph.BindPhysicalResource(vSwapchain, engine->swapchainMgr.swapchainImages[idx], engine->swapchainMgr.swapchainImageFormat,
                                        VK_IMAGE_ASPECT_COLOR_BIT);
-            graph.BindPhysicalResource(vColor, vkRhi->GetVkImage(engine->swapchainMgr.colorAttachment.get()), VK_FORMAT_R16G16B16A16_SFLOAT,
-                                       VK_IMAGE_ASPECT_COLOR_BIT);
+            VkFormat colorFmt = vkRhi->GetTextureVkFormat(engine->swapchainMgr.colorAttachment.get());
+            if (colorFmt == VK_FORMAT_UNDEFINED) {
+                colorFmt = VK_FORMAT_R16G16B16A16_SFLOAT;
+            }
+            graph.BindPhysicalResource(vColor, vkRhi->GetVkImage(engine->swapchainMgr.colorAttachment.get()), colorFmt, VK_IMAGE_ASPECT_COLOR_BIT);
             graph.BindPhysicalResource(vDepth, vkRhi->GetVkImage(engine->swapchainMgr.depthImage.get()), engine->swapchainMgr.depthFormat,
                                        VK_IMAGE_ASPECT_DEPTH_BIT);
             if (engine->bloom.upMips[0].texture.is_valid()) {
-                graph.BindPhysicalResource(vBloom, vkRhi->GetVkImage(engine->bloom.upMips[0].texture.get()), VK_FORMAT_R16G16B16A16_SFLOAT,
-                                           VK_IMAGE_ASPECT_COLOR_BIT);
+                VkFormat bloomFmt = vkRhi->GetTextureVkFormat(engine->bloom.upMips[0].texture.get());
+                if (bloomFmt == VK_FORMAT_UNDEFINED) {
+                    bloomFmt = VK_FORMAT_R16G16B16A16_SFLOAT;
+                }
+                graph.BindPhysicalResource(vBloom, vkRhi->GetVkImage(engine->bloom.upMips[0].texture.get()), bloomFmt, VK_IMAGE_ASPECT_COLOR_BIT);
             }
             if (engine->autoexposure.exposureTexture.is_valid()) {
+                ResourceState expState = vkRhi->GetTextureState(engine->autoexposure.exposureTexture.get());
                 graph.BindPhysicalResource(vExposure, vkRhi->GetVkImage(engine->autoexposure.exposureTexture.get()), VK_FORMAT_R32G32B32A32_SFLOAT,
-                                           VK_IMAGE_ASPECT_COLOR_BIT);
+                                           VK_IMAGE_ASPECT_COLOR_BIT, expState);
             }
 
             graph.Execute(vkCmdList->GetVkCommandBuffer());
