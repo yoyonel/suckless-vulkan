@@ -35,7 +35,7 @@ ______________________________________________________________________
 ### Bug 1 : Oscillation violente des Keybindings (`F8` / `SHIFT+F8`)
 
 - **Symptôme** : Logs inondés de `Auto-Exposure: ENABLED / DISABLED` à 1000 Hz dès l'appui sur `F8`.
-- **Cause** : `input->autoExposureTogglePressed` et `input->autoExposureDebugTogglePressed` n'étaient pas réinitialisés à `InputState::Released` au début de la boucle de frame dans \[`src/vk_engine_runtime.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/vk_engine_runtime.cpp#L37).
+- **Cause** : `input->autoExposureTogglePressed` et `input->autoExposureDebugTogglePressed` n'étaient pas réinitialisés à `InputState::Released` au début de la boucle de frame dans \[`src/vk_engine_runtime.cpp`\](../src/vk_engine_runtime.cpp#L37).
 - **Correctif** : Réinitialisation systématique en tête de fonction `handle_camera_and_envmap_toggles`.
 
 ______________________________________________________________________
@@ -43,7 +43,7 @@ ______________________________________________________________________
 ### Bug 2 : Contournement du RenderGraph par la Subpass Fusion
 
 - **Symptôme** : L'activation de l'Auto-Exposition n'exécutait aucune passe compute si Bloom était inactif.
-- **Cause** : La condition `runFused` dans \[`src/vk_engine_frame.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/vk_engine_frame.cpp#L614) évaluait uniquement `!isBloomActive`, ignorant `isAutoExposureActive`.
+- **Cause** : La condition `runFused` dans \[`src/vk_engine_frame.cpp`\](../src/vk_engine_frame.cpp#L614) évaluait uniquement `!isBloomActive`, ignorant `isAutoExposureActive`.
 - **Correctif** : Désactivation explicite de la fusion de subpass (`runFused = false`) dès que Bloom ou Auto-Exposition est actif pour router le frame buffer vers les passes compute intermédiaires.
 
 ______________________________________________________________________
@@ -53,9 +53,9 @@ ______________________________________________________________________
 - **Symptôme** : L'overlay affichait un histogramme corrompu composé de 8 colonnes statiques à hauteur maximale avec des trous réguliers.
 - **Cause** :
   1. `compile_shaders.sh` produisait `autoexposure_histogram.spv` et `autoexposure_adapt.spv`.
-  1. \[`src/vk_engine_autoexposure.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/vk_engine_autoexposure.cpp#L96) cherchait `.comp.spv`.
+  1. \[`src/vk_engine_autoexposure.cpp`\](../src/vk_engine_autoexposure.cpp#L96) cherchait `.comp.spv`.
   1. `load_spv` échouait, `autoexposure.Init()` renvoyait une erreur non bloquante.
-  1. Dans \[`src/vk_engine_init.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/vk_engine_init.cpp#L1325), `update_postprocess_descriptor_set()` utilisait son fallback : `dbgBufInfo.buffer = engine->materialBuffer.get()`.
+  1. Dans \[`src/vk_engine_init.cpp`\](../src/vk_engine_init.cpp#L1325), `update_postprocess_descriptor_set()` utilisait son fallback : `dbgBufInfo.buffer = engine->materialBuffer.get()`.
   1. La scène contient exactement 8 matériaux avec 8 floats chacun (`MaterialGpu` = albedo, metallic, roughness, ao, padding). Le fragment shader lisait donc le buffer des matériaux en le traitant comme un tableau de 64 `uint` !
 - **Correctif** : Correction des chemins SPIR-V dans `vk_engine_autoexposure.cpp` et positionnement de `update_postprocess_descriptor_set(engine)` après `autoexposure.Init()`.
 
@@ -64,7 +64,7 @@ ______________________________________________________________________
 ### Bug 4 : Perte de la Persistance Temporelle par Layout Transition Discard
 
 - **Symptôme** : Aucune transition fluide d'exposition (l'exposition sautait instantanément ou restait à zéro).
-- **Cause** : Dans \[`src/vk_engine_autoexposure.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/vk_engine_autoexposure.cpp#L250), la barrière de layout avant le dispatch compute utilisait `oldLayout = VK_IMAGE_LAYOUT_UNDEFINED`. Selon la spécification Vulkan, `UNDEFINED` autorise le driver GPU (notamment Mesa Intel Iris Xe) à purger/écraser le contenu mémoire de la texture 1x1. `imageLoad` lisait donc 0.0 à chaque frame.
+- **Cause** : Dans \[`src/vk_engine_autoexposure.cpp`\](../src/vk_engine_autoexposure.cpp#L250), la barrière de layout avant le dispatch compute utilisait `oldLayout = VK_IMAGE_LAYOUT_UNDEFINED`. Selon la spécification Vulkan, `UNDEFINED` autorise le driver GPU (notamment Mesa Intel Iris Xe) à purger/écraser le contenu mémoire de la texture 1x1. `imageLoad` lisait donc 0.0 à chaque frame.
 - **Correctif** : Conservation de l'ancien layout `VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL` dès la deuxième frame pour garantir la préservation physique des 16 octets `RGBA32F` entre deux soumissions de command buffers.
 
 ______________________________________________________________________
@@ -74,17 +74,17 @@ ______________________________________________________________________
 - **Symptôme** : Rendu complètement blanc, brûlé, surexposé à 500%.
 - **Cause** :
   1. **Valeur clé du gris moyen ($\\text{keyValue}$)** : Calibrée à `1.0f` au lieu de `0.18f` / `0.20f` (standard de réflectance à 18% pour les chartes de gris en reproduction photographique et dans `suckless-ogl`/`suckless-odin`). $\\text{targetExposure} = 1.0 / \\text{sceneLum}$ produisait une exposition 5 fois trop forte.
-  1. **Propagation `RenderSettings`** : `core.render.autoExposureKeyValue` dans \[`src/core_engine.h`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/src/core_engine.h#L182) écrasait la valeur à `1.0f` chaque frame dans `vk_engine_frame.cpp`.
+  1. **Propagation `RenderSettings`** : `core.render.autoExposureKeyValue` dans \[`src/core_engine.h`\](../src/core_engine.h#L182) écrasait la valeur à `1.0f` chaque frame dans `vk_engine_frame.cpp`.
   1. **Seuil de coupure des ombres (`MIN_LUMINANCE_THRESHOLD`)** : `lum > 0.0001` laissait le sol noir et les coins sombres tirer artificiellement la moyenne géométrique vers le bas ($\\text{sceneLum} \\approx 0.096 \\implies \\text{exposure} \\approx 1.87$).
 - **Correctif** :
-  - `keyValue = 0.18f` et seuil de rejet d'ombre `lum > 0.05` dans \[`shaders/autoexposure_histogram.comp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/shaders/autoexposure_histogram.comp#L34) (ISO strict avec `suckless-ogl`).
+  - `keyValue = 0.18f` et seuil de rejet d'ombre `lum > 0.05` dans \[`shaders/autoexposure_histogram.comp`\](../shaders/autoexposure_histogram.comp#L34) (ISO strict avec `suckless-ogl`).
   - Plage percentile ajustée à $[5%, 98%]$ pour intégrer les hautes lumières extérieures dans le calcul sans cramer les fenêtres.
 
 ______________________________________________________________________
 
 ## 3. Méthodologie Décisive : Le Test GPU Synthétique Déterministe
 
-Le point d'inflexion du débogage a été l'implémentation d'un test unitaire GPU dédié dans \[`tests/test_main.cpp`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/tests/test_main.cpp#L600) : `test_autoexposure_synthetic()`.
+Le point d'inflexion du débogage a été l'implémentation d'un test unitaire GPU dédié dans \[`tests/test_main.cpp`\](../tests/test_main.cpp#L600) : `test_autoexposure_synthetic()`.
 
 ### Principe du test
 

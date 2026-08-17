@@ -31,7 +31,7 @@ ______________________________________________________________________
 - **Résultats Validés** :
   - Saturation Bande Passante DRAM (VTune) : **$-88.0%$** ($25.1% \\rightarrow 3.0%$).
   - LLC Cache Misses (VTune) : **$-33.3%$** ($1,950,819 \\rightarrow 1,300,546$).
-  - Documentation : \[`docs/technique_chargement_streaming_chunks_hdr_vma_2026-08-16.md`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/docs/technique_chargement_streaming_chunks_hdr_vma_2026-08-16.md).
+  - Documentation : \[`docs/technique_chargement_streaming_chunks_hdr_vma_2026-08-16.md`\](technique_chargement_streaming_chunks_hdr_vma_2026-08-16.md).
 
 ______________________________________________________________________
 
@@ -46,7 +46,7 @@ ______________________________________________________________________
 - **Résultats Validés** :
   - Data Race CPU-GPU : **Éliminée à 100% (Thread-Safe / In-Flight Safe)**.
   - Zéro appel `vkUpdateDescriptorSets` en boucle de rendu.
-  - Documentation : \[`docs/technique_dynamic_offsets_ubo_ring_buffering_2026-08-16.md`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/docs/technique_dynamic_offsets_ubo_ring_buffering_2026-08-16.md).
+  - Documentation : \[`docs/technique_dynamic_offsets_ubo_ring_buffering_2026-08-16.md`\](technique_dynamic_offsets_ubo_ring_buffering_2026-08-16.md).
 
 ## 5. Levier 4 : Subpass Fusion & Input Attachments (Forward + PostProcess sans transit DRAM) [🟢 VALIDÉ]
 
@@ -88,7 +88,7 @@ Fusion de `Forward` et `PostProcess` dans un **unique `VkRenderPass` à 2 sous-p
 - **Saturation Bande Passante DRAM (VTune)** : **$0.6%$** (contre $3.0%$ au Levier 2 et $25.1%$ baseline, soit **$-80.0%$ de réduction relative**).
 - **LLC Cache Misses (Intel VTune)** : **$650,273$** (contre $1,300,546$ au Levier 2/3, soit **$-50.0%$ de division des misses**).
 - **Allers-retours DRAM Color HDR** : **$0\\times$ (100% On-Chip)**.
-- **Documentation** : \[`docs/technique_subpass_fusion_input_attachments_2026-08-16.md`\](file:///home/latty/Prog/__PERSO__/suckless-vulkan/docs/technique_subpass_fusion_input_attachments_2026-08-16.md).
+- **Documentation** : \[`docs/technique_subpass_fusion_input_attachments_2026-08-16.md`\](technique_subpass_fusion_input_attachments_2026-08-16.md).
 
 ______________________________________________________________________
 

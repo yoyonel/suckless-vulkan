@@ -1,14 +1,14 @@
 # Comparatif des Effets (FX) & Post-Processing : `suckless-ogl` vs `suckless-vulkan`
 
 - **Date** : 17 Août 2026
-- **Projets Analysés** : `/home/latty/Prog/__PERSO__/suckless-ogl` et `/home/latty/Prog/__PERSO__/suckless-vulkan`
+- **Projets Analysés** : `suckless-ogl` et `suckless-vulkan`
 - **Statut** : 📄 **Document d'Analyse Comparative & Roadmap de Parité**
 
 ______________________________________________________________________
 
 ## 1. État des Lieux des Effets dans le Projet Mère (`suckless-ogl`)
 
-Dans `suckless-ogl`, le post-processing est orchestré par un shader fragment maître modulaire (\[`shaders/postprocess.frag`\](file:///home/latty/Prog/__PERSO__/suckless-ogl/shaders/postprocess.frag)) incluant **15 sous-modules** spécialisés :
+Dans `suckless-ogl`, le post-processing est orchestré par un shader fragment maître modulaire (`shaders/postprocess.frag`) incluant **15 sous-modules** spécialisés :
 
 ```text
 Ordre d'Exécution du Pipeline suckless-ogl :
