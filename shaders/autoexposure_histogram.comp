@@ -1,0 +1,48 @@
+#version 450 core
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform sampler2D u_scene_hdr;
+
+layout(std430, set = 0, binding = 1) buffer HistogramBuffer {
+    uint histogram[64];
+} u_histogram;
+
+layout(push_constant) uniform HistogramPushConstants {
+    float minLogLum;
+    float invLogLumRange;
+    uint width;
+    uint height;
+} pc;
+
+const vec3 LUMINANCE_VECTOR = vec3(0.2126, 0.7152, 0.0722);
+
+shared uint localHistogram[64];
+
+void main() {
+    uint localIndex = gl_LocalInvocationIndex;
+    if (localIndex < 64u) {
+        localHistogram[localIndex] = 0u;
+    }
+    barrier();
+
+    uvec2 pixelCoord = gl_GlobalInvocationID.xy;
+    if (pixelCoord.x < pc.width && pixelCoord.y < pc.height) {
+        vec3 color = texelFetch(u_scene_hdr, ivec2(pixelCoord), 0).rgb;
+        float lum = dot(color, LUMINANCE_VECTOR);
+
+        if (lum > 0.05 && !isnan(lum) && !isinf(lum)) {
+            float logLum = clamp((log2(lum) - pc.minLogLum) * pc.invLogLumRange, 0.0, 1.0);
+            uint bin = uint(clamp(floor(logLum * 64.0), 0.0, 63.0));
+            atomicAdd(localHistogram[bin], 1u);
+        }
+    }
+    barrier();
+
+    if (localIndex < 64u) {
+        uint count = localHistogram[localIndex];
+        if (count > 0u) {
+            atomicAdd(u_histogram.histogram[localIndex], count);
+        }
+    }
+}

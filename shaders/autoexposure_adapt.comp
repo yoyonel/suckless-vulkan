@@ -1,0 +1,109 @@
+#version 450 core
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(std430, set = 0, binding = 0) buffer HistogramBuffer {
+    uint histogram[64];
+} u_histogram;
+
+layout(rgba32f, set = 0, binding = 1) uniform image2D u_exposure_image;
+
+layout(std430, set = 0, binding = 2) buffer DebugHistogramBuffer {
+    uint bins[64];
+} u_debug_histogram;
+
+layout(push_constant) uniform AdaptPushConstants {
+    float minLogLum;
+    float logLumRange;
+    float minPercentile;
+    float maxPercentile;
+    float speedUp;
+    float speedDown;
+    float deltaTime;
+    float keyValue;
+    float minExposure;
+    float maxExposure;
+} pc;
+
+shared uint sharedBins[64];
+
+void main() {
+    uint localIndex = gl_LocalInvocationIndex;
+    uint binCount = u_histogram.histogram[localIndex];
+    sharedBins[localIndex] = binCount;
+    u_debug_histogram.bins[localIndex] = binCount;
+
+    barrier();
+
+    if (localIndex == 0u) {
+        float totalPixels = 0.0;
+        for (uint i = 0u; i < 64u; ++i) {
+            totalPixels += float(sharedBins[i]);
+        }
+
+        float sceneLum = 0.1;
+
+        if (totalPixels > 0.0) {
+            float minPixelThreshold = totalPixels * clamp(pc.minPercentile, 0.0, 0.9);
+            float maxPixelThreshold = totalPixels * clamp(pc.maxPercentile, 0.1, 1.0);
+
+            float accumulatedPixels = 0.0;
+            float weightedLogLumSum = 0.0;
+            float validPixelCount = 0.0;
+
+            for (uint i = 0u; i < 64u; ++i) {
+                float count = float(sharedBins[i]);
+                float nextAccum = accumulatedPixels + count;
+
+                // Check overlap with [minPixelThreshold, maxPixelThreshold]
+                float validCount = count;
+                if (nextAccum < minPixelThreshold) {
+                    validCount = 0.0;
+                } else if (accumulatedPixels < minPixelThreshold) {
+                    validCount = nextAccum - minPixelThreshold;
+                }
+
+                if (accumulatedPixels > maxPixelThreshold) {
+                    validCount = 0.0;
+                } else if (nextAccum > maxPixelThreshold) {
+                    validCount = max(0.0, maxPixelThreshold - max(accumulatedPixels, minPixelThreshold));
+                }
+
+                if (validCount > 0.0) {
+                    float binLogLum = pc.minLogLum + (float(i) + 0.5) / 64.0 * pc.logLumRange;
+                    weightedLogLumSum += binLogLum * validCount;
+                    validPixelCount += validCount;
+                }
+
+                accumulatedPixels = nextAccum;
+            }
+
+            if (validPixelCount > 0.0) {
+                float avgLogLum = weightedLogLumSum / validPixelCount;
+                sceneLum = exp2(avgLogLum);
+            }
+        }
+
+        sceneLum = max(sceneLum, 0.0001);
+        float targetExposure = clamp(pc.keyValue / sceneLum, pc.minExposure, pc.maxExposure);
+
+        vec4 prevData = imageLoad(u_exposure_image, ivec2(0, 0));
+        float currentExposure = prevData.r;
+
+        if (currentExposure <= 0.0001 || isnan(currentExposure) || isinf(currentExposure)) {
+            currentExposure = targetExposure;
+        }
+
+        float speed = (targetExposure < currentExposure) ? pc.speedUp : pc.speedDown;
+        float factor = (pc.deltaTime > 0.0) ? (1.0 - exp(-pc.deltaTime * speed)) : 1.0;
+        float newExposure = currentExposure + (targetExposure - currentExposure) * clamp(factor, 0.0, 1.0);
+        newExposure = clamp(newExposure, pc.minExposure, pc.maxExposure);
+
+        imageStore(u_exposure_image, ivec2(0, 0), vec4(newExposure, sceneLum, pc.minLogLum, pc.minLogLum + pc.logLumRange));
+    }
+
+    barrier();
+
+    // Reset SSBO histogram for the next frame
+    u_histogram.histogram[localIndex] = 0u;
+}
