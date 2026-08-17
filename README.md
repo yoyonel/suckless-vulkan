@@ -1,6 +1,6 @@
-# Vulkan Base
+# Suckless Vulkan
 
-Lightweight Vulkan rendering base in C++17, with robust local tooling and CI/CD automation.
+Lightweight, high-performance Vulkan rendering engine in C++17, featuring a declarative **RenderGraph**, modern **RHI with BindGroups**, **Dual-Filtering Bloom**, **Temporal 64-Bin Auto-Exposure**, **Async IBL**, zero-allocation frame recording, and automated profiling (Tracy, Intel VTune, Heaptrack).
 
 > Badge links target the GitHub repository `yoyonel/suckless-vulkan`.
 
@@ -8,38 +8,41 @@ Lightweight Vulkan rendering base in C++17, with robust local tooling and CI/CD 
 [![Release Binaries](https://github.com/yoyonel/suckless-vulkan/actions/workflows/release.yml/badge.svg)](https://github.com/yoyonel/suckless-vulkan/actions/workflows/release.yml)
 [![Latest Release](https://img.shields.io/github/v/release/yoyonel/suckless-vulkan?display_name=tag)](https://github.com/yoyonel/suckless-vulkan/releases)
 [![Release Date](https://img.shields.io/github/release-date/yoyonel/suckless-vulkan)](https://github.com/yoyonel/suckless-vulkan/releases)
-[![Last Commit](https://img.shields.io/github/last-commit/yoyonel/suckless-vulkan)](https://github.com/yoyonel/suckless-vulkan/commits/master)
+[![Last Commit](https://img.shields.io/github/last-commit/yoyonel/suckless-vulkan)](https://github.com/yoyonel/suckless-vulkan/commits/dev)
 
-## What This Project Is
+## Features & Architecture
 
-This repository is a Vulkan-based rendering engine foundation focused on:
-
-- Explicit Vulkan lifecycle management (instance, device, swapchain, render pass, pipeline)
-- GPU memory management through VMA
-- Headless-compatible integration testing (frame rendering + swapchain readback)
-- Strong local developer tooling (format, lint, docs checks, pre-commit/pre-push gates)
-- GitHub Actions CI/CD for build, tests, and binary release artifacts
+- **Declarative RenderGraph**: Automatic DAG dependency analysis, topological pass sorting (Kahn algorithm), transient image memory management, and automatic `VkImageMemoryBarrier` transition batching with multi-frame layout persistence.
+- **Modern RHI & Declarative BindGroups**: Clean abstraction layer over Vulkan 1.x with declarative graphics and compute pipeline descriptors, automatic descriptor set layout caching (`VulkanDescriptorCache`), and zero dynamic allocations per frame.
+- **Unified Post-Process DAG**: Single execution graph connecting `ForwardPass` → `AutoExposure (Histogram + Adapt)` → `Bloom (Downsample x5 + Upsample x4)` → `PostProcess (Tonemapping + Color Grading)`.
+- **Dual-Filtering Compute Bloom**: Jimenez 13-tap downsample filter with Karis anti-firefly weighting and 9-tap 3x3 Tent upsample filter. Utilizes 32-bit `B10G11R11_UFLOAT` storage images and native `float16_t` FP16 arithmetic ($0.228\text{ ms}$ at 1080p, $-71\%$ GPU time).
+- **Temporal 64-Bin LDS Auto-Exposure**: Compute histogram binning in Local Data Share (LDS), percentile luminance metering ($5\% - 98\%$), shadow cut-off cut, and asymmetric temporal adaptation with a real-time procedural 64-bar debug histogram HUD (`SHIFT+F8`).
+- **Asynchronous IBL & HDR Streaming**: Background async computation of Irradiance Maps, Specular Prefilter Maps, and BRDF LUT, backed by fast-path KTX2/Zstandard binary cache.
+- **Zero-Allocation Hot-Path**: Strict 0 heap allocation policy during frame recording (`vk_draw_frame_internal`), delivering $745+\text{ FPS}$ throughput.
+- **Advanced Profiling Suite**: Fully integrated support for **Tracy Profiler** (GPU/CPU timeline), **Intel VTune Profiler** (hotspots, memory access, cache misses, DRAM bound), and **Heaptrack** (heap allocation tracking).
+- **Headless Testing & CI/CD**: Deterministic visual regression testing across 9 golden references, synthetic GPU compute tests, LLVM code coverage, ASan/UBSan, and Vulkan Validation Layers.
 
 ## Tech Stack
 
-- C++17
-- Vulkan 1.x
-- GLFW
-- GLM
-- VMA (AMD Vulkan Memory Allocator)
-- CMake + just
+- **Language**: C++17 (with strict warnings and `-Werror`)
+- **Graphics API**: Vulkan 1.x
+- **Memory Management**: AMD Vulkan Memory Allocator (VMA)
+- **Windowing & Math**: GLFW 3, GLM
+- **Asset Loading**: stb_image, KTX2 / Zstandard
+- **Build System & Tooling**: CMake, `just`, Clang-Tidy, Clang-Format, pymarkdown, glslangValidator
 
 ## Repository Layout
 
 ```text
 .
 |- src/                 Engine implementation
-|- tests/               Integration test binary
-|- shaders/             GLSL shaders and generated SPIR-V
-|- ext/                 Third-party dependencies (vma, stb)
-|- scripts/             Utility scripts (headless test runner)
-|- docs/                MkDocs documentation pages
-|- .github/workflows/   CI/CD pipelines
+|  |- rhi/              Render Hardware Interface (RHI, RenderGraph, CommandList, DescriptorCache)
+|  |- shaders/          GLSL source shaders (Graphics & Compute) and compiled SPIR-V
+|- tests/               Integration tests, unit tests, and RenderGraph stress tests
+|- assets/              Textures, HDR environment maps, and 3D models
+|- scripts/             Automated profiling, benchmark runners, and verification scripts
+|- docs/                MkDocs documentation and architectural decision records (ADR)
+|- .github/workflows/   CI/CD pipelines (8-job matrix, ASan, Validation Layers, Tracy, Coverage)
 |- CMakeLists.txt       Build definition
 `- justfile             Developer task runner
 ```
@@ -48,225 +51,147 @@ This repository is a Vulkan-based rendering engine foundation focused on:
 
 ### Prerequisites (Linux)
 
-- `cmake`
+- `cmake` (>= 3.20)
 - `clang-format`, `clang-tidy`
-- `glslangValidator` (obligatoire), `glslc` (recommande)
-- Vulkan runtime + headers (`libvulkan-dev`, drivers)
+- `glslangValidator` (required), `glslc` (recommended)
+- Vulkan runtime & headers (`libvulkan-dev`, Mesa / Intel / NVIDIA drivers)
 - `glfw3`, `glm`
 
 ### HDR Assets
 
-The skybox requires HDR environment maps in `assets/textures/hdr/`. These files are not tracked by git (large binaries). Copy or symlink your own Radiance `.hdr` files there before running:
+The engine uses Radiance `.hdr` environment maps in `assets/textures/hdr/` (not tracked in git due to file size). Place your own equirectangular `.hdr` files there:
 
 ```bash
 mkdir -p assets/textures/hdr
 cp /path/to/your/*.hdr assets/textures/hdr/
 ```
 
-Any Radiance HDR equirectangular panorama works (e.g. from [Poly Haven](https://polyhaven.com/hdris)).
+Any Radiance HDR equirectangular panorama works (e.g., from [Poly Haven](https://polyhaven.com/hdris)).
 
-### Build and run
-
-```bash
-just help
-just build
-just run
-```
-
-### Tracy profiler
-
-Build the application with Tracy client support:
+### Build and Run
 
 ```bash
-just build-tracy
-just tracy-profiler
-just run-tracy
+just help       # List all available developer recipes
+just build      # Build Release configuration
+just run        # Run the application
 ```
 
-Build the upstream Tracy profiler UI in Linux legacy X11 mode:
+### Runtime Controls
+
+| Key | Action |
+| :--- | :--- |
+| `W` / `A` / `S` / `D` / `Q` / `E` | Camera movement (Forward, Left, Back, Right, Down, Up) |
+| `C` / Right Mouse | Toggle mouse camera capture |
+| Mouse Wheel | Adjust camera Field of View (FOV) |
+| `Space` | Pause / resume scene animation |
+| `Up` / `Down` | Increase / decrease animation playback speed |
+| `R` | Reset animation timer |
+| `K` | Toggle HDR Skybox visibility |
+| `PageUp` / `PageDown` | Cycle through HDR environment maps (triggers async IBL bake) |
+| `Shift+PageUp` / `Shift+PageDown` | Adjust environment map mip level (LOD) |
+| `F5` | Dynamic hot-reload of RHI rendering backend |
+| `F6` | Toggle IBL debug mode (Irradiance map visualization) |
+| `F7` | Toggle Bloom debug mode |
+| `Shift+F8` | Toggle real-time Auto-Exposure 64-bar histogram debug HUD |
+| `V` | Toggle Vertical Synchronization (VSync) |
+| `F11` | Toggle Fullscreen / Windowed mode |
+| `Esc` | Cleanly exit application |
+
+### Environment Variables & CLI Options
+
+- `SVK_VSYNC=1` / `--vsync`: Enable VSync at startup (default: off / `--no-vsync`).
+- `SVK_BLOOM_QUARTER_RES=1`: Enable Quarter-Resolution Bloom pass ($480\times270$ at 1080p, $-44\%$ compute time).
+- `VULKAN_LOG_LEVEL=DEBUG`: Set log verbosity level (`DEBUG`, `INFO`, `WARN`, `ERROR`).
+- `SVK_UPDATE_REFERENCES=1`: Update visual regression reference images during test run.
+
+---
+
+## Profiling & Benchmarking Suite
+
+### 1. Tracy Profiler (GPU & CPU Timelines)
 
 ```bash
-just build-tracy-profiler
-just tracy-profiler
+just build-tracy                # Compile with Tracy instrumentation
+just run-tracy                  # Run application connected to Tracy
+just test-integration-tracy     # Run headless automated trace capture
+just verify-tracy-trace         # Validate GPU/CPU execution timeline invariants
 ```
 
-Current pinned Tracy release: `v0.13.1`.
-
-### Tracy Automated Benchmark & Trace Verification
-
-You can run an automated headless benchmark to extract CPU cache misses (L1/L2/L3) and validate Tracy execution zones (CPU & GPU):
-```bash
-just perf-benchmark
-just benchmark-tracy
-just verify-tracy-trace
-```
-
-This will:
-1. Compile the app and the `tracy-capture`/`tracy-csvexport` upstream CLI tools.
-2. Run the application headless for 10 seconds.
-3. Automatically verify GPU timeline invariants (Vulkan Graphics Queue emission, RenderGraph passes, IBL compute passes) via `scripts/verify_tracy_trace.py`.
-4. Output a formatted table of CPU/GPU Zones execution times.
-5. Save the full memory & execution trace to `build/tracy/benchmark.tracy`.
-
-**Note on Memory Profiling**: The `tracy-csvexport` CLI tool does *not* export memory statistics. To analyze heap allocations, leaks, and peak memory, you must open the generated `benchmark.tracy` file in the **Tracy Profiler UI**. For CLI-based memory summaries (CI/CD), stick to `heaptrack` via the standard `just benchmark` recipe.
-
-### Memory Profiling (Heaptrack & VTune)
-
-In addition to Tracy, two dedicated memory analysis pipelines are available via integration scripts:
+### 2. Intel VTune Profiler (Microarchitecture & Memory)
 
 ```bash
-just benchmark-heaptrack
-just benchmark-vtune
+just profile-vtune-hotspots     # CPU hotspots and top C++ functions
+just profile-vtune-memory       # Memory access, L1/L2/LLC cache misses, DRAM bound
+just profile-vtune-threading    # Thread contention, lock wait times, oversubscription
+just profile-vtune-gui          # Open interactive VTune GUI on latest capture
 ```
 
-- `benchmark-heaptrack`: Hooks the engine with `heaptrack` to track all `malloc`/`free` calls dynamically. Generates a `.zst` dump and extracts a top-10 allocators breakdown (focusing on `std::string`, `std::vector`, etc.). Output is saved to `heaptrack_results/`.
-- `benchmark-vtune`: Uses Intel VTune Profiler (requires `sudo` and oneAPI toolkit) for hardware-level `memory-access` analysis to precisely measure DRAM bandwidth boundaries and CPU caching bottlenecks. Output is saved to `vtune_results/`.
-
-The Tracy-enabled application follows the legacy `suckless-ogl` strategy: the client auto-initializes, registers the program name, emits frame marks, and lets Tracy handle the final cleanup automatically at process exit.
-
-Runtime controls:
-
-- `Space`: pause/resume animation
-- `Up`: increase animation speed
-- `Down`: decrease animation speed
-- `R`: reset animation time
-- `F5`: hot-reload RHI module (dynamic reload)
-- `F6`: toggle IBL debug mode (Irradiance map)
-- `C`: toggle mouse camera capture
-- `W/A/S/D/Q/E`: move camera
-- Mouse wheel: camera FOV
-- `K`: toggle HDR skybox
-- `PageUp` / `PageDown`: switch HDR envmap
-- `Shift+PageUp` / `Shift+PageDown`: adjust envmap LOD
-- `F11`: toggle fullscreen/windowed mode
-- `Esc`: cleanly exit the application
-- `V`: toggle VSync (Vertical Synchronization)
-
-### Environment Variables
-
-- `SVK_VSYNC`: Set to `1` to enable VSync at startup.
-- `SVK_BLOOM_QUARTER_RES`: Set to `1` to enable Quarter-Resolution Bloom Start ($480\times270$ at 1080p, $-44\%$ GPU compute duration, $0.189\text{ ms}$ total).
-- `VULKAN_LOG_LEVEL`: Configures logging verbosity (INFO, DEBUG, ERROR, etc.).
-- `SVK_UPDATE_REFERENCES`: Set to `1` to update visual regression reference images during tests.
-
-### Command-Line Arguments
-
-- `--vsync`: Enable VSync at startup.
-- `--no-vsync`: Disable VSync at startup (default).
-
-### Run integration tests
+### 3. Heaptrack (RAM & Dynamic Allocations)
 
 ```bash
-just test
+just profile-heaptrack          # Profile heap allocations and verify 0 alloc/frame
 ```
 
-Targeted test flow:
+---
 
-- `just test-integration`: run only `EngineIntegrationTest` (includes visual comparison)
-- `just test-logic`: run only `LogicTests`
-- `just test-all`: run `EngineIntegrationTest` then `LogicTests`
+## Testing & Quality Gates
 
-Coverage flow (unit/logical tests):
-
-- `just coverage`: build with coverage flags, run `LogicTests`, generate reports
-- Reports are written to `build/coverage/reports/` (`coverage.txt`, `coverage.xml`, `coverage.html`)
-
-To force saving a rendered frame:
+### Integration & Unit Tests
 
 ```bash
-VULKAN_TEST_SAVE_FRAME=1 just test
+just test              # Run full test suite
+just test-integration  # Run engine integration & visual comparison test
+just test-logic        # Run logic and algorithmic unit tests
+just test-all          # Run integration tests + logic tests sequentially
 ```
 
-To update visual references (fail the test intentionally to capture new truth):
+### Code Coverage
 
 ```bash
-SVK_UPDATE_REFERENCES=1 just test-integration
+just coverage          # Build with LLVM coverage instrumentation and generate HTML report
 ```
 
-Output file is generated at repository root: `test_*.png`.
-
-## Quality Gates
-
-Main commands:
-
-- `just format` -> format owner files (code, docs, yaml, shell, cmake, justfile)
-- `just lint` -> lint owner files
-- `just check` -> format + lint + tests
-
-Local Git hooks:
+### Memory Safety & Diagnostics
 
 ```bash
-just pre-commit-install
+just test-asan                 # Run AddressSanitizer + UndefinedBehaviorSanitizer
+just test-validation-layers    # Run with Vulkan Validation Layers enabled
 ```
 
-This installs:
-
-- `pre-commit` hook: `just format` + `just lint-fast`
-- `pre-push` hook: `just test` (Logic + Visual Regression)
-
-Full local gate (equivalent to CI quality checks):
+### Quality Checks & Git Hooks
 
 ```bash
-just lint && just test
+just format             # Format all C++, Shaders, CMake, Shell, YAML, Python, Markdown
+just lint               # Run all linters (Clang-Tidy, glslangValidator, ShellCheck, etc.)
+just check              # Full local gate (format + lint + test-all)
+just pre-commit-install # Install pre-commit (lint) and pre-push (test) Git hooks
 ```
 
-## Memory Safety
+---
 
-### CPU/RAM: AddressSanitizer + UndefinedBehaviorSanitizer
+## CI/CD Architecture
 
-Detect heap corruption, buffer overflows, use-after-free, and undefined behavior:
+The GitHub Actions CI/CD matrix executes across 8 parallel jobs:
 
-```bash
-just build-asan
-just test-asan
-```
+- **`static-checks`**: Lint Dockerfile (`hadolint`) and GitHub Actions workflows (`actionlint`).
+- **`lint`**: Clang-Tidy, CMake-lint, ShellCheck, Yamllint, glslangValidator, pymarkdown, Ruff.
+- **`memory-checks-asan`**: ASan + UBSan memory corruption and leak checks.
+- **`memory-checks-validation-layers`**: Vulkan Validation Layers validation.
+- **`coverage`**: LLVM source-based coverage report generation.
+- **`build-tracy`**: Headless Tracy integration test and timeline invariant verification.
+- **`build-and-test (Debug)`**: Compilation and visual regression tests in Debug.
+- **`build-and-test (Release)`**: Compilation and visual regression tests in Release.
 
-### GPU/VRAM: Vulkan Validation Layers
-
-Detect Vulkan API misuse and synchronization errors:
-
-```bash
-just test-validation-layers
-```
-
-See `docs/tooling.md` for detailed memory safety diagnostics.
-
-## Development Model
-
-This project practices **Trunk-Based Development (TBD)**:
-
-- Single `master` branch for all development
-- Short-lived feature branches (1–3 days) for code review
-- Direct commits to `master` for small changes (small teams)
-- Build never breaks — pre-commit/pre-push gates prevent this
-- Releases tagged directly from `master` (no long-lived release branches)
-
-For detailed workflow, feature flags, hotfix strategy, and commit conventions, see [.github/DEVELOPMENT.md](.github/DEVELOPMENT.md).
-
-## CI/CD
-
-- `ci.yml`: runs on push/PR to `master`, builds and tests `Release` and `Debug`
-- `ci-image.yml`: builds/publishes the CI Docker image used by `ci.yml`
-- `release.yml`: runs on tags `v*`, packages and uploads debug/release tarballs as release assets
-
-CI runs inside a dedicated Docker image, and the same flow can be reproduced locally:
+Local Docker reproduction:
 
 ```bash
 just ci-docker-all
 ```
 
-See full operational details in `docs/ci_cd.md`.
+---
 
 ## Documentation
 
-Serve docs locally:
-
-```bash
-just docs-uv-serve
-```
-
-Build docs:
-
-```bash
-just docs-uv-build
-```
+- **Live Documentation Server**: `just docs-uv-serve` (served via MkDocs Material).
+- **Static Documentation Build**: `just docs-uv-build`.
+- **Architectural Plans & ADRs**: Located in [`docs/`](docs/).
