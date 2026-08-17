@@ -1,0 +1,76 @@
+#version 450 core
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : enable
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform sampler2D u_lower_mip_texture;
+layout(set = 0, binding = 1) uniform sampler2D u_current_mip_texture;
+layout(set = 0, binding = 2, r11f_g11f_b10f) writeonly uniform image2D u_output_image;
+
+layout(push_constant) uniform BloomUpsamplePushConstants {
+    vec2 u_texel_size;     // 1.0 / lower_mip_texture_dimensions
+    float u_filter_radius; // Rayon de dispersion (ex: 1.0)
+    float u_bloom_weight;  // Facteur de pondération de l'upsample (ex: 1.0)
+} pc;
+
+void main() {
+    ivec2 destCoord = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 destSize = imageSize(u_output_image);
+
+    if (destCoord.x >= destSize.x || destCoord.y >= destSize.y) {
+        return;
+    }
+
+    // Coordonnées UV au centre du texel de destination
+    vec2 uv = (vec2(destCoord) + 0.5) / vec2(destSize);
+    vec2 texel = pc.u_texel_size * pc.u_filter_radius;
+
+    // Filtre 9-Tap 3x3 Tent (Jimenez / Next Generation Post-Processing)
+    vec3 a_f32 = texture(u_lower_mip_texture, uv + vec2(-texel.x, -texel.y)).rgb;
+    vec3 b_f32 = texture(u_lower_mip_texture, uv + vec2( 0.0,     -texel.y)).rgb;
+    vec3 c_f32 = texture(u_lower_mip_texture, uv + vec2( texel.x, -texel.y)).rgb;
+
+    vec3 d_f32 = texture(u_lower_mip_texture, uv + vec2(-texel.x,  0.0)).rgb;
+    vec3 e_f32 = texture(u_lower_mip_texture, uv).rgb;
+    vec3 f_f32 = texture(u_lower_mip_texture, uv + vec2( texel.x,  0.0)).rgb;
+
+    vec3 g_f32 = texture(u_lower_mip_texture, uv + vec2(-texel.x,  texel.y)).rgb;
+    vec3 h_f32 = texture(u_lower_mip_texture, uv + vec2( 0.0,      texel.y)).rgb;
+    vec3 i_f32 = texture(u_lower_mip_texture, uv + vec2( texel.x,  texel.y)).rgb;
+
+    vec3 current_f32 = texture(u_current_mip_texture, uv).rgb;
+
+#if defined(GL_EXT_shader_explicit_arithmetic_types_float16)
+    f16vec3 a = f16vec3(a_f32);
+    f16vec3 b = f16vec3(b_f32);
+    f16vec3 c = f16vec3(c_f32);
+    f16vec3 d = f16vec3(d_f32);
+    f16vec3 e = f16vec3(e_f32);
+    f16vec3 f = f16vec3(f_f32);
+    f16vec3 g = f16vec3(g_f32);
+    f16vec3 h = f16vec3(h_f32);
+    f16vec3 i = f16vec3(i_f32);
+
+    f16vec3 upsampled = e * float16_t(0.25);
+    upsampled += (b + d + f + h) * float16_t(0.125);
+    upsampled += (a + c + g + i) * float16_t(0.0625);
+
+    f16vec3 current = f16vec3(current_f32);
+    f16vec3 result = current + upsampled * float16_t(pc.u_bloom_weight);
+
+    result = max(result, f16vec3(float16_t(0.0)));
+    result = min(result, f16vec3(float16_t(65504.0)));
+
+    imageStore(u_output_image, destCoord, vec4(vec3(result), 1.0));
+#else
+    vec3 upsampled = e_f32 * 0.25;
+    upsampled += (b_f32 + d_f32 + f_f32 + h_f32) * 0.125;
+    upsampled += (a_f32 + c_f32 + g_f32 + i_f32) * 0.0625;
+
+    vec3 result = current_f32 + upsampled * pc.u_bloom_weight;
+    result = max(result, vec3(0.0));
+    result = min(result, vec3(65504.0));
+
+    imageStore(u_output_image, destCoord, vec4(result, 1.0));
+#endif
+}
